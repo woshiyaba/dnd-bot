@@ -1,7 +1,6 @@
 """战斗领域枚举。
 
 集中定义参战者、攻击、状态、战斗流程相关的封闭花名册。
-字段取值沿用 docs/原始数据.md 与 docs/战斗 的中文用语，
 枚举值即为序列化后写进卡面/状态的字符串，便于直接落库与前端展示。
 """
 
@@ -17,102 +16,106 @@ class StrEnum(str, Enum):
         return str(self.value)
 
 
-class 属性(StrEnum):
-    """六项基础属性。检定/攻击/豁免的调整值都由这六项现算。"""
+class Ability(StrEnum):
+    """六项基础属性。检定/攻击/豁免的调整值都由这六项现算。
 
-    力量 = "力量"
-    敏捷 = "敏捷"
-    体质 = "体质"
-    智力 = "智力"
-    感知 = "感知"
-    魅力 = "魅力"
+    成员值必须与 ``Combatant`` 上对应字段名一致，因为 ``modifier`` 用
+    ``getattr(self, ability.value)`` 取属性原值。
+    """
+
+    STRENGTH = "strength"        # 力量
+    DEXTERITY = "dexterity"      # 敏捷
+    CONSTITUTION = "constitution"  # 体质
+    INTELLIGENCE = "intelligence"  # 智力
+    WISDOM = "wisdom"            # 感知
+    CHARISMA = "charisma"        # 魅力
 
 
-class 伤害类型(StrEnum):
+class DamageType(StrEnum):
     """伤害类型，本身不带规则，由抗性/易伤等机制参考。"""
 
-    挥砍 = "挥砍"
-    穿刺 = "穿刺"
-    钝击 = "钝击"
-    强酸 = "强酸"
-    冷冻 = "冷冻"
-    火焰 = "火焰"
-    力场 = "力场"
-    闪电 = "闪电"
-    黯蚀 = "黯蚀"
-    毒素 = "毒素"
-    心灵 = "心灵"
-    光耀 = "光耀"
-    雷鸣 = "雷鸣"
+    SLASHING = "slashing"        # 挥砍
+    PIERCING = "piercing"        # 穿刺
+    BLUDGEONING = "bludgeoning"  # 钝击
+    ACID = "acid"                # 强酸
+    COLD = "cold"                # 冷冻
+    FIRE = "fire"                # 火焰
+    FORCE = "force"              # 力场
+    LIGHTNING = "lightning"      # 闪电
+    NECROTIC = "necrotic"        # 黯蚀
+    POISON = "poison"            # 毒素
+    PSYCHIC = "psychic"          # 心灵
+    RADIANT = "radiant"          # 光耀
+    THUNDER = "thunder"          # 雷鸣
 
 
-class 射程(StrEnum):
+class Range(StrEnum):
     """攻击射程，配合区域判断够不够得着。"""
 
-    近战 = "近战"
-    远程 = "远程"
+    MELEE = "melee"    # 近战
+    RANGED = "ranged"  # 远程
 
 
-class 存活状态(StrEnum):
+class LifeState(StrEnum):
     """本版只区分能否继续行动；不做死亡豁免。"""
 
-    正常 = "正常"
-    倒下 = "倒下"
+    ALIVE = "alive"  # 正常
+    DOWN = "down"    # 倒下
 
 
-class 状态类型(StrEnum):
+class ConditionType(StrEnum):
     """起步支持的状态枚举，机械效果见 docs/原始数据.md 1.8。"""
 
-    倒地 = "倒地"
-    中毒 = "中毒"
-    束缚 = "束缚"
-    眩晕 = "眩晕"
-    持续伤害 = "持续伤害"
+    PRONE = "prone"                        # 倒地
+    POISONED = "poisoned"                  # 中毒
+    RESTRAINED = "restrained"              # 束缚
+    STUNNED = "stunned"                    # 眩晕
+    DAMAGE_OVER_TIME = "damage_over_time"  # 持续伤害
 
 
-class 阵营(StrEnum):
+class Faction(StrEnum):
     """判胜负用的阵营划分。"""
 
-    玩家 = "玩家"
-    敌人 = "敌人"
+    PLAYER = "player"  # 玩家
+    ENEMY = "enemy"    # 敌人
 
 
-class 战斗阶段(StrEnum):
+class CombatPhase(StrEnum):
     """供调试与前端展示当前处于流程的哪一步。"""
 
-    初始化 = "初始化"
-    判突袭 = "判突袭"
-    掷先攻 = "掷先攻"
-    回合中 = "回合中"
-    结算 = "结算"
-    结束 = "结束"
+    SETUP = "setup"            # 初始化
+    SURPRISE = "surprise"      # 判突袭
+    INITIATIVE = "initiative"  # 掷先攻
+    IN_TURN = "in_turn"        # 回合中
+    SETTLEMENT = "settlement"  # 结算
+    ENDED = "ended"            # 结束
 
 
-class 战斗结果(StrEnum):
+class CombatOutcome(StrEnum):
     """条件边据此决定走"下一位"还是"结算"。"""
 
-    进行中 = "进行中"
-    玩家胜 = "玩家胜"
-    玩家败 = "玩家败"
+    ONGOING = "ongoing"            # 进行中
+    PLAYERS_WIN = "players_win"    # 玩家胜
+    PLAYERS_LOSE = "players_lose"  # 玩家败
 
 
-class 行动类型(StrEnum):
+class ActionType(StrEnum):
     """声明行动节点产出的动作种类。"""
 
-    攻击 = "攻击"
-    技能 = "技能"
-    道具 = "道具"
-    创意 = "创意"
-    移动 = "移动"
-    放弃 = "放弃"
+    ATTACK = "attack"        # 攻击
+    SKILL = "skill"          # 技能
+    ITEM = "item"            # 道具
+    IMPROVISE = "improvise"  # 创意
+    MOVE = "move"            # 移动
+    PASS = "pass"            # 放弃
 
 
-class 中断类型(StrEnum):
+class InterruptType(StrEnum):
     """需要玩家报骰/选择的中断点，见 docs/战斗/03-中断交互协议.md。"""
 
-    掷先攻 = "掷先攻"
-    声明行动 = "声明行动"
-    攻击检定 = "攻击检定"
-    伤害掷骰 = "伤害掷骰"
-    豁免检定 = "豁免检定"
-    属性检定 = "属性检定"
+    ROLL_INITIATIVE = "roll_initiative"  # 掷先攻
+    DECLARE_ACTION = "declare_action"    # 声明行动
+    ATTACK_ROLL = "attack_roll"          # 攻击检定
+    DAMAGE_ROLL = "damage_roll"          # 伤害掷骰
+    SAVING_THROW = "saving_throw"        # 豁免检定
+    ABILITY_CHECK = "ability_check"      # 属性检定

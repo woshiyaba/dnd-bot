@@ -11,27 +11,28 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from src.model.combatant import 参战者, 角色
-from src.model.enums import 属性
+from src.model.combatant import Character, Combatant
+from src.model.enums import Ability
 
 
 @dataclass(slots=True)
-class 攻击判定:
+class AttackResult:
     """一次攻击检定的结果。"""
 
-    命中: bool
-    重击: bool
-    必失: bool
-    d20: int
-    命中加值: int
-    目标AC: int
+    hit: bool          # 命中
+    crit: bool         # 重击
+    fumble: bool       # 必失
+    d20: int           # d20 原始值
+    attack_bonus: int  # 命中加值
+    target_ac: int     # 目标 AC
 
     @property
-    def 总值(self) -> int:
-        return self.d20 + self.命中加值
+    def total(self) -> int:
+        """命中总值 = d20 + 命中加值。"""
+        return self.d20 + self.attack_bonus
 
 
-def 判定攻击(d20: int, 命中加值: int, 目标AC: int) -> 攻击判定:
+def resolve_attack(d20: int, attack_bonus: int, target_ac: int) -> AttackResult:
     """攻击检定。
 
     - d20 == 20：必中且重击，无视调整值与 AC。
@@ -39,42 +40,42 @@ def 判定攻击(d20: int, 命中加值: int, 目标AC: int) -> 攻击判定:
     - 否则：``d20 + 命中加值 >= 目标AC`` 即命中。
     """
     if d20 >= 20:
-        return 攻击判定(命中=True, 重击=True, 必失=False, d20=d20, 命中加值=命中加值, 目标AC=目标AC)
+        return AttackResult(hit=True, crit=True, fumble=False, d20=d20, attack_bonus=attack_bonus, target_ac=target_ac)
     if d20 <= 1:
-        return 攻击判定(命中=False, 重击=False, 必失=True, d20=d20, 命中加值=命中加值, 目标AC=目标AC)
-    命中 = (d20 + 命中加值) >= 目标AC
-    return 攻击判定(命中=命中, 重击=False, 必失=False, d20=d20, 命中加值=命中加值, 目标AC=目标AC)
+        return AttackResult(hit=False, crit=False, fumble=True, d20=d20, attack_bonus=attack_bonus, target_ac=target_ac)
+    hit = (d20 + attack_bonus) >= target_ac
+    return AttackResult(hit=hit, crit=False, fumble=False, d20=d20, attack_bonus=attack_bonus, target_ac=target_ac)
 
 
-def 豁免加值(who: 参战者, 属性项: 属性) -> int:
+def saving_throw_bonus(who: Combatant, ability: Ability) -> int:
     """豁免/检定的固定加值：属性调整值 (+熟练加值，若该项熟练)。
 
     熟练仅角色（含 NPC）有熟练豁免列表；怪物按属性调整值算。
     """
-    加值 = who.调整值(属性项)
-    if isinstance(who, 角色) and who.豁免熟练(属性项):
-        加值 += who.熟练加值
-    return 加值
+    bonus = who.modifier(ability)
+    if isinstance(who, Character) and who.is_save_proficient(ability):
+        bonus += who.proficiency_bonus
+    return bonus
 
 
-def 技能加值(who: 参战者, 属性项: 属性, *, 熟练: bool = False) -> int:
+def ability_check_bonus(who: Combatant, ability: Ability, *, proficient: bool = False) -> int:
     """属性检定加值：属性调整值 (+熟练加值，若熟练)。"""
-    加值 = who.调整值(属性项)
-    if 熟练:
-        加值 += who.熟练加值
-    return 加值
+    bonus = who.modifier(ability)
+    if proficient:
+        bonus += who.proficiency_bonus
+    return bonus
 
 
-def 判定检定(d20: int, 加值: int, DC: int) -> bool:
+def check_success(d20: int, bonus: int, dc: int) -> bool:
     """通用检定/豁免：``d20 + 加值 >= DC`` 即成功。"""
-    return (d20 + 加值) >= DC
+    return (d20 + bonus) >= dc
 
 
-def 够得着(行动者: 参战者, 目标: 参战者, 是远程: bool) -> bool:
+def in_reach(actor: Combatant, target: Combatant, is_ranged: bool) -> bool:
     """区域粒度的射程判断。
 
     近战：必须同区域；远程：不同区域也可（本版不做最大射程衰减）。
     """
-    if 是远程:
+    if is_ranged:
         return True
-    return 行动者.当前区域 == 目标.当前区域
+    return actor.current_zone == target.current_zone

@@ -7,81 +7,79 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal, TypedDict
+from typing import Any, TypedDict
 
-from src.model.combatant import 参战者, 怪物, 玩家角色, 角色, 非玩家角色
-from src.model.enums import 战斗结果, 战斗阶段, 阵营
+from src.model.combatant import Combatant, Monster, NPC, PlayerCharacter
+from src.model.enums import CombatOutcome, CombatPhase, Faction
 
 
 class CombatState(TypedDict, total=False):
-    """整场战斗的图状态。键沿用设计文档中文命名。"""
+    """整场战斗的图状态。"""
 
     # —— 参战者表（唯一真相源；HP/状态/存活全在这里）——
-    combatants: dict[str, 参战者]      # id -> 参战者模型对象
+    combatants: dict[str, Combatant]   # id -> 参战者模型对象
 
     # —— 回合调度 ——
-    先攻顺序: list[str]                 # 排好序的 combatant id（高→低）
-    当前指针: int                       # 指向先攻顺序里轮到谁；-1 表示尚未开始
-    当前轮次: int                       # 第几轮（一轮 = 所有人各行动一次）
+    initiative_order: list[str]        # 先攻顺序：排好序的 combatant id（高→低）
+    current_index: int                 # 当前指针：指向先攻顺序里轮到谁；-1 表示尚未开始
+    current_round: int                 # 当前轮次：一轮 = 所有人各行动一次
 
     # —— 阶段与结果 ——
-    阶段: 战斗阶段
-    战斗结果: 战斗结果
+    phase: CombatPhase                 # 阶段
+    outcome: CombatOutcome             # 战斗结果
 
     # —— 本回合工作区（节点间传递，回合开始清空）——
-    当前行动: dict | None              # 声明行动节点产出：{行动类型, 目标id, ...}
-    本回合事件: list[dict]             # 结算节点产出的结构化事件，喂给 DM 叙述
+    current_action: dict | None        # 声明行动节点产出：{action_type, target_id, ...}
+    turn_events: list[dict]            # 本回合事件：结算节点产出的结构化事件，喂给 DM 叙述
 
     # —— 输出 ——
-    战斗日志: list[dict]               # 全场事件流（前端回放 + DM 上下文）
-    场景上下文: dict                   # 触发战斗时带入（参战者、地点、战利品表…）
+    combat_log: list[dict]             # 战斗日志：全场事件流（前端回放 + DM 上下文）
+    scene_context: dict                # 场景上下文：触发战斗时带入（参战者、地点、战利品表…）
 
 
 # ---------------------------------------------------------------------------
 # 参战者加载工厂：把「场景上下文」里的卡面条目造成对应的模型子类
 # ---------------------------------------------------------------------------
-_类型映射 = {
-    "玩家": 玩家角色,
-    "玩家角色": 玩家角色,
-    "怪物": 怪物,
-    "npc": 非玩家角色,
-    "NPC": 非玩家角色,
-    "非玩家角色": 非玩家角色,
+_TYPE_MAP = {
+    "player": PlayerCharacter,
+    "player_character": PlayerCharacter,
+    "monster": Monster,
+    "npc": NPC,
 }
 
 
-def 加载参战者(条目: dict[str, Any]) -> 参战者:
+def load_combatant(entry: dict[str, Any]) -> Combatant:
     """从场景条目构造参战者模型。
 
     条目格式::
 
         {
-          "类型": "玩家" | "怪物" | "npc",
-          "操控者": user_id | None,     # 玩家专用，对接 WebSocket 推送
-          "阵营": "玩家" | "敌人" | None, # 可选，覆盖类型默认阵营
-          "卡": { ...中文键卡面... },
+          "type": "player" | "monster" | "npc",
+          "controller": user_id | None,    # 玩家专用，对接 WebSocket 推送
+          "faction": "player" | "enemy" | None,  # 可选，覆盖类型默认阵营
+          "card": { ...英文键卡面... },
         }
 
     返回已带好运行时取向（阵营/是否玩家控制/操控者）的模型对象。
     """
-    类型 = str(条目.get("类型", "怪物"))
-    模型类: type[参战者] = _类型映射.get(类型, 怪物)
-    卡面 = 条目.get("卡", 条目)
+    type_name = str(entry.get("type", "monster"))
+    model_cls: type[Combatant] = _TYPE_MAP.get(type_name, Monster)
+    card = entry.get("card", entry)
 
-    实例 = 模型类.from_card(卡面)
+    instance = model_cls.from_card(card)
 
     # 运行时取向：显式条目优先，否则用模型子类默认值
-    if 条目.get("操控者") is not None:
-        实例.操控者 = 条目["操控者"]
-    if 条目.get("阵营"):
-        实例.阵营 = 阵营(条目["阵营"])
-    return 实例
+    if entry.get("controller") is not None:
+        instance.controller = entry["controller"]
+    if entry.get("faction"):
+        instance.faction = Faction(entry["faction"])
+    return instance
 
 
-def 加载参战者表(场景上下文: dict) -> dict[str, 参战者]:
-    """读取场景上下文里的「参战者」列表，构造 id -> 模型 的字典。"""
-    表: dict[str, 参战者] = {}
-    for 条目 in 场景上下文.get("参战者", []):
-        实例 = 加载参战者(条目)
-        表[实例.id] = 实例
-    return 表
+def load_combatants(scene_context: dict) -> dict[str, Combatant]:
+    """读取场景上下文里的「combatants」列表，构造 id -> 模型 的字典。"""
+    table: dict[str, Combatant] = {}
+    for entry in scene_context.get("combatants", []):
+        instance = load_combatant(entry)
+        table[instance.id] = instance
+    return table

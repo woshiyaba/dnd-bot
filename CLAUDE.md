@@ -4,7 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A **deepagents + LangGraph template** exposed as a FastAPI service. Despite the `dnd-bot` name, the code is a generic scaffold for building agentic flows: a LangGraph graph wraps a cached "deep agent", streams its tokens over WebSocket, and loads system prompts from a MySQL table. The graph currently runs a single `process` node that drives a skill-discovery agent — `src/graph.py`'s module docstring describes a multi-phase parallel pipeline that is **aspirational/template text, not the implemented flow**.
+Two layers live side by side in this repo:
+
+1. **A deepagents + LangGraph template** exposed as a FastAPI service — a generic scaffold for agentic flows: a LangGraph graph wraps a cached "deep agent", streams its tokens over WebSocket, and loads system prompts from a MySQL table. The graph currently runs a single `process` node that drives a skill-discovery agent — `src/graph.py`'s module docstring describes a multi-phase parallel pipeline that is **aspirational/template text, not the implemented flow**.
+
+2. **A D&D combat engine** (`src/combat/` + `src/model/`) — the first real domain feature, a self-contained, interruptible, persistable LangGraph state machine that runs a turn-based fight. **It is currently standalone: nothing in `app.py` or `src/graph.py` imports or wires it in yet.** Driven via the `CombatEngine` façade, not over HTTP. See the dedicated section below.
 
 ## Commands
 
@@ -13,8 +17,10 @@ The project uses `uv` (see `uv.lock`, `requires-python >=3.13`).
 ```bash
 uv sync                  # install dependencies into .venv
 uv run python main.py    # start the FastAPI server (binds 0.0.0.0:32388)
-uv run python -m src.common.agents.example_agent   # ad-hoc: invoke the skills_find agent directly (see example_agent.main)
+uv run python -m src.common.example.example_agent   # ad-hoc: invoke the skills_find agent directly (see example_agent.main)
 ```
+
+The combat engine has **no CLI entrypoint and is not reachable over HTTP** — drive it in code via `src.combat.engine.CombatEngine` (`start_combat` → `submit` → `current_state`). It needs neither MySQL nor DashScope (DM/narration are deterministic placeholders), so it runs standalone.
 
 There is no configured linter, formatter, or test runner. `test/dp.py` is **not** a pytest test — it is a standalone deepagents example that calls a Gemini model and runs `agent.invoke(...)` at import time, so importing it makes live model calls. Do not treat `test/` as a runnable suite.
 
@@ -56,12 +62,37 @@ app.py  →  graph.invoke()  →  StateGraph(process)  →  example_agent (deep 
 
 - **`skills/`** — deepagents "skills" as `SKILL.md` files with frontmatter (`name`, `description`). Mounted read-only into the agent's virtual filesystem so the model can discover and read them.
 
+### Combat subsystem (`src/combat/` + `src/model/`)
+
+A separate LangGraph state machine for turn-based D&D fights, implementing the spec in `docs/战斗/` (`01` state, `02` flow, `03` interrupt protocol) on top of the global rules in `docs/原始数据.md`. **Independent from the deepagents template above** — different graph, different state, different checkpointer; they don't call each other yet.
+
+Guiding principle (from `docs/战斗/README.md`): **规则归引擎，叙述归 DM，骰子归玩家** — rules belong to the engine, narration to the DM, dice to the player.
+- **Engine nodes** = pure-Python deterministic resolution (hit/damage/HP/initiative/win-check). Never let an LLM compute a hit or track HP.
+- **Player dice** = collected via LangGraph `interrupt()`, but **only for `is_player_controlled` combatants**; the interrupt payload carries `directed_to.user_id` so the front end can route "who rolls what" to the right player.
+- **Monster/environment dice** = rolled by the engine from a **reproducible** RNG (`src/combat/dice.py`, seedable via `scene_context["random_seed"]`).
+- **DM decisions/narration** (`_dm_decide`, `narrate`) are deterministic heuristic **placeholders** today, with hooks left to swap in an LLM later.
+
+Layout:
+- **`src/combat/graph.py`** — assembles `StateGraph(CombatState)`: `enter_combat → judge_surprise → roll_initiative → next_turn → declare_action → resolve_action → narrate → check_end`, where `check_end` loops back to `next_turn` while in progress else `settle → END`. Compiles with its **own** `MemorySaver` using a custom `JsonPlusSerializer` whitelist (`_COMBAT_SERDE_WHITELIST`) so the combat model objects survive msgpack persistence. Pass a real checkpointer (SQLite/MySQL) for multi-player/restart durability.
+- **`src/combat/engine.py`** — `CombatEngine` façade. One engine serves many rooms; each fight is keyed by a unique `thread_id` (`combat:{room_id}`). `start_combat`/`submit` call `ainvoke`/`Command(resume=…)` and normalize results to `{"status": "interrupted"|"finished", …}`.
+- **`src/combat/nodes.py`** — the node bodies. Turn-start settlement (DoT, condition decrement, skip surprised/stunned) happens at the top of `next_turn` so the graph keeps a single back-edge. `resolve_action` dispatches by `action_type` (`attack`/`skill`/`item`/`improvise`/`move`/`pass`) into `_resolve_*` helpers that emit structured events; `narrate` turns events into prose and pushes them through `get_stream_writer()` (reusing the same `custom` event channel as `graph.py`).
+- **`src/combat/rules.py`** — pure judgment functions (`resolve_attack`, `check_success`, `in_reach`, proficiency math). Crit on d20==20 (auto-hit + double damage dice), auto-miss on d20==1. Callers supply the d20; rules never roll.
+- **`src/combat/interrupts.py`** — builds interrupt request payloads and the legal-action options for the declare step; `validate_d20`/`extract_damage` enforce the trust boundary (raw d20 clamped to 1–20, **all modifiers added engine-side**).
+- **`src/model/`** — domain dataclasses with **English identifiers and Chinese comments** (the inline comment names the original domain term, e.g. `name  # 名字`). `combatant.py` is an inheritance tree: `Combatant`(base = minimal monster card) → `Monster`, and `Combatant` → `Character` → {`PlayerCharacter`, `NPC`}; shared combat fields live once on `Combatant`, richer card fields are added at `Character`. `enums.py` are `StrEnum`s whose **values are lowercase English strings** that get persisted/sent on the wire (`Ability` member values must match the `Combatant` ability field names, since `modifier()` does `getattr(self, ability.value)`). `combat_state.py` defines the `CombatState` TypedDict (the single source of truth — `combatants` holds the model objects) plus `load_combatants` which builds combatants from `scene_context["combatants"]` card entries.
+
 ### Placeholders / stale code to be aware of
 `src/common/agents/main_agent.py`, `src/common/agents/router.py`, and `src/common/utils/db_util.py` are empty. `src/graph.py`'s docstring and `app.py`'s `/invoke` docstring describe an Analyze/Strategy/SFTB/Wording/Polishing multi-agent pipeline that does not exist in code — ignore it when reasoning about current behavior.
 
 ## Conventions
 
-- Code, comments, docstrings, and log messages are in **Chinese**; match this when editing.
+- Comments, docstrings, log messages, and user-facing narration are in **Chinese**; match this when editing. **Identifiers are English** (the codebase was migrated off Chinese identifiers) — in the combat/model layer, give each renamed field/method an inline Chinese comment naming the domain term (e.g. `current_hp: int = 1  # 当前 HP`). Enum **values** are lowercase English strings and double as the on-the-wire/DB representation, so changing a value is a data-format change (update `docs/战斗/03` and any frontend together).
+
+### Coding standards (apply to all new/edited code)
+- **English identifiers, PEP 8 casing.** Variables, functions, methods → `snake_case`; classes → `PascalCase`; module-level constants → `UPPER_SNAKE_CASE`. No Chinese (or pinyin) in identifiers — Chinese belongs only in comments/docstrings/strings.
+- **Comment every public class, method, function, and its parameters/return in Chinese.** Use a docstring on classes/functions (state what it does, and what each non-trivial parameter and the return value mean); use inline `# 中文` on fields and on any non-obvious line. A reader should understand intent without reading the body.
+- **Encapsulate reusable logic.** Don't copy-paste a calculation or a multi-line block twice — extract a well-named helper (see how `rules.py` centralizes the d20-vs-DC math, `dice.py` the rolling, `interrupts.py` the payload building). Pure deterministic logic stays in `rules.py`/`dice.py`, free of graph state.
+- **Keep files small and single-responsibility.** One concern per file; if a module starts mixing concerns or grows past a few hundred lines, split it. Follow the existing split: `model/` = data shapes, `combat/rules|dice` = pure rules, `combat/nodes` = graph nodes, `combat/interrupts` = player protocol, `combat/engine|graph` = assembly/façade. Put new code in the file whose responsibility it matches, or add a new file rather than overloading an existing one.
+- **Packages have clear boundaries.** `src/model` knows nothing about LangGraph; `src/combat` depends on `src/model`, not the reverse. Keep that direction — don't import graph/engine types into the model layer.
 - Logging is set up via `ensure_logging_config()` (call it at module load in entrypoints); use `get_elapsed_ms(start_time)` for timing. Log lines follow `[step_name] ... | key=value` formatting (see helpers in `graph.py`).
 - Async throughout: DB access, agent streaming, and WebSocket I/O are all `async`. Prefer the `astream_*` paths over the sync `stream_*` variants.
 - LLM output is parsed defensively with `src/common/utils/json_parser.py` (`extract_json_object` / `extract_json_array`) which strip markdown fences and surrounding prose — reuse these instead of bare `json.loads` on model output.

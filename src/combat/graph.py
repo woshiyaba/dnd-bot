@@ -17,17 +17,20 @@ from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 
-from src.model.attack import 攻击手段
-from src.model.combatant import 参战者, 怪物, 玩家角色, 角色, 非玩家角色
-from src.model.effects import 已学技能, 状态效果, 背包道具
+from src.model.attack import Attack
+from src.model.combatant import Character, Combatant, Monster, NPC, PlayerCharacter
+from src.model.effects import Condition, InventoryItem, LearnedSkill
 from src.model.enums import (
-    伤害类型,
-    存活状态,
-    战斗结果,
-    战斗阶段,
-    状态类型,
-    射程,
-    阵营,
+    Ability,
+    ActionType,
+    CombatOutcome,
+    CombatPhase,
+    ConditionType,
+    DamageType,
+    Faction,
+    InterruptType,
+    LifeState,
+    Range,
 )
 
 from src.combat.nodes import (
@@ -46,18 +49,19 @@ from src.model.combat_state import CombatState
 
 # 这些自定义模型会被 checkpointer 以 msgpack 持久化进 CombatState；
 # 显式登记为允许反序列化的类型，避免 LangGraph 未来版本拦截（并消除告警）。
-_战斗序列化白名单 = (
-    参战者, 怪物, 角色, 玩家角色, 非玩家角色,
-    攻击手段, 状态效果, 已学技能, 背包道具,
-    伤害类型, 存活状态, 状态类型, 射程, 阵营, 战斗阶段, 战斗结果,
+_COMBAT_SERDE_WHITELIST = (
+    Combatant, Monster, Character, PlayerCharacter, NPC,
+    Attack, Condition, LearnedSkill, InventoryItem,
+    Ability, ActionType, CombatOutcome, CombatPhase, ConditionType,
+    DamageType, Faction, InterruptType, LifeState, Range,
 )
 
 
-def _构造serde():
+def _build_serde():
     """构造允许我方战斗模型反序列化的 JSON+ 序列化器。"""
     from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 
-    return JsonPlusSerializer(allowed_msgpack_modules=list(_战斗序列化白名单))
+    return JsonPlusSerializer(allowed_msgpack_modules=list(_COMBAT_SERDE_WHITELIST))
 
 
 def build_combat_graph(checkpointer: Any | None = None):
@@ -87,7 +91,7 @@ def build_combat_graph(checkpointer: Any | None = None):
     g.add_edge("resolve_action", "narrate")
     g.add_edge("narrate", "check_end")
 
-    # check_end 节点改写「战斗结果」，route_after_check 只读路由
+    # check_end 节点改写「outcome」，route_after_check 只读路由
     g.add_conditional_edges("check_end", route_after_check, {
         "continue": "next_turn",
         "end": "settle",
@@ -96,6 +100,6 @@ def build_combat_graph(checkpointer: Any | None = None):
 
     if checkpointer is None:
         from langgraph.checkpoint.memory import MemorySaver
-        checkpointer = MemorySaver(serde=_构造serde())
+        checkpointer = MemorySaver(serde=_build_serde())
 
     return g.compile(checkpointer=checkpointer)

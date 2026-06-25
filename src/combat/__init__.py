@@ -7,21 +7,22 @@
 - `engine.CombatEngine` 对外门面（按房间驱动整场战斗）。
 """
 
-from src.combat.dice import 骰子, 掷骰结果, 解析骰子
-from src.combat.engine import CombatEngine, 房间线程id
+from src.combat.dice import Dice, RollResult, parse_dice
+from src.combat.engine import CombatEngine, room_thread_id
 from src.combat.graph import build_combat_graph
 from src.combat.rules import (
-    判定攻击,
-    判定检定,
-    攻击判定,
-    技能加值,
-    豁免加值,
-    够得着,
+    AttackResult,
+    ability_check_bonus,
+    check_success,
+    in_reach,
+    resolve_attack,
+    saving_throw_bonus,
 )
 
 __all__ = [
-    "骰子", "掷骰结果", "解析骰子",
-    "判定攻击", "攻击判定", "判定检定", "豁免加值", "技能加值", "够得着",
+    "Dice", "RollResult", "parse_dice",
+    "resolve_attack", "AttackResult", "check_success", "saving_throw_bonus",
+    "ability_check_bonus", "in_reach",
     "build_combat_graph",
-    "CombatEngine", "房间线程id",
+    "CombatEngine", "room_thread_id",
 ]

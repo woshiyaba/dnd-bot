@@ -1,47 +1,47 @@
 """战斗数据模型包。
 
 对外暴露枚举、攻击/状态/技能/道具、参战者继承体系与图状态。
-字段命名沿用 docs/原始数据.md 的中文键。
+卡面字段沿用英文键，便于落库与前端对接。
 """
 
-from src.model.attack import 攻击手段
+from src.model.attack import Attack
 from src.model.combat_state import (
     CombatState,
-    加载参战者,
-    加载参战者表,
+    load_combatant,
+    load_combatants,
 )
 from src.model.combatant import (
-    参战者,
-    怪物,
-    玩家角色,
-    角色,
-    等级熟练加值,
-    属性调整值,
-    非玩家角色,
+    Character,
+    Combatant,
+    Monster,
+    NPC,
+    PlayerCharacter,
+    ability_modifier,
+    proficiency_bonus_for_level,
 )
-from src.model.effects import 已学技能, 状态效果, 背包道具
+from src.model.effects import Condition, InventoryItem, LearnedSkill
 from src.model.enums import (
-    中断类型,
-    伤害类型,
-    属性,
-    射程,
-    存活状态,
-    战斗结果,
-    战斗阶段,
-    状态类型,
-    行动类型,
-    阵营,
+    Ability,
+    ActionType,
+    CombatOutcome,
+    CombatPhase,
+    ConditionType,
+    DamageType,
+    Faction,
+    InterruptType,
+    LifeState,
+    Range,
 )
 
 __all__ = [
     # 枚举
-    "属性", "伤害类型", "射程", "存活状态", "状态类型", "阵营",
-    "战斗阶段", "战斗结果", "行动类型", "中断类型",
+    "Ability", "DamageType", "Range", "LifeState", "ConditionType", "Faction",
+    "CombatPhase", "CombatOutcome", "ActionType", "InterruptType",
     # 组件模型
-    "攻击手段", "状态效果", "已学技能", "背包道具",
+    "Attack", "Condition", "LearnedSkill", "InventoryItem",
     # 参战者继承体系
-    "参战者", "怪物", "角色", "玩家角色", "非玩家角色",
-    "属性调整值", "等级熟练加值",
+    "Combatant", "Monster", "Character", "PlayerCharacter", "NPC",
+    "ability_modifier", "proficiency_bonus_for_level",
     # 图状态
-    "CombatState", "加载参战者", "加载参战者表",
+    "CombatState", "load_combatant", "load_combatants",
 ]
