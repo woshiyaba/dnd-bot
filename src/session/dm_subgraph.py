@@ -31,24 +31,10 @@ from src.dm import world_bridge
 from src.model.combatant import Combatant
 from src.model.dm_state import DMState
 from src.model.enums import Ability, InterruptType
+from src.session import story_nodes
+from src.session.common import llm_enabled, log_event  # 共享工具（也供 graph.py 沿用导入）
 
 logger = logging.getLogger(__name__)
-
-
-def llm_enabled(state: DMState) -> bool:
-    """本局是否启用 LLM 版 DM：由会话主图在 scene 里写入的 ``dm_mode`` 决定。
-
-    放在会话层判断（主图启动时已校验过 API Key）；这里只读开关，缺省启发式。
-    会话主图（graph.py）的 narrate_aftermath 也复用本判断。
-    """
-    return (state.get("scene") or {}).get("dm_mode") == "llm"
-
-
-def log_event(state: DMState, event: dict) -> list[dict]:
-    """把一条世界事件追加进 campaign_log，返回新列表（会话层共用）。"""
-    log = list(state.get("campaign_log", []))
-    log.append(event)
-    return log
 
 
 # ---------------------------------------------------------------------------
@@ -71,6 +57,7 @@ def perceive(state: DMState) -> dict:
         "pending_check": None,
         "last_check": None,
         "combat_request": None,
+        "world_writes": None,
         "next": "wait",
     }
 
@@ -89,16 +76,19 @@ async def dm_decide(state: DMState) -> dict:
         state.get("party", {}),
         messages=state.get("messages", []),
         use_llm=llm_enabled(state),
+        beat_brief=story_nodes.beat_brief_for(state),   # 当前拍骨架：让叙述长在骨架上
+        stuck_hint=story_nodes.stuck_hint_for(state),   # 卡关兜底：空转太久时注入提示
     )
     intent = decision["intent"]
-    logger.info("[dm_decide] 意图=%s", intent)
+    writes = decision.get("world_writes") or {}          # DM 声明的世界写入，留给 evaluate_advancement 消费
+    logger.info("[dm_decide] 意图=%s 世界写入=%s", intent, list(writes.keys()) or "无")
 
     if intent == "player_check":
-        return {"intent": intent, "pending_check": decision["check"], "next": "wait"}
+        return {"intent": intent, "pending_check": decision["check"], "world_writes": writes, "next": "wait"}
     if intent == "start_combat":
-        return {"intent": intent, "combat_request": decision["encounter"], "next": "combat"}
+        return {"intent": intent, "combat_request": decision["encounter"], "world_writes": writes, "next": "combat"}
     # reply
-    return {"intent": intent, "say": decision.get("say", ""), "next": "wait"}
+    return {"intent": intent, "say": decision.get("say", ""), "world_writes": writes, "next": "wait"}
 
 
 def route_after_decide(state: DMState) -> str:

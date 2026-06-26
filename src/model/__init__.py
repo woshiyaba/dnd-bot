@@ -5,6 +5,22 @@
 """
 
 from src.model.attack import Attack
+from src.model.canon import (
+    Beat,
+    BeatKind,
+    Canon,
+    Encounter,
+    EndingOutcome,
+    Exit,
+    KeyInfo,
+    LocationSpec,
+    NpcSpec,
+    Trigger,
+    TriggerKind,
+    beat_brief,
+    evaluate_trigger,
+    validate_canon,
+)
 from src.model.combat_state import (
     CombatState,
     load_combatant,
@@ -44,4 +60,8 @@ __all__ = [
     "ability_modifier", "proficiency_bonus_for_level",
     # 图状态
     "CombatState", "load_combatant", "load_combatants",
+    # 剧情圣经（故事系统）
+    "Canon", "Beat", "Trigger", "Exit", "KeyInfo", "NpcSpec", "LocationSpec", "Encounter",
+    "BeatKind", "TriggerKind", "EndingOutcome",
+    "validate_canon", "evaluate_trigger", "beat_brief",
 ]

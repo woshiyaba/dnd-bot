@@ -1,0 +1,302 @@
+{
+  "campaign_id": "whispers_bell_tower",
+  "title": "钟楼下的低语",
+  "premise": "废弃的灰岩村夜夜传出钟声与低语，孩子接连失踪；冒险者须查明真相，平息被诅咒的古钟之灵。",
+  "theme": "执念与救赎",
+  "tone": "阴郁、悬疑、带一线希望",
+  "declared_flags": [
+    "accepted_quest",
+    "clue_bell_crack",
+    "clue_spirit_name",
+    "clue_holy_water",
+    "boss_dead"
+  ],
+  "win_condition": {
+    "id": "win_boss_dead",
+    "kind": "combat_outcome",
+    "predicate": { "outcome": "players_win" },
+    "description": "古钟之灵被击败，钟声止息"
+  },
+  "lose_condition": {
+    "id": "lose_party_wiped",
+    "kind": "combat_outcome",
+    "predicate": { "outcome": "players_lose" },
+    "description": "冒险队在钟楼之巅全灭"
+  },
+  "cast": [
+    {
+      "id": "elder_marlon",
+      "name": "村长马伦",
+      "role": "委托人",
+      "goal": "找回失踪的孩子，让灰岩村重归安宁",
+      "secret": "三十年前正是他下令熔毁古钟、惊扰了亡魂，他对此深怀愧疚却不敢明言",
+      "disposition": "friendly"
+    },
+    {
+      "id": "priest_eda",
+      "name": "神父艾达",
+      "role": "废村幸存者",
+      "goal": "在死前为亡魂赎罪，引导冒险者用圣水净化古钟之灵",
+      "secret": "她知道古钟之灵的真名「赫尔薇」，也知道唯有圣水能削弱它",
+      "disposition": "friendly"
+    },
+    {
+      "id": "bell_spirit",
+      "name": "古钟之灵",
+      "role": "高潮 Boss",
+      "goal": "把活人的低语收进钟体，凑齐它破碎的执念",
+      "secret": "它的本体是被熔进钟里的少女赫尔薇，听到真名会短暂动摇",
+      "disposition": "hostile",
+      "card": {
+        "id": "bell_spirit",
+        "name": "古钟之灵",
+        "strength": 14,
+        "dexterity": 12,
+        "constitution": 13,
+        "intelligence": 10,
+        "wisdom": 12,
+        "charisma": 8,
+        "current_hp": 22,
+        "max_hp": 22,
+        "ac": 13,
+        "initiative_bonus": 1,
+        "attacks": [
+          {
+            "name": "回响重击",
+            "attack_bonus": 4,
+            "damage_dice": "1d8+2",
+            "damage_type": "thunder",
+            "range": "melee"
+          }
+        ]
+      }
+    }
+  ],
+  "locations": [
+    {
+      "id": "tavern",
+      "name": "灰岩村·破钟酒馆",
+      "description": "唯一还亮着灯的屋子。炉火噼啪，墙上挂着一口锈死的小钟。村长马伦在角落等你。",
+      "intra_exits": []
+    },
+    {
+      "id": "bell_tower_hall",
+      "name": "废村·钟楼前厅",
+      "description": "倾颓的石厅，断裂的吊钟绳垂在半空。霉味与尘灰里，神父艾达蜷在一根石柱后。",
+      "intra_exits": ["dry_well", "graveyard"]
+    },
+    {
+      "id": "dry_well",
+      "name": "废村·枯井",
+      "description": "井口结着蛛网，井壁刻满抓痕。井底隐约堆着孩子们的木玩具。",
+      "intra_exits": ["bell_tower_hall", "graveyard"]
+    },
+    {
+      "id": "graveyard",
+      "name": "废村·墓园",
+      "description": "歪斜的墓碑成排，最大的一座没有名字，只刻着一道熔化的钟形。",
+      "intra_exits": ["bell_tower_hall", "dry_well"]
+    },
+    {
+      "id": "bell_tower_summit",
+      "name": "废村·钟楼之巅",
+      "description": "巨大的古钟悬在头顶，钟体上浮动着一张少女的脸。低语在这里汇成尖啸。",
+      "intra_exits": []
+    }
+  ],
+  "start_beat_id": "tavern_quest",
+  "beats": [
+    {
+      "id": "tavern_quest",
+      "title": "开场·破钟酒馆的委托",
+      "kind": "opening",
+      "location_ids": ["tavern"],
+      "entry_state": {
+        "location_id": "tavern",
+        "actors": [
+          {
+            "actor_id": "elder_marlon",
+            "name": "村长马伦",
+            "disposition": "friendly",
+            "type": "npc"
+          }
+        ],
+        "exits": ["村口小路（通往废村）"],
+        "threat": null
+      },
+      "key_info": [
+        {
+          "id": "hook_missing_children",
+          "text": "近一个月里，灰岩村夜夜响起本该锈死的钟声，已有三个孩子在钟声后失踪；村长求你去废弃的钟楼查明真相。"
+        }
+      ],
+      "advance_conditions": [
+        {
+          "id": "t_accept",
+          "kind": "semantic",
+          "predicate": { "prompt": "玩家是否已接受村长的委托、决定动身前往废村钟楼？" },
+          "description": "玩家接受委托并出发前往废村"
+        }
+      ],
+      "exits": [{ "trigger_id": "t_accept", "next_beat_id": "ruined_village" }],
+      "stuck_fallback": {
+        "hint": "村长马伦再次恳求，并塞给你一串通往废村的路线图，强调孩子们撑不了几夜了。",
+        "point_to_exit": "村口小路（通往废村）"
+      }
+    },
+    {
+      "id": "ruined_village",
+      "title": "探索·废村三处",
+      "kind": "exploration",
+      "location_ids": ["bell_tower_hall", "dry_well", "graveyard"],
+      "entry_state": {
+        "location_id": "bell_tower_hall",
+        "actors": [
+          {
+            "actor_id": "priest_eda",
+            "name": "神父艾达",
+            "disposition": "friendly",
+            "type": "npc"
+          }
+        ],
+        "exits": ["枯井", "墓园", "钟楼螺旋楼梯（通往钟楼之巅）"],
+        "threat": "夜里钟声渐密，低语越来越近"
+      },
+      "key_info": [
+        {
+          "id": "clue_bell_crack",
+          "text": "钟楼前厅的吊钟上有一道熔痕——古钟曾被强行熔毁过，它的怨念由此而生。"
+        },
+        {
+          "id": "clue_spirit_name",
+          "text": "枯井底的木牌上刻着一个名字「赫尔薇」——那是被熔进钟里的少女的真名，呼唤真名能让它动摇。"
+        },
+        {
+          "id": "clue_holy_water",
+          "text": "墓园无名碑下藏着一小瓶圣水——唯有圣水能在决战中削弱古钟之灵。"
+        }
+      ],
+      "advance_conditions": [
+        {
+          "id": "t_all_clues",
+          "kind": "flag",
+          "predicate": {
+            "all": ["clue_bell_crack", "clue_spirit_name", "clue_holy_water"]
+          },
+          "description": "集齐三条线索（熔痕、真名、圣水）后，可登上钟楼之巅"
+        }
+      ],
+      "exits": [{ "trigger_id": "t_all_clues", "next_beat_id": "bell_tower_summit" }],
+      "stuck_fallback": {
+        "hint": "神父艾达拉住你，主动道出一条你尚未发现的线索，并指向钟楼螺旋楼梯。",
+        "reveal_clue": true,
+        "point_to_exit": "钟楼螺旋楼梯（通往钟楼之巅）"
+      }
+    },
+    {
+      "id": "bell_tower_summit",
+      "title": "高潮·钟楼之灵",
+      "kind": "climax",
+      "location_ids": ["bell_tower_summit"],
+      "entry_state": {
+        "location_id": "bell_tower_summit",
+        "description": "你登上钟楼之巅。古钟之灵自钟体浮现，少女的脸扭曲成尖啸，朝你扑来——决战开始。",
+        "actors": [
+          {
+            "actor_id": "bell_spirit",
+            "name": "古钟之灵",
+            "disposition": "hostile",
+            "type": "monster",
+            "card": {
+              "id": "bell_spirit",
+              "name": "古钟之灵",
+              "strength": 14,
+              "dexterity": 12,
+              "constitution": 13,
+              "intelligence": 10,
+              "wisdom": 12,
+              "charisma": 8,
+              "current_hp": 22,
+              "max_hp": 22,
+              "ac": 13,
+              "initiative_bonus": 1,
+              "attacks": [
+                {
+                  "name": "回响重击",
+                  "attack_bonus": 4,
+                  "damage_dice": "1d8+2",
+                  "damage_type": "thunder",
+                  "range": "melee"
+                }
+              ]
+            }
+          }
+        ],
+        "exits": [],
+        "threat": "古钟之灵已现身"
+      },
+      "key_info": [
+        {
+          "id": "climax_weakness",
+          "text": "呼唤真名「赫尔薇」并泼洒圣水，能让古钟之灵动摇，是击败它的关键。"
+        }
+      ],
+      "advance_conditions": [
+        {
+          "id": "t_boss_win",
+          "kind": "combat_outcome",
+          "predicate": { "outcome": "players_win" },
+          "description": "击败古钟之灵后，钟声止息，迎来结局"
+        }
+      ],
+      "exits": [{ "trigger_id": "t_boss_win", "next_beat_id": "ending_win" }],
+      "stuck_fallback": {
+        "hint": "古钟之灵的尖啸震得人发昏，但你想起神父的话——真名与圣水正是它的破绽。"
+      },
+      "encounter": {
+        "id": "boss_bell_spirit",
+        "monster_ids": ["bell_spirit"],
+        "surprised": [],
+        "random_seed": 20240626,
+        "on_win_flags": ["boss_dead"],
+        "loot_table": ["赫尔薇的银铃", "净化圣水（残）", "古钟碎银 50"]
+      }
+    },
+    {
+      "id": "ending_win",
+      "title": "结局·钟声止息",
+      "kind": "ending",
+      "ending_outcome": "win",
+      "location_ids": ["bell_tower_summit"],
+      "entry_state": {
+        "location_id": "bell_tower_summit",
+        "description": "古钟崩裂，少女的脸最后一次浮现，向你低语一声「谢谢」后散作星尘。失踪的孩子在井底沉睡，安然无恙。灰岩村重归宁静。",
+        "actors": [],
+        "exits": [],
+        "threat": null
+      },
+      "key_info": [],
+      "advance_conditions": [],
+      "exits": [],
+      "stuck_fallback": {}
+    },
+    {
+      "id": "ending_lose",
+      "title": "结局·钟声不息",
+      "kind": "ending",
+      "ending_outcome": "lose",
+      "location_ids": ["bell_tower_summit"],
+      "entry_state": {
+        "location_id": "bell_tower_summit",
+        "description": "你们倒在钟楼之巅，低语将你们的名字也收进了古钟。从此灰岩村的钟声里，多了几道新的呜咽。",
+        "actors": [],
+        "exits": [],
+        "threat": null
+      },
+      "key_info": [],
+      "advance_conditions": [],
+      "exits": [],
+      "stuck_fallback": {}
+    }
+  ]
+}

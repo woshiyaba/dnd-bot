@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import Any, TypedDict
 
+from src.model.canon import Beat, Canon
 from src.model.combatant import Combatant, PlayerCharacter
 from src.model.combat_state import load_combatant
 
@@ -41,6 +42,15 @@ class DMState(TypedDict, total=False):
 
     # —— 路由信号 ——
     next: str                     # 会话主图条件路由：wait（等玩家下一条消息）| combat（进战斗子图）
+
+    # —— 故事进度（糖葫芦剧本骨架，见 src/model/canon.py）——
+    campaign_id: str              # 本局 canon 的注册表 key（canon 本体不入 state，按引用存）
+    story: dict                   # 进度工作区：current_beat_id/visited_beats/flags/delivered_clues/
+                                  #   visited_locations/current_location_id/beat_entered_turn/idle_turns/
+                                  #   turn_index/pending_next_beat_id（纯 dict，JSON 可序列化，规避 serde）
+    world_writes: dict | None     # DM 本回合声明的世界写入：{flags_set, moved_to, clues_delivered}，引擎校验后消费
+    next_story: str               # 推进路由信号：advance（切到下一拍）| stay（留在本拍）
+    story_status: str             # ongoing | finished（结局拍叙述完置 finished）
 
     # —— 输出 ——
     campaign_log: list[dict]      # 全程世界事件流（前端回放 + DM 长期上下文）
@@ -119,3 +129,67 @@ def fold_combat_writeback(party: dict[str, Combatant], combat_state: dict) -> di
 def _outcome_value(value: Any) -> str | None:
     """容忍 outcome 为枚举或字符串，取其字符串值。"""
     return getattr(value, "value", value)
+
+
+# ---------------------------------------------------------------------------
+# 故事系统：用一拍的 entry_state 搭起世界场景，并初始化整局进度
+# ---------------------------------------------------------------------------
+def build_beat_scene(canon: Canon, beat: Beat) -> dict:
+    """把一拍的 ``entry_state`` 落成一份 WorldScene（DM 感知用，形状见本模块顶部约定）。
+
+    地点名/描述缺省时由 ``LocationSpec`` 补全；若本拍有预置遭遇，则把战利品表/随机种子下放到 scene，
+    供会话主图 ``run_combat`` 触发战斗时直接读取（无需改 run_combat）。
+    """
+    entry = dict(beat.entry_state or {})
+    location_id = entry.get("location_id")
+    scene: dict = {
+        "beat_id": beat.id,                                  # 当前拍 id（便于前端/日志定位）
+        "location_id": location_id,                          # 当前地点 id（location 触发器据此判定到达）
+        "location": entry.get("location"),                   # 地点名
+        "description": entry.get("description", ""),         # 环境描述
+        "actors": [dict(a) for a in entry.get("actors", [])],  # 在场 NPC / 潜在敌人（带卡面）
+        "exits": list(entry.get("exits", [])),               # 叙事出口提示
+        "flags": dict(entry.get("flags", {})),               # 场景开关
+        "threat": entry.get("threat"),                       # 威胁提示
+        "dm_mode": entry.get("dm_mode"),                     # 由引擎在 init 时统一覆盖
+    }
+    # 用 LocationSpec 补全地点名/描述
+    loc = canon.location(location_id) if location_id else None
+    if loc is not None:
+        scene["location"] = scene["location"] or loc.name
+        if not scene["description"]:
+            scene["description"] = loc.description
+    # 预置遭遇参数下放到 scene（run_combat._build_combat_input 会读取）
+    if beat.encounter is not None:
+        if beat.encounter.loot_table:
+            scene["loot_table"] = list(beat.encounter.loot_table)
+        if beat.encounter.random_seed is not None:
+            scene["random_seed"] = beat.encounter.random_seed
+        scene["encounter_id"] = beat.encounter.id
+    return scene
+
+
+def init_story(canon: Canon) -> tuple[dict, dict]:
+    """按起始拍初始化整局故事进度与初始世界场景。
+
+    返回 ``(story, scene)``：``story`` 是进度工作区（纯 dict）；``scene`` 是起始拍搭好的 WorldScene。
+    """
+    start = canon.beat(canon.start_beat_id)
+    if start is None:
+        raise ValueError(f"canon «{canon.campaign_id}» 的 start_beat_id «{canon.start_beat_id}» 不存在")
+
+    scene = build_beat_scene(canon, start)
+    location_id = scene.get("location_id")
+    story = {
+        "current_beat_id": start.id,                                   # 当前在哪颗珠子
+        "visited_beats": [start.id],                                   # 已走过的拍
+        "flags": dict(scene.get("flags", {})),                         # 世界 flag（推进判定依据，唯一真相源）
+        "delivered_clues": [],                                         # 已传达的关键线索 id
+        "visited_locations": [location_id] if location_id else [],     # 已到达的地点 id
+        "current_location_id": location_id,                            # 当前地点 id
+        "beat_entered_turn": 0,                                        # 进入本拍时的回合序号
+        "idle_turns": 0,                                              # 在本拍空转的回合数（驱动卡关兜底）
+        "turn_index": 0,                                              # 全局回合计数
+        "pending_next_beat_id": None,                                 # 待切入的下一拍（evaluate_advancement 命中时写）
+    }
+    return story, scene

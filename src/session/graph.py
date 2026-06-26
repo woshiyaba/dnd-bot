@@ -30,6 +30,7 @@ from src.dm import world_bridge
 from src.dm.tools import set_dice_provider
 from src.model.combat_state import load_combatant
 from src.model.dm_state import DMState, fold_combat_writeback
+from src.session import story_nodes
 from src.session.dm_subgraph import build_dm_subgraph, llm_enabled, log_event
 
 logger = logging.getLogger(__name__)
@@ -149,14 +150,32 @@ def build_session_graph(checkpointer: Any | None = None):
     g.add_node("dm_turn", build_dm_subgraph())   # DM 子图（同 schema，直接嵌入）
     g.add_node("run_combat", run_combat)         # 战斗子图（包装节点映射 schema）
     g.add_node("narrate_aftermath", narrate_aftermath)
+    # 故事推进段（糖葫芦串珠：触发推进 / 否则探索）
+    g.add_node("evaluate_advancement", story_nodes.evaluate_advancement)
+    g.add_node("enter_beat", story_nodes.enter_beat)
+    g.add_node("narrate_beat", story_nodes.narrate_beat)
+    g.add_node("epilogue", story_nodes.epilogue)
 
     g.add_edge(START, "dm_turn")
+    # DM 回合后：进战斗 → 战后叙述 → 推进判定；否则直接推进判定
     g.add_conditional_edges("dm_turn", route_session, {
-        "wait": END,
+        "wait": "evaluate_advancement",
         "combat": "run_combat",
     })
     g.add_edge("run_combat", "narrate_aftermath")
-    g.add_edge("narrate_aftermath", END)
+    g.add_edge("narrate_aftermath", "evaluate_advancement")
+    # 推进判定：命中切拍，否则把控制权交回玩家（END，等下一条消息）
+    g.add_conditional_edges("evaluate_advancement", story_nodes.route_advancement, {
+        "advance": "enter_beat",
+        "stay": END,
+    })
+    g.add_edge("enter_beat", "narrate_beat")
+    # 过场叙述后：新拍是结局拍则收尾，否则交回玩家
+    g.add_conditional_edges("narrate_beat", story_nodes.route_ending, {
+        "ending": "epilogue",
+        "ongoing": END,
+    })
+    g.add_edge("epilogue", END)
 
     if checkpointer is None:
         from langgraph.checkpoint.memory import MemorySaver

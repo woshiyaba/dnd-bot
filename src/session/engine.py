@@ -21,8 +21,9 @@ from typing import Any
 
 from langgraph.types import Command
 
-from src.model.dm_state import load_party
+from src.model.dm_state import init_story, load_party
 from src.session.graph import build_session_graph, reset_session_dice
+from src.story.loader import get_registry
 
 logger = logging.getLogger(__name__)
 
@@ -46,19 +47,38 @@ class SessionEngine:
         scene_context 格式::
 
             {
-              "dm_mode": "llm" ,   # 启用 LLM 版 DM
-              "random_seed": int,               # 可复现随机源（探索暗骰 + 战斗）
-              "scene": { ...WorldScene... },     # 初始世界场景
+              "campaign_id": "whispers_bell_tower",  # 本局 canon（注册表 key）；给定即按剧本骨架开局
+              "dm_mode": "llm" ,                      # 启用 LLM 版 DM
+              "random_seed": int,                     # 可复现随机源（探索暗骰 + 战斗）
+              "scene": { ...WorldScene... },           # 无 canon 时的初始世界场景（退化纯对话）
               "party": [ {type:"player", controller, card}, ... ],  # 玩家队伍
             }
+
+        给定 ``campaign_id`` 且注册表中存在该 canon 时，按起始拍 ``entry_state`` 初始化故事进度与场景；
+        否则退化为旧的「纯对话」开局（无故事主轴）。
         """
         reset_session_dice(scene_context)
-        scene = dict(scene_context.get("scene", {}))
-        scene.setdefault("dm_mode", scene_context.get("dm_mode", "llm"))
-        scene.setdefault("random_seed", scene_context.get("random_seed"))
-        # 战利品表登记进场景，触发战斗时带给战斗子图（settle 据此发放）
-        if "loot_table" in scene_context:
-            scene.setdefault("loot_table", scene_context["loot_table"])
+        dm_mode = scene_context.get("dm_mode", "llm")
+        campaign_id = scene_context.get("campaign_id")
+        canon = get_registry().get(campaign_id) if campaign_id else None
+
+        if canon is not None:
+            # 按剧本骨架开局：起始拍 entry_state → 初始 story + scene
+            story, scene = init_story(canon)
+            scene["dm_mode"] = dm_mode
+            if scene.get("random_seed") is None:
+                scene["random_seed"] = scene_context.get("random_seed")
+        else:
+            # 无 canon：退化为纯对话开局
+            if campaign_id:
+                logger.warning("[session] campaign_id «%s» 未在注册表中找到，退化为纯对话开局", campaign_id)
+            scene = dict(scene_context.get("scene", {}))
+            scene.setdefault("dm_mode", dm_mode)
+            scene.setdefault("random_seed", scene_context.get("random_seed"))
+            # 战利品表登记进场景，触发战斗时带给战斗子图（settle 据此发放）
+            if "loot_table" in scene_context:
+                scene.setdefault("loot_table", scene_context["loot_table"])
+            story = {}
 
         init_state = {
             "messages": [],
@@ -69,6 +89,9 @@ class SessionEngine:
             "party": load_party(scene_context),
             "campaign_log": [],
             "next": "wait",
+            "campaign_id": campaign_id or "",
+            "story": story,
+            "story_status": "ongoing",
         }
         config = {"configurable": {"thread_id": room_thread_id(room_id)}}
         result = await self._graph.ainvoke(init_state, config=config)
@@ -109,6 +132,20 @@ class SessionEngine:
             }
 
         say = _last_dm_say(result)
+
+        # 整局结束（到达并叙述完结局拍）
+        if result.get("story_status") == "finished":
+            story = result.get("story") or {}
+            logger.info("[session] 房间=%s 整局结束 | 结局拍=%s", room_id, story.get("current_beat_id"))
+            return {
+                "status": "finished",
+                "room_id": room_id,
+                "say": say,
+                "ending_beat_id": story.get("current_beat_id"),
+                "last_combat": result.get("last_combat"),
+                "state": result,
+            }
+
         logger.info("[session] 房间=%s 回合结束，等待玩家输入", room_id)
         return {
             "status": "awaiting_input",
