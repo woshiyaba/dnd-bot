@@ -57,18 +57,31 @@ _COMBAT_SERDE_WHITELIST = (
 )
 
 
-def _build_serde():
-    """构造允许我方战斗模型反序列化的 JSON+ 序列化器。"""
+def build_serde():
+    """构造允许我方战斗模型反序列化的 JSON+ 序列化器。
+
+    会话主图（src/session）把战斗子图当子图嵌入时，自身的 checkpointer 也需要
+    用同一份白名单（DMState 里同样持久化这些战斗模型对象），故公开本函数复用。
+    """
     from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 
     return JsonPlusSerializer(allowed_msgpack_modules=list(_COMBAT_SERDE_WHITELIST))
 
 
-def build_combat_graph(checkpointer: Any | None = None):
+# 向后兼容别名（旧调用方可能用了带下划线的私有名）
+_build_serde = build_serde
+
+
+def build_combat_graph(checkpointer: Any | None = None, *, embeddable: bool = False):
     """构建并编译战斗子图。
 
-    checkpointer 缺省用 MemorySaver；要持久化整场战斗（多人、重启不丢档）时，
-    传入 SqliteSaver / 自建 MySQL saver。
+    参数:
+        checkpointer: 缺省用自带 MemorySaver；要持久化整场战斗（多人、重启不丢档）时，
+            传入 SqliteSaver / 自建 MySQL saver。
+        embeddable: True 时**不挂任何 checkpointer**，编译成「可嵌入子图」——
+            供会话主图（src/session）用包装节点 ``subgraph.invoke()`` 调用，由主图
+            统一持有 checkpointer（中断会冒泡到主图，详见 docs/DM/01）。此模式下
+            忽略 ``checkpointer`` 参数。
     """
     g = StateGraph(CombatState)
 
@@ -98,8 +111,12 @@ def build_combat_graph(checkpointer: Any | None = None):
     })
     g.add_edge("settle", END)
 
+    if embeddable:
+        # 可嵌入子图：不挂 checkpointer，交由会话主图统一持有（中断冒泡到主图）
+        return g.compile()
+
     if checkpointer is None:
         from langgraph.checkpoint.memory import MemorySaver
-        checkpointer = MemorySaver(serde=_build_serde())
+        checkpointer = MemorySaver(serde=build_serde())
 
     return g.compile(checkpointer=checkpointer)
