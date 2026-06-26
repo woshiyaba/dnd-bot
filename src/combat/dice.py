@@ -71,6 +71,26 @@ class Dice:
         return RollResult(expression=expression, count=count, rolls=rolls, modifier=modifier, total=total)
 
 
+# ---------------------------------------------------------------------------
+# 引擎当前骰子（进程级单例）
+# ---------------------------------------------------------------------------
+# 怪物/环境骰子与 DM 骰子工具共用这一颗可复现骰子；enter_combat 用场景里的
+# random_seed 调 reset_engine_dice 重置，保证整场回放/测试可复现。
+_ENGINE_DICE = Dice()
+
+
+def current_engine_dice() -> Dice:
+    """取引擎当前骰子（单例）。DM 骰子工具通过注入的回调拿到的就是它。"""
+    return _ENGINE_DICE
+
+
+def reset_engine_dice(seed: int | None = None) -> Dice:
+    """用给定种子重置引擎骰子并返回新实例（同 seed 产出同序列）。"""
+    global _ENGINE_DICE
+    _ENGINE_DICE = Dice(seed)
+    return _ENGINE_DICE
+
+
 def parse_dice(expression: str) -> tuple[int, int, int]:
     """把表达式解析为 (骰数, 面数, 修正值)，纯常量返回 (0, 0, 值)。仅做校验/展示用。"""
     expression = str(expression).strip()

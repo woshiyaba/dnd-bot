@@ -17,12 +17,13 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 from langgraph.config import get_stream_writer
 from langgraph.types import interrupt
 
-from src.combat.dice import Dice
+from src.combat.dice import current_engine_dice, reset_engine_dice
 from src.combat.interrupts import (
     build_action_options,
     build_interrupt_request,
@@ -49,14 +50,24 @@ from src.model.enums import (
 
 logger = logging.getLogger(__name__)
 
-# 可复现随机源：怪物/环境骰子走这里。可在 enter_combat 用场景里的「random_seed」重置。
-_dice = Dice()
+# 可复现随机源：怪物/环境骰子（与 DM 骰子工具）共用 dice.py 的引擎骰子单例，
+# 可在 enter_combat 用场景里的「random_seed」重置（见 reset_engine_dice）。
 
 
-def _reset_dice(seed: int | None) -> None:
-    """用场景随机种子重置引擎骰子，保证回放/测试可复现。"""
-    global _dice
-    _dice = Dice(seed)
+def _dm_mode_on(scene: dict | None) -> bool:
+    """是否启用 LLM 版 DM。
+
+    轻量内联判断，避免在启发式模式下提前 import DM/agent 依赖（保持战斗可独立运行）；
+    真正调用 DM 时才惰性 import ``dm_bridge``。
+    """
+    if (scene or {}).get("dm_mode") != "llm":
+        return False
+    from dotenv import load_dotenv
+    load_dotenv()
+    if not os.getenv("DASHSCOPE_API_KEY"):
+        logger.warning("[dm] dm_mode=llm 但未配置 DASHSCOPE_API_KEY，回落启发式 DM")
+        return False
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -88,7 +99,7 @@ def enter_combat(state: CombatState) -> dict:
     """初始化战斗：加载参战者、摆好区域、清空工作区。"""
     scene = state.get("scene_context", {}) or {}
     if "random_seed" in scene:
-        _reset_dice(int(scene["random_seed"]))
+        reset_engine_dice(int(scene["random_seed"]))
 
     combatants = state.get("combatants") or load_combatants(scene)
 
@@ -109,15 +120,26 @@ def enter_combat(state: CombatState) -> dict:
 # ---------------------------------------------------------------------------
 # 2. judge_surprise（DM）
 # ---------------------------------------------------------------------------
-def judge_surprise(state: CombatState) -> dict:
+async def judge_surprise(state: CombatState) -> dict:
     """判定突袭。
 
-    v0 简化：纯叙事判定，不掷隐匿/察觉。被突袭名单由 `scene_context["surprised"]`（id 列表）给出，
-    缺省则无人被突袭。日后接 DM（LLM）时在此节点替换为「潜行 vs 被动察觉」对抗。
+    - 启发式（默认）：被突袭名单由 `scene_context["surprised"]`（id 列表）给出，缺省则无人被突袭；
+    - LLM 模式（`dm_mode="llm"`）：交给 DM 做「潜行 vs 被动察觉」对抗判定，失败回落启发式。
     """
     scene = state.get("scene_context", {}) or {}
     combatants = state["combatants"]
-    surprised = [cid for cid in scene.get("surprised", []) if cid in combatants]
+
+    surprised: list[str] | None = None
+    if _dm_mode_on(scene):
+        from src.combat import dm_bridge
+        try:
+            surprised = await dm_bridge.judge_surprise_llm(combatants, scene)
+        except Exception:  # noqa: BLE001 - DM 失败不应中断战斗
+            logger.exception("[judge_surprise] DM 判突袭失败，回落启发式")
+            surprised = None
+    if surprised is None:
+        surprised = [cid for cid in scene.get("surprised", []) if cid in combatants]
+
     for cid in surprised:
         combatants[cid].is_surprised = True
 
@@ -153,13 +175,13 @@ def roll_initiative(state: CombatState) -> dict:
             ))
             d20 = validate_d20(resume_value)
         else:
-            d20 = _dice.d20()
+            d20 = current_engine_dice().d20()
         c.initiative = d20 + c.effective_initiative_bonus
 
     # 降序排序；平手用敏捷调整值，再用引擎随机数打破
     order = sorted(
         combatants.values(),
-        key=lambda c: (c.initiative, c.modifier(Ability.DEXTERITY), _dice.d20()),
+        key=lambda c: (c.initiative, c.modifier(Ability.DEXTERITY), current_engine_dice().d20()),
         reverse=True,
     )
     initiative_order = [c.id for c in order]
@@ -248,8 +270,12 @@ def next_turn(state: CombatState) -> dict:
 # ---------------------------------------------------------------------------
 # 5. declare_action（玩家中断 / DM）
 # ---------------------------------------------------------------------------
-def declare_action(state: CombatState) -> dict:
-    """声明行动与目标：玩家中断选择；怪物/NPC 由 DM 决策（v0 启发式）。"""
+async def declare_action(state: CombatState) -> dict:
+    """声明行动与目标：玩家中断选择；怪物/NPC 由 DM 决策。
+
+    怪物/NPC 决策：LLM 模式下交给 DM（可读怪物卡、查规则），失败或被判非法时回落启发式 `_dm_decide`。
+    """
+    scene = state.get("scene_context", {}) or {}
     combatants = state["combatants"]
     actor = _current_actor(state)
 
@@ -263,7 +289,16 @@ def declare_action(state: CombatState) -> dict:
         ))
         current_action = _normalize_action(resume_value, actor, combatants)
     else:
-        current_action = _dm_decide(actor, combatants)
+        current_action = None
+        if _dm_mode_on(scene):
+            from src.combat import dm_bridge
+            try:
+                current_action = await dm_bridge.decide_action_llm(actor, combatants)
+            except Exception:  # noqa: BLE001 - DM 失败不应中断战斗
+                logger.exception("[declare_action] DM 决策失败，回落启发式")
+                current_action = None
+        if current_action is None:
+            current_action = _dm_decide(actor, combatants)
 
     logger.info("[declare_action] %s -> %s", actor.id, current_action)
     return {"current_action": current_action}
@@ -361,7 +396,7 @@ def _resolve_attack(actor: Combatant, action: dict, combatants: dict[str, Combat
         d20 = validate_d20(resume_value)
         player_damage = extract_damage(resume_value)
     else:
-        d20 = _dice.d20()
+        d20 = current_engine_dice().d20()
 
     result = resolve_attack(d20, weapon.attack_bonus, target.ac)
     event: dict = {
@@ -382,14 +417,14 @@ def _resolve_attack(actor: Combatant, action: dict, combatants: dict[str, Combat
                 prompt=f"重击！把 {weapon.damage_dice} 的骰子数翻倍掷，报伤害总和",
                 required_dice=weapon.damage_dice,
             ))
-            damage = extract_damage(resume_value) or _dice.roll(weapon.damage_dice, crit=True).total
+            damage = extract_damage(resume_value) or current_engine_dice().roll(weapon.damage_dice, crit=True).total
         else:
-            damage = _dice.roll(weapon.damage_dice, crit=True).total
+            damage = current_engine_dice().roll(weapon.damage_dice, crit=True).total
     else:
         if actor.is_player_controlled:
-            damage = player_damage if player_damage is not None else _dice.roll(weapon.damage_dice).total
+            damage = player_damage if player_damage is not None else current_engine_dice().roll(weapon.damage_dice).total
         else:
-            damage = _dice.roll(weapon.damage_dice).total
+            damage = current_engine_dice().roll(weapon.damage_dice).total
 
     dealt = target.take_damage(damage)
     event.update({
@@ -415,7 +450,7 @@ def _resolve_skill(actor: Combatant, action: dict, combatants: dict[str, Combata
     event: dict = {"event": "skill", "actor": actor.id, "skill_id": skill_id}
 
     if skill_id in _HEALING_SKILLS:
-        heal_amount = _dice.roll(_HEALING_SKILLS[skill_id]).total + getattr(actor, "level", 1)
+        heal_amount = current_engine_dice().roll(_HEALING_SKILLS[skill_id]).total + getattr(actor, "level", 1)
         healed = actor.heal(heal_amount)
         event.update({"heal": healed, "target": actor.id, "target_hp": actor.current_hp})
     return [event]
@@ -438,7 +473,7 @@ def _resolve_item(actor: Combatant, action: dict, combatants: dict[str, Combatan
     event: dict = {"event": "item", "actor": actor.id, "item_id": item_id, "target": target.id}
 
     if item_id in _HEALING_ITEMS:
-        healed = target.heal(_dice.roll(_HEALING_ITEMS[item_id]).total)
+        healed = target.heal(current_engine_dice().roll(_HEALING_ITEMS[item_id]).total)
         event.update({"heal": healed, "target_hp": target.current_hp})
     return [event]
 
@@ -459,7 +494,7 @@ def _resolve_improvise(actor: Combatant, action: dict, combatants: dict[str, Com
         ))
         d20 = validate_d20(resume_value)
     else:
-        d20 = _dice.d20()
+        d20 = current_engine_dice().d20()
 
     success = check_success(d20, bonus, dc)
     return [{
@@ -481,14 +516,30 @@ def _resolve_move(actor: Combatant, action: dict) -> list[dict]:
 # ---------------------------------------------------------------------------
 # 7. narrate（DM）
 # ---------------------------------------------------------------------------
-def narrate(state: CombatState) -> dict:
-    """把本回合事件讲成故事。
+async def narrate(state: CombatState) -> dict:
+    """把本回合事件讲成故事。不改任何数值。
 
-    v0 用确定性模板生成叙述并通过 custom 流推给前端（复用现有 graph.invoke 的
-    custom 事件通道）；日后可替换为 LLM（astream_agent_collect）。不改任何数值。
+    - LLM 模式：交给 DM 流式生成叙述（token 经 custom 通道实时推送），失败回落模板；
+    - 启发式（默认）：用确定性模板拼句，并把整段经 custom 通道推给前端。
+    两条路径都复用与 `graph.py` 一致的 custom 事件通道（`{node:"narrate", status, chunk}`）。
     """
     events = state.get("turn_events", []) or []
     combatants = state["combatants"]
+    scene = state.get("scene_context", {}) or {}
+
+    if events and _dm_mode_on(scene):
+        from src.combat import dm_bridge
+        try:
+            narration = await dm_bridge.narrate_llm(events, combatants, state.get("current_round"))
+        except Exception:  # noqa: BLE001 - DM 失败不应中断战斗
+            logger.exception("[narrate] DM 叙述失败，回落模板")
+            narration = None
+        if narration:
+            # DM 路径已在流式过程中推过 custom 事件，这里只落日志
+            log = _append_log(state, [{"event": "narration", "text": narration, "round": state.get("current_round")}])
+            return {"combat_log": log}
+
+    # —— 回落：确定性模板叙述 ——
     sentences = [_narrate_event(e, combatants) for e in events]
     narration = " ".join(s for s in sentences if s)
 
