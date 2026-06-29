@@ -15,3 +15,6 @@ dependencies = [
     "aiomysql>=0.2.0",
     "black>=26.5.1",
 ]
+
+[tool.black]
+target-version = ["py313"]
