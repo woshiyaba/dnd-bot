@@ -369,16 +369,37 @@ def narrate_reply(text: str, *, node_name: str = "dm") -> str:
 
 
 async def narrate_result(
-    check_result: dict, *, use_llm: bool, node_name: str = "dm"
+    check_result: dict,
+    *,
+    use_llm: bool,
+    action: str | None = None,
+    scene: dict | None = None,
+    messages: list[dict] | None = None,
+    node_name: str = "dm",
 ) -> str:
-    """叙述一次玩家检定的成败（成功→「是,然后…」，失败→「不,但是…」）。"""
+    """叙述一次玩家检定的成败（成功→「是,然后…」，失败→「不,但是…」）。
+
+    :param action: 玩家当时**尝试做的那件事**（来自检定的 prompt/reason），让叙述紧扣动作、
+        而不是凭一个「成功/失败」凭空编一段不相干的画面。
+    :param scene: 当前世界场景；让叙述对得上地点 / 在场者 / 气氛。
+    :param messages: 最近对话；让叙述承接上文（玩家原话与上一段 DM 描述），保持连贯。
+    """
     if use_llm:
         verdict = "成功" if check_result.get("success") else "失败"
+        action_line = f"玩家当时尝试做的事：{action}\n" if action else ""
+        scene_line = f"当前场景：{_dump(_scene_brief(scene))}\n" if scene else ""
+        history_line = (
+            f"最近对话：{_dump(_history_brief(messages))}\n" if messages else ""
+        )
         task = (
             "玩家刚完成一次检定，结果已由引擎判定（既定事实，别改数字）：\n"
             f"{_dump(check_result)}\n"
-            f"判定为【{verdict}】。请用 1-3 句生动的中文叙述这个结果：成功就「是，然后…」推进，"
-            "失败就「不，但是…」给条出路，让故事继续。只描述结果，别罗列字段。"
+            f"{action_line}"
+            f"{scene_line}"
+            f"{history_line}"
+            f"判定为【{verdict}】。请用 1-3 句生动的中文叙述这个结果：**叙述要紧扣玩家当时尝试做的那件事，"
+            "并与当前场景和上文连贯**（地点、气氛、在场者都要对得上），成功就「是，然后…」推进，"
+            "失败就「不，但是…」给条出路，让故事继续。只描述结果，别罗列字段，别改判定数字。"
         )
         return await dm_narrate(task, node_name=node_name)
     # 离线模板
@@ -421,6 +442,7 @@ async def judge_trigger(
     prompt: str,
     scene: dict,
     *,
+    user_input: str | None = None,
     messages: list[dict] | None = None,
     use_llm: bool,
 ) -> bool:
@@ -431,23 +453,35 @@ async def judge_trigger(
     （不推进，靠确定性触发 + 卡关兜底），避免误判跳拍。
 
     :param prompt: canon 里 semantic 触发器预写的判定问句。
+    :param user_input: 玩家这步的原始言行（突出喂给 DM，避免它只盯着过期场景而漏判玩家刚做的事）。
     :return: 条件是否满足。
     """
     if not use_llm:
         return False
+    action_line = f"玩家最新这步言行：{user_input}\n" if user_input else ""
     task = (
         "你在主持一场有预定剧本的 D&D 冒险。下面是一道**是/否判定题**，问的是「截至当前，某条预设的剧情推进条件是否已经为真」。\n"
         f"判定问题：{prompt}\n"
         f"当前场景：{_dump(_scene_brief(scene))}\n"
-        f"最近对话：{_dump(_history_brief(messages or []))}\n\n"
-        "只依据已经发生的事实判断，不要替玩家臆想未做的事。**只输出一个 JSON 对象**："
-        '{"answer": true 或 false, "reason": "一句话依据"}。'
+        f"最近对话：{_dump(_history_brief(messages or []))}\n"
+        f"{action_line}\n"
+        "判据：只依据**已经发生的玩家言行**判断，不要替玩家臆想他没做的事；但只要玩家已经用言语或行动"
+        "表达出该条件描述的意图就应判为真——不必等玩家逐字复述。例如条件要求「决定动身前往某地」，"
+        "玩家若已经起身朝那里走、潜行靠近、或明确说要去，即视为满足；别被「当前场景」仍停在原地点误导。\n"
+        '**只输出一个 JSON 对象**：{"answer": true 或 false, "reason": "一句话依据"}。'
     )
     data = await dm_complete_json(task)
     if not isinstance(data, dict):
         logger.warning("[dm] judge_trigger 解析失败，保守判否 | prompt=%s", prompt)
         return False
-    return bool(data.get("answer"))
+    answer = bool(data.get("answer"))
+    logger.info(
+        "[judge_trigger] 「%s」→ %s | 依据=%s",
+        prompt,
+        "是" if answer else "否",
+        data.get("reason", ""),
+    )
+    return answer
 
 
 async def narrate_beat_transition(

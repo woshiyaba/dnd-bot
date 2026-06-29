@@ -377,6 +377,10 @@ def beat_brief(canon: Canon, story: dict) -> dict | None:
         if (loc := canon.location(lid)) is not None
     ]
     return {
+        # 整局世界锚点：让叙述始终对得上既定设定（如地名/地理关系），别凭空发挥
+        "premise": canon.premise,
+        "theme": canon.theme,
+        "tone": canon.tone,
         "beat_title": beat.title,
         "beat_kind": str(beat.kind.value),
         "locations": locations,

@@ -222,7 +222,16 @@ async def narrate_result(state: DMState) -> dict:
     result = state.get("last_check") or {}
     if not result or "success" not in result:
         return {}
-    text = await world_bridge.narrate_result(result, use_llm=llm_enabled(state))
+    # 把「玩家尝试做的事 + 当前场景 + 对话上文」一并交给 DM，叙述才会紧扣动作、贴合场景并承接上文
+    check = state.get("pending_check") or {}
+    action = check.get("prompt") or check.get("reason")
+    text = await world_bridge.narrate_result(
+        result,
+        use_llm=llm_enabled(state),
+        action=action,
+        scene=state.get("scene"),
+        messages=state.get("messages"),
+    )
     messages = list(state.get("messages", []))
     messages.append({"role": "dm", "content": text})
     return {

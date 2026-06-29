@@ -150,12 +150,17 @@ async def evaluate_advancement(state: DMState) -> dict:
             ),
         }
 
-    # 未命中：留在本拍，空转 +1
-    story["idle_turns"] = story.get("idle_turns", 0) + 1
+    # 未命中：留在本拍。若这回合切实推动了世界（移动/获得线索/置 flag），不算空转并清零；
+    # 否则空转 +1，连续空转够久才触发卡关兜底——避免「玩家正朝目标赶路」被误判成卡关而重发钩子。
+    if write_events:
+        story["idle_turns"] = 0
+    else:
+        story["idle_turns"] = story.get("idle_turns", 0) + 1
     logger.info(
-        "[evaluate_advancement] 未推进，留在 «%s»（idle=%d）",
+        "[evaluate_advancement] 未推进，留在 «%s»（idle=%d，本回合世界写入=%d）",
         story.get("current_beat_id"),
         story["idle_turns"],
+        len(write_events),
     )
     return {
         "story": story,
@@ -178,10 +183,14 @@ async def _condition_met(
     verdict = evaluate_trigger(trigger, story, scene, party, last_combat)
     if verdict is not None:
         return verdict
-    # semantic：引擎判不了 → 问 DM（窄判定）
+    # semantic：引擎判不了 → 问 DM（窄判定），把玩家这步原话一并喂给 DM
     prompt = (trigger.predicate or {}).get("prompt") or trigger.description
     return await world_bridge.judge_trigger(
-        prompt, scene, messages=messages, use_llm=llm_enabled(state)
+        prompt,
+        scene,
+        user_input=state.get("user_input"),
+        messages=messages,
+        use_llm=llm_enabled(state),
     )
 
 
