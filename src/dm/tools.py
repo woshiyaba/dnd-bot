@@ -39,6 +39,7 @@ def _dice() -> Any:
     if _dice_provider is not None:
         return _dice_provider()
     from src.combat.dice import current_engine_dice  # 运行期兜底，非顶层依赖
+
     return current_engine_dice()
 
 

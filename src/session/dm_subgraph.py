@@ -32,7 +32,10 @@ from src.model.combatant import Combatant
 from src.model.dm_state import DMState
 from src.model.enums import Ability, InterruptType
 from src.session import story_nodes
-from src.session.common import llm_enabled, log_event  # 共享工具（也供 graph.py 沿用导入）
+from src.session.common import (
+    llm_enabled,
+    log_event,
+)  # 共享工具（也供 graph.py 沿用导入）
 
 logger = logging.getLogger(__name__)
 
@@ -76,19 +79,36 @@ async def dm_decide(state: DMState) -> dict:
         state.get("party", {}),
         messages=state.get("messages", []),
         use_llm=llm_enabled(state),
-        beat_brief=story_nodes.beat_brief_for(state),   # 当前拍骨架：让叙述长在骨架上
-        stuck_hint=story_nodes.stuck_hint_for(state),   # 卡关兜底：空转太久时注入提示
+        beat_brief=story_nodes.beat_brief_for(state),  # 当前拍骨架：让叙述长在骨架上
+        stuck_hint=story_nodes.stuck_hint_for(state),  # 卡关兜底：空转太久时注入提示
     )
     intent = decision["intent"]
-    writes = decision.get("world_writes") or {}          # DM 声明的世界写入，留给 evaluate_advancement 消费
+    writes = (
+        decision.get("world_writes") or {}
+    )  # DM 声明的世界写入，留给 evaluate_advancement 消费
     logger.info("[dm_decide] 意图=%s 世界写入=%s", intent, list(writes.keys()) or "无")
 
     if intent == "player_check":
-        return {"intent": intent, "pending_check": decision["check"], "world_writes": writes, "next": "wait"}
+        return {
+            "intent": intent,
+            "pending_check": decision["check"],
+            "world_writes": writes,
+            "next": "wait",
+        }
     if intent == "start_combat":
-        return {"intent": intent, "combat_request": decision["encounter"], "world_writes": writes, "next": "combat"}
+        return {
+            "intent": intent,
+            "combat_request": decision["encounter"],
+            "world_writes": writes,
+            "next": "combat",
+        }
     # reply
-    return {"intent": intent, "say": decision.get("say", ""), "world_writes": writes, "next": "wait"}
+    return {
+        "intent": intent,
+        "say": decision.get("say", ""),
+        "world_writes": writes,
+        "next": "wait",
+    }
 
 
 def route_after_decide(state: DMState) -> str:
@@ -111,7 +131,10 @@ def narrate_reply(state: DMState) -> dict:
     messages = list(state.get("messages", []))
     if say:
         messages.append({"role": "dm", "content": say})
-    return {"messages": messages, "campaign_log": log_event(state, {"event": "narration", "text": say})}
+    return {
+        "messages": messages,
+        "campaign_log": log_event(state, {"event": "narration", "text": say}),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -143,13 +166,16 @@ def await_roll(state: DMState) -> dict:
 
     bonus = _check_bonus(actor, check)
     kind = InterruptType(check.get("kind", InterruptType.ABILITY_CHECK.value))
-    resume_value = interrupt(build_interrupt_request(
-        kind=kind,
-        actor=actor,
-        prompt=check.get("prompt") or f"请掷 d20（{check['ability']} 检定，DC {check['dc']}）",
-        required_dice="d20",
-        bonus=bonus,
-    ))
+    resume_value = interrupt(
+        build_interrupt_request(
+            kind=kind,
+            actor=actor,
+            prompt=check.get("prompt")
+            or f"请掷 d20（{check['ability']} 检定，DC {check['dc']}）",
+            required_dice="d20",
+            bonus=bonus,
+        )
+    )
     return {"last_check": {"_raw_roll": resume_value}}
 
 
@@ -166,13 +192,29 @@ def resolve_check(state: DMState) -> dict:
     total = d20 + bonus
     success = check_success(d20, bonus, check["dc"])
     result = {
-        "actor_id": actor.id, "actor_name": actor.name,
-        "ability": check["ability"], "kind": check.get("kind"),
-        "dc": check["dc"], "d20": d20, "bonus": bonus, "total": total, "success": success,
+        "actor_id": actor.id,
+        "actor_name": actor.name,
+        "ability": check["ability"],
+        "kind": check.get("kind"),
+        "dc": check["dc"],
+        "d20": d20,
+        "bonus": bonus,
+        "total": total,
+        "success": success,
     }
-    logger.info("[resolve_check] %s %s+%s=%s vs DC%s → %s",
-                actor.name, d20, bonus, total, check["dc"], "成功" if success else "失败")
-    return {"last_check": result, "campaign_log": log_event(state, {"event": "ability_check", **result})}
+    logger.info(
+        "[resolve_check] %s %s+%s=%s vs DC%s → %s",
+        actor.name,
+        d20,
+        bonus,
+        total,
+        check["dc"],
+        "成功" if success else "失败",
+    )
+    return {
+        "last_check": result,
+        "campaign_log": log_event(state, {"event": "ability_check", **result}),
+    }
 
 
 async def narrate_result(state: DMState) -> dict:
@@ -183,7 +225,10 @@ async def narrate_result(state: DMState) -> dict:
     text = await world_bridge.narrate_result(result, use_llm=llm_enabled(state))
     messages = list(state.get("messages", []))
     messages.append({"role": "dm", "content": text})
-    return {"messages": messages, "campaign_log": log_event(state, {"event": "narration", "text": text})}
+    return {
+        "messages": messages,
+        "campaign_log": log_event(state, {"event": "narration", "text": text}),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -201,11 +246,15 @@ def build_dm_subgraph():
 
     g.add_edge(START, "perceive")
     g.add_edge("perceive", "dm_decide")
-    g.add_conditional_edges("dm_decide", route_after_decide, {
-        "reply": "narrate_reply",
-        "check": "await_roll",
-        "combat": END,          # 交给会话主图路由进战斗子图（next=combat）
-    })
+    g.add_conditional_edges(
+        "dm_decide",
+        route_after_decide,
+        {
+            "reply": "narrate_reply",
+            "check": "await_roll",
+            "combat": END,  # 交给会话主图路由进战斗子图（next=combat）
+        },
+    )
     g.add_edge("narrate_reply", END)
     g.add_edge("await_roll", "resolve_check")
     g.add_edge("resolve_check", "narrate_result")

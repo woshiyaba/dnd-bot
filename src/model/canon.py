@@ -25,27 +25,27 @@ from src.model.enums import StrEnum
 class BeatKind(StrEnum):
     """一拍的类型，对应流程图四段。"""
 
-    OPENING = "opening"          # 开场·任务引入
+    OPENING = "opening"  # 开场·任务引入
     EXPLORATION = "exploration"  # 探索（珠内自由沙盒）
-    CONFLICT = "conflict"        # 冲突（小遭遇）
-    CLIMAX = "climax"            # 高潮·Boss 决战
-    ENDING = "ending"            # 结局·收尾
+    CONFLICT = "conflict"  # 冲突（小遭遇）
+    CLIMAX = "climax"  # 高潮·Boss 决战
+    ENDING = "ending"  # 结局·收尾
 
 
 class TriggerKind(StrEnum):
     """推进条件的判定方式：前四种由引擎确定性判定，semantic 留给 DM 是/否题兜底。"""
 
-    FLAG = "flag"                      # 世界 flag 为某值（引擎确定）
-    ITEM = "item"                      # 队伍持有某道具（引擎确定）
-    LOCATION = "location"              # 玩家到达某地点（引擎确定）
+    FLAG = "flag"  # 世界 flag 为某值（引擎确定）
+    ITEM = "item"  # 队伍持有某道具（引擎确定）
+    LOCATION = "location"  # 玩家到达某地点（引擎确定）
     COMBAT_OUTCOME = "combat_outcome"  # 某场战斗的结果（引擎确定）
-    SEMANTIC = "semantic"             # 对一条预写固定条件问 DM 是/否（兜底）
+    SEMANTIC = "semantic"  # 对一条预写固定条件问 DM 是/否（兜底）
 
 
 class EndingOutcome(StrEnum):
     """结局拍的归属：胜局 / 败局。"""
 
-    WIN = "win"    # 胜利结局
+    WIN = "win"  # 胜利结局
     LOSE = "lose"  # 失败结局
 
 
@@ -56,10 +56,12 @@ class EndingOutcome(StrEnum):
 class Trigger:
     """一个推进条件。``kind`` 决定判定方式，``predicate`` 携带判定参数。"""
 
-    id: str                                  # 触发器 id（出口据此引用）
-    kind: TriggerKind                        # 判定方式
-    predicate: dict[str, Any] = field(default_factory=dict)  # 判定参数（见 evaluate_trigger）
-    description: str = ""                     # 一句话说明（喂给 DM 的出口提示 / semantic 问句）
+    id: str  # 触发器 id（出口据此引用）
+    kind: TriggerKind  # 判定方式
+    predicate: dict[str, Any] = field(
+        default_factory=dict
+    )  # 判定参数（见 evaluate_trigger）
+    description: str = ""  # 一句话说明（喂给 DM 的出口提示 / semantic 问句）
 
     @classmethod
     def from_dict(cls, data: dict) -> "Trigger":
@@ -76,7 +78,7 @@ class Trigger:
 class Exit:
     """一个出口：某触发器命中后通向哪一拍。"""
 
-    trigger_id: str    # 命中即走此出口的触发器 id
+    trigger_id: str  # 命中即走此出口的触发器 id
     next_beat_id: str  # 通向的下一拍 id
 
     @classmethod
@@ -89,7 +91,7 @@ class Exit:
 class KeyInfo:
     """本拍 DM **必须**让玩家获知的关键线索。「是否已传达」记在 ``story.delivered_clues``，不入只读 canon。"""
 
-    id: str    # 线索 id
+    id: str  # 线索 id
     text: str  # 线索内容（DM 要把它自然地讲给玩家）
 
     @classmethod
@@ -102,13 +104,13 @@ class KeyInfo:
 class NpcSpec:
     """重要 NPC / Boss 的册页：带目标与秘密，必要时附可转战斗的卡面。"""
 
-    id: str                       # NPC id
-    name: str                     # 名字
-    role: str = ""                # 身份/定位
-    goal: str = ""                # 目标（驱动 DM 即兴时的动机）
-    secret: str = ""              # 秘密（仅 DM 可见，不可直接抖给玩家）
+    id: str  # NPC id
+    name: str  # 名字
+    role: str = ""  # 身份/定位
+    goal: str = ""  # 目标（驱动 DM 即兴时的动机）
+    secret: str = ""  # 秘密（仅 DM 可见，不可直接抖给玩家）
     disposition: str = "neutral"  # 态度：hostile | neutral | friendly
-    card: dict | None = None      # 可选：转战斗时用的英文键卡面
+    card: dict | None = None  # 可选：转战斗时用的英文键卡面
 
     @classmethod
     def from_dict(cls, data: dict) -> "NpcSpec":
@@ -128,9 +130,9 @@ class NpcSpec:
 class LocationSpec:
     """一个主要地点。``intra_exits`` 是珠内地点互通（不跨拍）。"""
 
-    id: str                                       # 地点 id
-    name: str                                     # 地点名
-    description: str = ""                          # 环境描述
+    id: str  # 地点 id
+    name: str  # 地点名
+    description: str = ""  # 环境描述
     intra_exits: list[str] = field(default_factory=list)  # 珠内可去的其它地点 id
 
     @classmethod
@@ -148,12 +150,16 @@ class LocationSpec:
 class Encounter:
     """conflict/climax 拍预置的遭遇模板：战斗触发时把这些参数带给战斗子图。"""
 
-    id: str                                          # 遭遇 id
-    monster_ids: list[str] = field(default_factory=list)  # 参战的敌方在场者 actor_id（卡面在 entry_state.actors 里）
-    surprised: list[str] = field(default_factory=list)    # 被突袭者 id
-    loot_table: list[Any] = field(default_factory=list)   # 战利品表（玩家胜利时发放）
-    random_seed: int | None = None                   # 可复现随机源
-    on_win_flags: list[str] = field(default_factory=list)  # 玩家胜利时引擎自动写入的 flag（须在白名单内）
+    id: str  # 遭遇 id
+    monster_ids: list[str] = field(
+        default_factory=list
+    )  # 参战的敌方在场者 actor_id（卡面在 entry_state.actors 里）
+    surprised: list[str] = field(default_factory=list)  # 被突袭者 id
+    loot_table: list[Any] = field(default_factory=list)  # 战利品表（玩家胜利时发放）
+    random_seed: int | None = None  # 可复现随机源
+    on_win_flags: list[str] = field(
+        default_factory=list
+    )  # 玩家胜利时引擎自动写入的 flag（须在白名单内）
 
     @classmethod
     def from_dict(cls, data: dict) -> "Encounter":
@@ -173,17 +179,23 @@ class Encounter:
 class Beat:
     """一拍 / 一颗糖葫芦珠：珠内自由沙盒 + 离开它的推进条件。"""
 
-    id: str                                          # 拍 id
-    title: str                                       # 拍标题
-    kind: BeatKind                                   # 拍类型
-    location_ids: list[str] = field(default_factory=list)  # 珠内沙盒地点（可多个，真沙盒）
-    entry_state: dict = field(default_factory=dict)  # 进入这拍时的世界初始状态（搭 scene 用，见 build_beat_scene）
-    key_info: list[KeyInfo] = field(default_factory=list)        # DM 必须传达的关键线索
+    id: str  # 拍 id
+    title: str  # 拍标题
+    kind: BeatKind  # 拍类型
+    location_ids: list[str] = field(
+        default_factory=list
+    )  # 珠内沙盒地点（可多个，真沙盒）
+    entry_state: dict = field(
+        default_factory=dict
+    )  # 进入这拍时的世界初始状态（搭 scene 用，见 build_beat_scene）
+    key_info: list[KeyInfo] = field(default_factory=list)  # DM 必须传达的关键线索
     advance_conditions: list[Trigger] = field(default_factory=list)  # 推进条件
-    exits: list[Exit] = field(default_factory=list)             # 出口（trigger_id → next_beat_id）
-    stuck_fallback: dict = field(default_factory=dict)          # 卡关兜底：{hint, reveal_clue, point_to_exit}
-    encounter: Encounter | None = None               # 可选：预置遭遇
-    ending_outcome: EndingOutcome | None = None       # 仅 ending 拍：胜局 / 败局
+    exits: list[Exit] = field(default_factory=list)  # 出口（trigger_id → next_beat_id）
+    stuck_fallback: dict = field(
+        default_factory=dict
+    )  # 卡关兜底：{hint, reveal_clue, point_to_exit}
+    encounter: Encounter | None = None  # 可选：预置遭遇
+    ending_outcome: EndingOutcome | None = None  # 仅 ending 拍：胜局 / 败局
 
     def exit_for(self, trigger_id: str) -> Exit | None:
         """取某触发器对应的出口。"""
@@ -206,7 +218,9 @@ class Beat:
             location_ids=list(data.get("location_ids", [])),
             entry_state=dict(data.get("entry_state", {})),
             key_info=[KeyInfo.from_dict(k) for k in data.get("key_info", [])],
-            advance_conditions=[Trigger.from_dict(t) for t in data.get("advance_conditions", [])],
+            advance_conditions=[
+                Trigger.from_dict(t) for t in data.get("advance_conditions", [])
+            ],
             exits=[Exit.from_dict(e) for e in data.get("exits", [])],
             stuck_fallback=dict(data.get("stuck_fallback", {})),
             encounter=Encounter.from_dict(encounter) if encounter else None,
@@ -221,18 +235,20 @@ class Beat:
 class Canon:
     """整局冻结的剧情圣经：大纲 + 珠子串 + 整局胜负条件。只读。"""
 
-    campaign_id: str                                 # 本局 canon 的唯一 id（注册表 key）
-    title: str                                       # 标题
-    premise: str = ""                                # 一句话主线
-    theme: str = ""                                  # 主题
-    tone: str = ""                                   # 基调
-    win_condition: Trigger | None = None             # 整局胜利条件
-    lose_condition: Trigger | None = None            # 整局失败条件
-    declared_flags: list[str] = field(default_factory=list)  # flag 白名单（DM 只能写这里声明过的）
-    cast: list[NpcSpec] = field(default_factory=list)        # 重要 NPC / Boss 册
+    campaign_id: str  # 本局 canon 的唯一 id（注册表 key）
+    title: str  # 标题
+    premise: str = ""  # 一句话主线
+    theme: str = ""  # 主题
+    tone: str = ""  # 基调
+    win_condition: Trigger | None = None  # 整局胜利条件
+    lose_condition: Trigger | None = None  # 整局失败条件
+    declared_flags: list[str] = field(
+        default_factory=list
+    )  # flag 白名单（DM 只能写这里声明过的）
+    cast: list[NpcSpec] = field(default_factory=list)  # 重要 NPC / Boss 册
     locations: list[LocationSpec] = field(default_factory=list)  # 主要地点
-    beats: list[Beat] = field(default_factory=list)          # 主线珠子串
-    start_beat_id: str = ""                          # 起始拍 id
+    beats: list[Beat] = field(default_factory=list)  # 主线珠子串
+    start_beat_id: str = ""  # 起始拍 id
 
     # ---- 查找 ----
     def beat(self, beat_id: str) -> Beat | None:
@@ -249,7 +265,9 @@ class Canon:
 
     def ending_beat(self, outcome: EndingOutcome) -> Beat | None:
         """取某归属（胜/败）的结局拍。"""
-        return next((b for b in self.beats if b.is_ending and b.ending_outcome == outcome), None)
+        return next(
+            (b for b in self.beats if b.is_ending and b.ending_outcome == outcome), None
+        )
 
     @classmethod
     def from_dict(cls, data: dict) -> "Canon":
@@ -266,7 +284,9 @@ class Canon:
             lose_condition=Trigger.from_dict(lose) if lose else None,
             declared_flags=list(data.get("declared_flags", [])),
             cast=[NpcSpec.from_dict(n) for n in data.get("cast", [])],
-            locations=[LocationSpec.from_dict(loc) for loc in data.get("locations", [])],
+            locations=[
+                LocationSpec.from_dict(loc) for loc in data.get("locations", [])
+            ],
             beats=[Beat.from_dict(b) for b in data.get("beats", [])],
             start_beat_id=str(data.get("start_beat_id", "")),
         )
@@ -306,16 +326,16 @@ def evaluate_trigger(
     if trigger.kind == TriggerKind.ITEM:
         item_id = pred.get("item_id")
         return any(
-            getattr(item, "item_id", None) == item_id and getattr(item, "quantity", 0) > 0
+            getattr(item, "item_id", None) == item_id
+            and getattr(item, "quantity", 0) > 0
             for c in party.values()
             for item in getattr(c, "inventory", [])
         )
     if trigger.kind == TriggerKind.LOCATION:
         location_id = pred.get("location_id")
-        return (
-            story.get("current_location_id") == location_id
-            or location_id in story.get("visited_locations", [])
-        )
+        return story.get(
+            "current_location_id"
+        ) == location_id or location_id in story.get("visited_locations", [])
     if trigger.kind == TriggerKind.COMBAT_OUTCOME:
         return (last_combat or {}).get("outcome") == pred.get("outcome")
     # semantic：引擎判不了
@@ -342,7 +362,14 @@ def beat_brief(canon: Canon, story: dict) -> dict | None:
     for actor in beat.entry_state.get("actors", []):
         spec = canon.npc(actor.get("actor_id") or actor.get("npc_ref", ""))
         if spec is not None:
-            on_stage.append({"name": spec.name, "role": spec.role, "goal": spec.goal, "secret": spec.secret})
+            on_stage.append(
+                {
+                    "name": spec.name,
+                    "role": spec.role,
+                    "goal": spec.goal,
+                    "secret": spec.secret,
+                }
+            )
 
     locations = [
         {"id": loc.id, "name": loc.name, "description": loc.description}
@@ -355,7 +382,9 @@ def beat_brief(canon: Canon, story: dict) -> dict | None:
         "locations": locations,
         "undelivered_clues": undelivered,
         "npcs": on_stage,
-        "advance_hints": [t.description for t in beat.advance_conditions if t.description],
+        "advance_hints": [
+            t.description for t in beat.advance_conditions if t.description
+        ],
     }
 
 
@@ -396,9 +425,13 @@ def validate_canon(canon: Canon) -> list[str]:
         trigger_ids = {t.id for t in beat.advance_conditions}
         for ex in beat.exits:
             if ex.next_beat_id not in beat_ids:
-                errors.append(f"拍 «{beat.id}» 的出口指向不存在的 next_beat_id «{ex.next_beat_id}»")
+                errors.append(
+                    f"拍 «{beat.id}» 的出口指向不存在的 next_beat_id «{ex.next_beat_id}»"
+                )
             if ex.trigger_id not in trigger_ids:
-                errors.append(f"拍 «{beat.id}» 的出口引用了不存在的 trigger_id «{ex.trigger_id}»")
+                errors.append(
+                    f"拍 «{beat.id}» 的出口引用了不存在的 trigger_id «{ex.trigger_id}»"
+                )
         for lid in beat.location_ids:
             if lid not in location_ids:
                 errors.append(f"拍 «{beat.id}» 引用了不存在的 location_id «{lid}»")
@@ -407,11 +440,15 @@ def validate_canon(canon: Canon) -> list[str]:
                 referenced = _flag_trigger_names(t)
                 for flag in referenced:
                     if flag not in declared:
-                        errors.append(f"拍 «{beat.id}» 触发器 «{t.id}» 的 flag «{flag}» 不在 declared_flags 白名单内")
+                        errors.append(
+                            f"拍 «{beat.id}» 触发器 «{t.id}» 的 flag «{flag}» 不在 declared_flags 白名单内"
+                        )
         if beat.encounter is not None:
             for flag in beat.encounter.on_win_flags:
                 if flag not in declared:
-                    errors.append(f"拍 «{beat.id}» 遭遇胜利写入的 flag «{flag}» 不在 declared_flags 白名单内")
+                    errors.append(
+                        f"拍 «{beat.id}» 遭遇胜利写入的 flag «{flag}» 不在 declared_flags 白名单内"
+                    )
         # 非结局拍必须有出路
         if not beat.is_ending and not beat.exits:
             errors.append(f"非结局拍 «{beat.id}» 没有任何出口（会卡死）")

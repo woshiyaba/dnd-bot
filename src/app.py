@@ -46,6 +46,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
 
 class InvokeRequest(BaseModel):
     """调用请求模型"""
+
     user_input: str = Field(..., description="用户输入的消息")
     thread_id: str = Field(default="default", description="会话线程 ID")
     user_id: str = Field(default="用户ID", description="用户ID")
@@ -102,6 +103,7 @@ async def invoke_graph(request: InvokeRequest):
             },
         )
     return response
+
 
 async def create_app() -> FastAPI:
     """工厂函数：创建并返回 FastAPI 应用实例"""

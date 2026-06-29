@@ -67,7 +67,11 @@ def _build_combat_input(state: DMState) -> tuple[dict, dict]:
         actor = actors.get(mid)
         if not actor or not actor.get("card"):
             continue
-        entry = {"type": actor.get("type", "monster"), "card": actor["card"], "faction": "enemy"}
+        entry = {
+            "type": actor.get("type", "monster"),
+            "card": actor["card"],
+            "faction": "enemy",
+        }
         enemy = load_combatant(entry)
         combatants[enemy.id] = enemy
 
@@ -96,10 +100,12 @@ async def run_combat(state: DMState) -> dict:
     combatants, scene_context = _build_combat_input(state)
     logger.info("[run_combat] 进入战斗 | 参战者=%d", len(combatants))
 
-    combat_state = await _COMBAT_SUBGRAPH.ainvoke({
-        "combatants": combatants,
-        "scene_context": scene_context,
-    })
+    combat_state = await _COMBAT_SUBGRAPH.ainvoke(
+        {
+            "combatants": combatants,
+            "scene_context": scene_context,
+        }
+    )
 
     party = dict(state.get("party") or {})
     last_combat = fold_combat_writeback(party, combat_state)
@@ -108,12 +114,15 @@ async def run_combat(state: DMState) -> dict:
     casualty_ids = {c["id"] for c in last_combat.get("casualties", [])}
     scene = dict(state.get("scene") or {})
     scene["actors"] = [
-        a for a in scene.get("actors", [])
-        if a.get("actor_id") not in casualty_ids
+        a for a in scene.get("actors", []) if a.get("actor_id") not in casualty_ids
     ]
     scene.pop("threat", None)  # 战斗已发生，清掉「潜在威胁」提示
 
-    logger.info("[run_combat] 战斗结束 | outcome=%s 伤亡=%d", last_combat.get("outcome"), len(casualty_ids))
+    logger.info(
+        "[run_combat] 战斗结束 | outcome=%s 伤亡=%d",
+        last_combat.get("outcome"),
+        len(casualty_ids),
+    )
     return {
         "party": party,
         "scene": scene,
@@ -130,11 +139,16 @@ async def run_combat(state: DMState) -> dict:
 async def narrate_aftermath(state: DMState) -> dict:
     """战斗结束后，DM 叙述战后世界并邀请玩家继续。"""
     text = await world_bridge.narrate_aftermath(
-        state.get("last_combat") or {}, state.get("scene") or {}, use_llm=llm_enabled(state),
+        state.get("last_combat") or {},
+        state.get("scene") or {},
+        use_llm=llm_enabled(state),
     )
     messages = list(state.get("messages", []))
     messages.append({"role": "dm", "content": text})
-    return {"messages": messages, "campaign_log": log_event(state, {"event": "narration", "text": text})}
+    return {
+        "messages": messages,
+        "campaign_log": log_event(state, {"event": "narration", "text": text}),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -147,8 +161,8 @@ def build_session_graph(checkpointer: Any | None = None):
     """
     g = StateGraph(DMState)
 
-    g.add_node("dm_turn", build_dm_subgraph())   # DM 子图（同 schema，直接嵌入）
-    g.add_node("run_combat", run_combat)         # 战斗子图（包装节点映射 schema）
+    g.add_node("dm_turn", build_dm_subgraph())  # DM 子图（同 schema，直接嵌入）
+    g.add_node("run_combat", run_combat)  # 战斗子图（包装节点映射 schema）
     g.add_node("narrate_aftermath", narrate_aftermath)
     # 故事推进段（糖葫芦串珠：触发推进 / 否则探索）
     g.add_node("evaluate_advancement", story_nodes.evaluate_advancement)
@@ -158,27 +172,40 @@ def build_session_graph(checkpointer: Any | None = None):
 
     g.add_edge(START, "dm_turn")
     # DM 回合后：进战斗 → 战后叙述 → 推进判定；否则直接推进判定
-    g.add_conditional_edges("dm_turn", route_session, {
-        "wait": "evaluate_advancement",
-        "combat": "run_combat",
-    })
+    g.add_conditional_edges(
+        "dm_turn",
+        route_session,
+        {
+            "wait": "evaluate_advancement",
+            "combat": "run_combat",
+        },
+    )
     g.add_edge("run_combat", "narrate_aftermath")
     g.add_edge("narrate_aftermath", "evaluate_advancement")
     # 推进判定：命中切拍，否则把控制权交回玩家（END，等下一条消息）
-    g.add_conditional_edges("evaluate_advancement", story_nodes.route_advancement, {
-        "advance": "enter_beat",
-        "stay": END,
-    })
+    g.add_conditional_edges(
+        "evaluate_advancement",
+        story_nodes.route_advancement,
+        {
+            "advance": "enter_beat",
+            "stay": END,
+        },
+    )
     g.add_edge("enter_beat", "narrate_beat")
     # 过场叙述后：新拍是结局拍则收尾，否则交回玩家
-    g.add_conditional_edges("narrate_beat", story_nodes.route_ending, {
-        "ending": "epilogue",
-        "ongoing": END,
-    })
+    g.add_conditional_edges(
+        "narrate_beat",
+        story_nodes.route_ending,
+        {
+            "ending": "epilogue",
+            "ongoing": END,
+        },
+    )
     g.add_edge("epilogue", END)
 
     if checkpointer is None:
         from langgraph.checkpoint.memory import MemorySaver
+
         checkpointer = MemorySaver(serde=build_serde())
 
     return g.compile(checkpointer=checkpointer)

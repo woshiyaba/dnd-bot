@@ -33,7 +33,8 @@ def load_canon_file(path: str | Path) -> Canon:
     errors = validate_canon(canon)
     if errors:
         raise CanonValidationError(
-            f"canon «{canon.campaign_id}»（{path.name}）校验未通过：\n- " + "\n- ".join(errors)
+            f"canon «{canon.campaign_id}»（{path.name}）校验未通过：\n- "
+            + "\n- ".join(errors)
         )
     return canon
 
@@ -68,7 +69,12 @@ class CanonRegistry:
             for path in sorted(directory.glob("*.json")):
                 canon = load_canon_file(path)  # 校验失败会向上抛
                 self._by_id[canon.campaign_id] = canon
-                logger.info("[canon] 已加载 «%s» ← %s（%d 拍）", canon.campaign_id, path.name, len(canon.beats))
+                logger.info(
+                    "[canon] 已加载 «%s» ← %s（%d 拍）",
+                    canon.campaign_id,
+                    path.name,
+                    len(canon.beats),
+                )
         return dict(self._by_id)
 
 

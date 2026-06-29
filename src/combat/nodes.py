@@ -63,6 +63,7 @@ def _dm_mode_on(scene: dict | None) -> bool:
     if (scene or {}).get("dm_mode") != "llm":
         return False
     from dotenv import load_dotenv
+
     load_dotenv()
     if not os.getenv("DASHSCOPE_API_KEY"):
         logger.warning("[dm] dm_mode=llm 但未配置 DASHSCOPE_API_KEY，回落启发式 DM")
@@ -132,6 +133,7 @@ async def judge_surprise(state: CombatState) -> dict:
     surprised: list[str] | None = None
     if _dm_mode_on(scene):
         from src.combat import dm_bridge
+
         try:
             surprised = await dm_bridge.judge_surprise_llm(combatants, scene)
         except Exception:  # noqa: BLE001 - DM 失败不应中断战斗
@@ -166,13 +168,15 @@ def roll_initiative(state: CombatState) -> dict:
     for c in combatants.values():
         if c.is_player_controlled:
             prompt = f"轮到 {c.name}，掷先攻：d20 + {c.effective_initiative_bonus}"
-            resume_value = interrupt(build_interrupt_request(
-                kind=InterruptType.ROLL_INITIATIVE,
-                actor=c,
-                prompt=prompt,
-                required_dice="d20",
-                bonus=c.effective_initiative_bonus,
-            ))
+            resume_value = interrupt(
+                build_interrupt_request(
+                    kind=InterruptType.ROLL_INITIATIVE,
+                    actor=c,
+                    prompt=prompt,
+                    required_dice="d20",
+                    bonus=c.effective_initiative_bonus,
+                )
+            )
             d20 = validate_d20(resume_value)
         else:
             d20 = current_engine_dice().d20()
@@ -181,14 +185,23 @@ def roll_initiative(state: CombatState) -> dict:
     # 降序排序；平手用敏捷调整值，再用引擎随机数打破
     order = sorted(
         combatants.values(),
-        key=lambda c: (c.initiative, c.modifier(Ability.DEXTERITY), current_engine_dice().d20()),
+        key=lambda c: (
+            c.initiative,
+            c.modifier(Ability.DEXTERITY),
+            current_engine_dice().d20(),
+        ),
         reverse=True,
     )
     initiative_order = [c.id for c in order]
 
-    events = [{"event": "roll_initiative", "initiative_order": [
-        {"id": c.id, "name": c.name, "initiative": c.initiative} for c in order
-    ]}]
+    events = [
+        {
+            "event": "roll_initiative",
+            "initiative_order": [
+                {"id": c.id, "name": c.name, "initiative": c.initiative} for c in order
+            ],
+        }
+    ]
     logger.info("[roll_initiative] 先攻顺序=%s", initiative_order)
     return {
         "combatants": combatants,
@@ -236,22 +249,45 @@ def next_turn(state: CombatState) -> dict:
         for s in list(actor.conditions):
             if s.kind == ConditionType.DAMAGE_OVER_TIME and s.amount > 0:
                 dealt = actor.take_damage(s.amount)
-                events.append(_with_round(state | {"current_round": rnd}, {
-                    "event": "damage_over_time", "actor": actor.id,
-                    "damage": dealt, "current_hp": actor.current_hp,
-                }))
+                events.append(
+                    _with_round(
+                        state | {"current_round": rnd},
+                        {
+                            "event": "damage_over_time",
+                            "actor": actor.id,
+                            "damage": dealt,
+                            "current_hp": actor.current_hp,
+                        },
+                    )
+                )
 
         was_stunned = actor.has_condition(ConditionType.STUNNED)
         actor.tick_conditions()
 
         if not actor.is_alive:
-            events.append({"event": "down", "actor": actor.id, "reason": "damage_over_time", "round": rnd})
+            events.append(
+                {
+                    "event": "down",
+                    "actor": actor.id,
+                    "reason": "damage_over_time",
+                    "round": rnd,
+                }
+            )
             continue
         if actor.is_surprised and rnd == 1:
-            events.append({"event": "skip", "actor": actor.id, "reason": "surprised", "round": rnd})
+            events.append(
+                {
+                    "event": "skip",
+                    "actor": actor.id,
+                    "reason": "surprised",
+                    "round": rnd,
+                }
+            )
             continue
         if was_stunned:
-            events.append({"event": "skip", "actor": actor.id, "reason": "stunned", "round": rnd})
+            events.append(
+                {"event": "skip", "actor": actor.id, "reason": "stunned", "round": rnd}
+            )
             continue
         break
 
@@ -281,17 +317,20 @@ async def declare_action(state: CombatState) -> dict:
 
     if actor.is_player_controlled:
         options = build_action_options(actor, combatants)
-        resume_value = interrupt(build_interrupt_request(
-            kind=InterruptType.DECLARE_ACTION,
-            actor=actor,
-            prompt=f"轮到 {actor.name}，声明你的行动",
-            options=options,
-        ))
+        resume_value = interrupt(
+            build_interrupt_request(
+                kind=InterruptType.DECLARE_ACTION,
+                actor=actor,
+                prompt=f"轮到 {actor.name}，声明你的行动",
+                options=options,
+            )
+        )
         current_action = _normalize_action(resume_value, actor, combatants)
     else:
         current_action = None
         if _dm_mode_on(scene):
             from src.combat import dm_bridge
+
             try:
                 current_action = await dm_bridge.decide_action_llm(actor, combatants)
             except Exception:  # noqa: BLE001 - DM 失败不应中断战斗
@@ -304,7 +343,9 @@ async def declare_action(state: CombatState) -> dict:
     return {"current_action": current_action}
 
 
-def _normalize_action(resume_value: Any, actor: Combatant, combatants: dict[str, Combatant]) -> dict:
+def _normalize_action(
+    resume_value: Any, actor: Combatant, combatants: dict[str, Combatant]
+) -> dict:
     """把玩家回报的恢复值规范成统一的「current_action」结构。"""
     if not isinstance(resume_value, dict):
         return {"action_type": ActionType.PASS.value}
@@ -319,7 +360,9 @@ def _dm_decide(actor: Combatant, combatants: dict[str, Combatant]) -> dict:
     策略：选第一件能够得着存活敌人的武器，打血量最低的目标；
     都够不着 → 移动到最近敌人的区域；没有敌人 → 放弃。
     """
-    enemies_alive = [c for c in combatants.values() if c.faction != actor.faction and c.is_alive]
+    enemies_alive = [
+        c for c in combatants.values() if c.faction != actor.faction and c.is_alive
+    ]
     if not enemies_alive:
         return {"action_type": ActionType.PASS.value}
 
@@ -362,7 +405,9 @@ def resolve_action(state: CombatState) -> dict:
         events = [{"event": "pass", "actor": actor.id}]
 
     events = [_with_round(state, e) for e in events]
-    logger.info("[resolve_action] %s 事件=%s", actor.id, [e.get("event") for e in events])
+    logger.info(
+        "[resolve_action] %s 事件=%s", actor.id, [e.get("event") for e in events]
+    )
     return {
         "combatants": combatants,
         "turn_events": events,
@@ -370,29 +415,48 @@ def resolve_action(state: CombatState) -> dict:
     }
 
 
-def _resolve_attack(actor: Combatant, action: dict, combatants: dict[str, Combatant]) -> list[dict]:
+def _resolve_attack(
+    actor: Combatant, action: dict, combatants: dict[str, Combatant]
+) -> list[dict]:
     """攻击结算：掷命中 → 判定 → 掷伤害 → 扣 HP，必要时置倒下。"""
-    weapon = next((a for a in actor.attacks if a.name == action.get("attack_name")), None)
+    weapon = next(
+        (a for a in actor.attacks if a.name == action.get("attack_name")), None
+    )
     if weapon is None and actor.attacks:
         weapon = actor.attacks[0]
     target = combatants.get(action.get("target_id", ""))
 
     if weapon is None or target is None or not target.is_alive:
-        return [{"event": "invalid_attack", "actor": actor.id, "target": action.get("target_id")}]
+        return [
+            {
+                "event": "invalid_attack",
+                "actor": actor.id,
+                "target": action.get("target_id"),
+            }
+        ]
     if not in_reach(actor, target, weapon.is_ranged):
-        return [{"event": "out_of_reach", "actor": actor.id, "target": target.id, "attack_name": weapon.name}]
+        return [
+            {
+                "event": "out_of_reach",
+                "actor": actor.id,
+                "target": target.id,
+                "attack_name": weapon.name,
+            }
+        ]
 
     # —— 命中骰：玩家中断（可一并报伤害）；怪物引擎掷 ——
     player_damage: int | None = None
     if actor.is_player_controlled:
-        resume_value = interrupt(build_interrupt_request(
-            kind=InterruptType.ATTACK_ROLL,
-            actor=actor,
-            prompt=f"{actor.name} 用「{weapon.name}」攻击 {target.name}：掷 d20 + {weapon.attack_bonus}",
-            required_dice="d20",
-            bonus=weapon.attack_bonus,
-            extra={"damage_dice": weapon.damage_dice},
-        ))
+        resume_value = interrupt(
+            build_interrupt_request(
+                kind=InterruptType.ATTACK_ROLL,
+                actor=actor,
+                prompt=f"{actor.name} 用「{weapon.name}」攻击 {target.name}：掷 d20 + {weapon.attack_bonus}",
+                required_dice="d20",
+                bonus=weapon.attack_bonus,
+                extra={"damage_dice": weapon.damage_dice},
+            )
+        )
         d20 = validate_d20(resume_value)
         player_damage = extract_damage(resume_value)
     else:
@@ -400,8 +464,13 @@ def _resolve_attack(actor: Combatant, action: dict, combatants: dict[str, Combat
 
     result = resolve_attack(d20, weapon.attack_bonus, target.ac)
     event: dict = {
-        "event": "attack", "actor": actor.id, "target": target.id,
-        "attack_name": weapon.name, "d20": d20, "hit": result.hit, "crit": result.crit,
+        "event": "attack",
+        "actor": actor.id,
+        "target": target.id,
+        "attack_name": weapon.name,
+        "d20": d20,
+        "hit": result.hit,
+        "crit": result.crit,
     }
 
     if not result.hit:
@@ -411,33 +480,48 @@ def _resolve_attack(actor: Combatant, action: dict, combatants: dict[str, Combat
     if result.crit:
         # 重击需翻倍骰数：玩家补一次伤害掷骰中断；怪物引擎翻倍掷
         if actor.is_player_controlled:
-            resume_value = interrupt(build_interrupt_request(
-                kind=InterruptType.DAMAGE_ROLL,
-                actor=actor,
-                prompt=f"重击！把 {weapon.damage_dice} 的骰子数翻倍掷，报伤害总和",
-                required_dice=weapon.damage_dice,
-            ))
-            damage = extract_damage(resume_value) or current_engine_dice().roll(weapon.damage_dice, crit=True).total
+            resume_value = interrupt(
+                build_interrupt_request(
+                    kind=InterruptType.DAMAGE_ROLL,
+                    actor=actor,
+                    prompt=f"重击！把 {weapon.damage_dice} 的骰子数翻倍掷，报伤害总和",
+                    required_dice=weapon.damage_dice,
+                )
+            )
+            damage = (
+                extract_damage(resume_value)
+                or current_engine_dice().roll(weapon.damage_dice, crit=True).total
+            )
         else:
             damage = current_engine_dice().roll(weapon.damage_dice, crit=True).total
     else:
         if actor.is_player_controlled:
-            damage = player_damage if player_damage is not None else current_engine_dice().roll(weapon.damage_dice).total
+            damage = (
+                player_damage
+                if player_damage is not None
+                else current_engine_dice().roll(weapon.damage_dice).total
+            )
         else:
             damage = current_engine_dice().roll(weapon.damage_dice).total
 
     dealt = target.take_damage(damage)
-    event.update({
-        "damage": dealt, "damage_type": str(weapon.damage_type.value),
-        "target_hp": target.current_hp, "target_alive": target.is_alive,
-    })
+    event.update(
+        {
+            "damage": dealt,
+            "damage_type": str(weapon.damage_type.value),
+            "target_hp": target.current_hp,
+            "target_alive": target.is_alive,
+        }
+    )
     return [event]
 
 
 _HEALING_SKILLS = {"skill_second_wind": "1d10"}
 
 
-def _resolve_skill(actor: Combatant, action: dict, combatants: dict[str, Combatant]) -> list[dict]:
+def _resolve_skill(
+    actor: Combatant, action: dict, combatants: dict[str, Combatant]
+) -> list[dict]:
     """技能结算（v0）：扣充能；已知治疗技能回血，其余仅记事交 DM 叙述。"""
     skill_id = action.get("skill_id", "")
     owned = None
@@ -450,16 +534,22 @@ def _resolve_skill(actor: Combatant, action: dict, combatants: dict[str, Combata
     event: dict = {"event": "skill", "actor": actor.id, "skill_id": skill_id}
 
     if skill_id in _HEALING_SKILLS:
-        heal_amount = current_engine_dice().roll(_HEALING_SKILLS[skill_id]).total + getattr(actor, "level", 1)
+        heal_amount = current_engine_dice().roll(
+            _HEALING_SKILLS[skill_id]
+        ).total + getattr(actor, "level", 1)
         healed = actor.heal(heal_amount)
-        event.update({"heal": healed, "target": actor.id, "target_hp": actor.current_hp})
+        event.update(
+            {"heal": healed, "target": actor.id, "target_hp": actor.current_hp}
+        )
     return [event]
 
 
 _HEALING_ITEMS = {"item_healing_potion": "2d4+2"}
 
 
-def _resolve_item(actor: Combatant, action: dict, combatants: dict[str, Combatant]) -> list[dict]:
+def _resolve_item(
+    actor: Combatant, action: dict, combatants: dict[str, Combatant]
+) -> list[dict]:
     """道具结算（v0）：扣数量；已知治疗药水回血，其余仅记事。"""
     item_id = action.get("item_id", "")
     owned = None
@@ -470,7 +560,12 @@ def _resolve_item(actor: Combatant, action: dict, combatants: dict[str, Combatan
 
     owned.quantity -= 1
     target = combatants.get(action.get("target_id", ""), actor)
-    event: dict = {"event": "item", "actor": actor.id, "item_id": item_id, "target": target.id}
+    event: dict = {
+        "event": "item",
+        "actor": actor.id,
+        "item_id": item_id,
+        "target": target.id,
+    }
 
     if item_id in _HEALING_ITEMS:
         healed = target.heal(current_engine_dice().roll(_HEALING_ITEMS[item_id]).total)
@@ -478,39 +573,53 @@ def _resolve_item(actor: Combatant, action: dict, combatants: dict[str, Combatan
     return [event]
 
 
-def _resolve_improvise(actor: Combatant, action: dict, combatants: dict[str, Combatant]) -> list[dict]:
+def _resolve_improvise(
+    actor: Combatant, action: dict, combatants: dict[str, Combatant]
+) -> list[dict]:
     """创意动作（v0）：DM 给 DC（默认 12），行动者掷敏捷检定；引擎只判成败，效果交 DM 叙述。"""
     dc = int(action.get("dc", 12))
     ability = Ability(action.get("ability", Ability.DEXTERITY))
     bonus = ability_check_bonus(actor, ability)
 
     if actor.is_player_controlled:
-        resume_value = interrupt(build_interrupt_request(
-            kind=InterruptType.ABILITY_CHECK,
-            actor=actor,
-            prompt=f"创意动作「{action.get('description', '')}」：掷 {ability.value}检定 d20 + {bonus}，对抗 DC {dc}",
-            required_dice="d20",
-            bonus=bonus,
-        ))
+        resume_value = interrupt(
+            build_interrupt_request(
+                kind=InterruptType.ABILITY_CHECK,
+                actor=actor,
+                prompt=f"创意动作「{action.get('description', '')}」：掷 {ability.value}检定 d20 + {bonus}，对抗 DC {dc}",
+                required_dice="d20",
+                bonus=bonus,
+            )
+        )
         d20 = validate_d20(resume_value)
     else:
         d20 = current_engine_dice().d20()
 
     success = check_success(d20, bonus, dc)
-    return [{
-        "event": "improvise", "actor": actor.id, "description": action.get("description", ""),
-        "d20": d20, "dc": dc, "success": success,
-    }]
+    return [
+        {
+            "event": "improvise",
+            "actor": actor.id,
+            "description": action.get("description", ""),
+            "d20": d20,
+            "dc": dc,
+            "success": success,
+        }
+    ]
 
 
 def _resolve_move(actor: Combatant, action: dict) -> list[dict]:
     """移动：改变所在区域（本版区域粒度，不算格子）。"""
     old_zone = actor.current_zone
     actor.current_zone = action.get("target_zone", old_zone)
-    return [{
-        "event": "move", "actor": actor.id,
-        "from": old_zone, "to": actor.current_zone,
-    }]
+    return [
+        {
+            "event": "move",
+            "actor": actor.id,
+            "from": old_zone,
+            "to": actor.current_zone,
+        }
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -529,14 +638,26 @@ async def narrate(state: CombatState) -> dict:
 
     if events and _dm_mode_on(scene):
         from src.combat import dm_bridge
+
         try:
-            narration = await dm_bridge.narrate_llm(events, combatants, state.get("current_round"))
+            narration = await dm_bridge.narrate_llm(
+                events, combatants, state.get("current_round")
+            )
         except Exception:  # noqa: BLE001 - DM 失败不应中断战斗
             logger.exception("[narrate] DM 叙述失败，回落模板")
             narration = None
         if narration:
             # DM 路径已在流式过程中推过 custom 事件，这里只落日志
-            log = _append_log(state, [{"event": "narration", "text": narration, "round": state.get("current_round")}])
+            log = _append_log(
+                state,
+                [
+                    {
+                        "event": "narration",
+                        "text": narration,
+                        "round": state.get("current_round"),
+                    }
+                ],
+            )
             return {"combat_log": log}
 
     # —— 回落：确定性模板叙述 ——
@@ -553,7 +674,16 @@ async def narrate(state: CombatState) -> dict:
         writer({"node": "narrate", "status": "streaming", "chunk": narration})
         writer({"node": "narrate", "status": "end"})
 
-    log = _append_log(state, [{"event": "narration", "text": narration, "round": state.get("current_round")}])
+    log = _append_log(
+        state,
+        [
+            {
+                "event": "narration",
+                "text": narration,
+                "round": state.get("current_round"),
+            }
+        ],
+    )
     return {"combat_log": log}
 
 
@@ -588,7 +718,9 @@ def _narrate_event(e: dict, combatants: dict[str, Combatant]) -> str:
     if event_type == "damage_over_time":
         return f"{name(e.get('actor'))}受到持续伤害{e.get('damage')}点。"
     if event_type == "skip":
-        reason_text = {"surprised": "被突袭", "stunned": "眩晕"}.get(e.get("reason"), e.get("reason"))
+        reason_text = {"surprised": "被突袭", "stunned": "眩晕"}.get(
+            e.get("reason"), e.get("reason")
+        )
         return f"{name(e.get('actor'))}因{reason_text}无法行动。"
     if event_type == "pass":
         return f"{name(e.get('actor'))}选择按兵不动。"
@@ -601,8 +733,12 @@ def _narrate_event(e: dict, combatants: dict[str, Combatant]) -> str:
 def check_end(state: CombatState) -> dict:
     """判胜负，改写 `outcome`（条件由 `route_after_check` 只读路由）。"""
     combatants = state["combatants"]
-    enemy_alive = any(c.is_alive for c in combatants.values() if c.faction == Faction.ENEMY)
-    player_alive = any(c.is_alive for c in combatants.values() if c.faction == Faction.PLAYER)
+    enemy_alive = any(
+        c.is_alive for c in combatants.values() if c.faction == Faction.ENEMY
+    )
+    player_alive = any(
+        c.is_alive for c in combatants.values() if c.faction == Faction.PLAYER
+    )
 
     if not enemy_alive:
         outcome = CombatOutcome.PLAYERS_WIN
@@ -637,12 +773,19 @@ def settle(state: CombatState) -> dict:
         }
         for cid, c in combatants.items()
     }
-    loot = scene.get("loot_table", []) if state["outcome"] == CombatOutcome.PLAYERS_WIN else []
+    loot = (
+        scene.get("loot_table", [])
+        if state["outcome"] == CombatOutcome.PLAYERS_WIN
+        else []
+    )
 
-    events = [{
-        "event": "settle", "outcome": str(state["outcome"].value),
-        "loot": loot,
-    }]
+    events = [
+        {
+            "event": "settle",
+            "outcome": str(state["outcome"].value),
+            "loot": loot,
+        }
+    ]
     logger.info("[settle] 战斗结束 | 结果=%s", state["outcome"].value)
     return {
         "phase": CombatPhase.ENDED,

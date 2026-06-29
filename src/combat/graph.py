@@ -50,10 +50,25 @@ from src.model.combat_state import CombatState
 # 这些自定义模型会被 checkpointer 以 msgpack 持久化进 CombatState；
 # 显式登记为允许反序列化的类型，避免 LangGraph 未来版本拦截（并消除告警）。
 _COMBAT_SERDE_WHITELIST = (
-    Combatant, Monster, Character, PlayerCharacter, NPC,
-    Attack, Condition, LearnedSkill, InventoryItem,
-    Ability, ActionType, CombatOutcome, CombatPhase, ConditionType,
-    DamageType, Faction, InterruptType, LifeState, Range,
+    Combatant,
+    Monster,
+    Character,
+    PlayerCharacter,
+    NPC,
+    Attack,
+    Condition,
+    LearnedSkill,
+    InventoryItem,
+    Ability,
+    ActionType,
+    CombatOutcome,
+    CombatPhase,
+    ConditionType,
+    DamageType,
+    Faction,
+    InterruptType,
+    LifeState,
+    Range,
 )
 
 
@@ -105,10 +120,14 @@ def build_combat_graph(checkpointer: Any | None = None, *, embeddable: bool = Fa
     g.add_edge("narrate", "check_end")
 
     # check_end 节点改写「outcome」，route_after_check 只读路由
-    g.add_conditional_edges("check_end", route_after_check, {
-        "continue": "next_turn",
-        "end": "settle",
-    })
+    g.add_conditional_edges(
+        "check_end",
+        route_after_check,
+        {
+            "continue": "next_turn",
+            "end": "settle",
+        },
+    )
     g.add_edge("settle", END)
 
     if embeddable:
@@ -117,6 +136,7 @@ def build_combat_graph(checkpointer: Any | None = None, *, embeddable: bool = Fa
 
     if checkpointer is None:
         from langgraph.checkpoint.memory import MemorySaver
+
         checkpointer = MemorySaver(serde=build_serde())
 
     return g.compile(checkpointer=checkpointer)

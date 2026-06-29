@@ -107,21 +107,23 @@ async def create_graph():
     graph.add_node("process", process)
     graph.set_entry_point("process")
     from langgraph.checkpoint.memory import MemorySaver
+
     return graph.compile(checkpointer=MemorySaver())
 
 
-async def invoke(user_id: str | None = None, ) -> dict:
+async def invoke(
+    user_id: str | None = None,
+) -> dict:
     graph = await create_graph()
     async for mode, chunk in graph.astream(
-            {
-
-                "user_input": "你有什么技能呢",
-                "thread_id": "str",
-                "user_id": "1234",
-                "result": "str",
-            },
-            config={"configurable": {"thread_id": "thread_123"}},
-            stream_mode=["custom", "values"],
+        {
+            "user_input": "你有什么技能呢",
+            "thread_id": "str",
+            "user_id": "1234",
+            "result": "str",
+        },
+        config={"configurable": {"thread_id": "thread_123"}},
+        stream_mode=["custom", "values"],
     ):
         if mode == "custom":
             status = chunk.get("status", "streaming")
@@ -156,5 +158,5 @@ async def invoke(user_id: str | None = None, ) -> dict:
     return result
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     asyncio.run(invoke("1234"))

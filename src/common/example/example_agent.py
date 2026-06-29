@@ -42,7 +42,7 @@ async def create_skills_find_agent() -> Any:
 
 
 async def build_user_input(
-        skill_name: str,
+    skill_name: str,
 ) -> str:
     """组装鼓励话语生成的输入 prompt。"""
     parts = f"帮我下载并安装：{skill_name} skills"
@@ -65,5 +65,5 @@ async def main():
     return raw_content
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     asyncio.run(main())

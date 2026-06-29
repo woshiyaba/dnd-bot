@@ -37,11 +37,13 @@ class StreamCollector:
             return
         self._chunks.append(content)
         if self._writer:
-            self._writer({
-                "node": self._node_name,
-                "status": "streaming",
-                "chunk": content,
-            })
+            self._writer(
+                {
+                    "node": self._node_name,
+                    "status": "streaming",
+                    "chunk": content,
+                }
+            )
 
     def finish(self):
         """推送节点结束事件，应在流式输出完成后调用。"""
@@ -154,7 +156,7 @@ async def agent_collect(
     """
     agent.invoke(
         {"messages": [{"role": "user", "content": content}]},
-        config={"configurable": {"thread_id": thread_id}}
+        config={"configurable": {"thread_id": thread_id}},
     )
     sc = StreamCollector(node_name)
     sc.start()

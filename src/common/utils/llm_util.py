@@ -11,7 +11,9 @@ from langgraph.checkpoint.memory import MemorySaver
 
 load_dotenv()
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "deepseek-v4-flash")
-DEFAULT_BASE_URL = os.getenv("DEFAULT_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+DEFAULT_BASE_URL = os.getenv(
+    "DEFAULT_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"
+)
 DEFAULT_API_KEY_ENV = "DASHSCOPE_API_KEY"
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_SKILLS_DIR = PROJECT_ROOT / "skills"
@@ -29,7 +31,9 @@ class ReadOnlyFilesystemBackend(FilesystemBackend):
     """允许读取本地知识库，但拒绝任何写入操作。"""
 
     def write(self, file_path: str, content: str) -> WriteResult:
-        return WriteResult(error=f"禁止写入文件：{file_path}。请直接返回结果，不要保存到本地文件。")
+        return WriteResult(
+            error=f"禁止写入文件：{file_path}。请直接返回结果，不要保存到本地文件。"
+        )
 
     def edit(
         self,
@@ -38,7 +42,9 @@ class ReadOnlyFilesystemBackend(FilesystemBackend):
         new_string: str,
         replace_all: bool = False,
     ) -> EditResult:
-        return EditResult(error=f"禁止修改文件：{file_path}。请直接返回结果，不要保存到本地文件。")
+        return EditResult(
+            error=f"禁止修改文件：{file_path}。请直接返回结果，不要保存到本地文件。"
+        )
 
     def upload_files(self, files: list[tuple[str, bytes]]) -> list[FileUploadResponse]:
         return [
@@ -52,11 +58,14 @@ def _to_backend_dir(path: Path, root: Path) -> str:
     return f"/{relative.as_posix().strip('/')}/"
 
 
-def _resolve_skill_sources(project_root: Path, skills_dir: Path | None) -> list[str] | None:
+def _resolve_skill_sources(
+    project_root: Path, skills_dir: Path | None
+) -> list[str] | None:
     if skills_dir is None or not skills_dir.is_dir():
         return None
 
     return [_to_backend_dir(skills_dir, project_root)]
+
 
 def create_chat_model(
     model: str = DEFAULT_MODEL,
@@ -105,7 +114,9 @@ def create_app_deep_agent(
     **agent_kwargs: Any,
 ) -> Any:
     resolved_model = model or create_chat_model(**(chat_model_kwargs or {}))
-    resolved_backend = backend or FilesystemBackend(root_dir=project_root, virtual_mode=True)
+    resolved_backend = backend or FilesystemBackend(
+        root_dir=project_root, virtual_mode=True
+    )
     resolved_skills = (
         _resolve_skill_sources(project_root, skills_dir)
         if skills is AUTO_SKILLS

@@ -32,13 +32,27 @@ PARTY = [
         "card": {
             "id": "pc_aldous",
             "name": "奥德斯",
-            "strength": 15, "dexterity": 13, "constitution": 14,
-            "intelligence": 10, "wisdom": 12, "charisma": 11,
-            "current_hp": 18, "max_hp": 18, "ac": 15,
+            "strength": 15,
+            "dexterity": 13,
+            "constitution": 14,
+            "intelligence": 10,
+            "wisdom": 12,
+            "charisma": 11,
+            "current_hp": 18,
+            "max_hp": 18,
+            "ac": 15,
             "initiative_bonus": 1,
-            "race": "人类", "char_class": "战士", "level": 3,
+            "race": "人类",
+            "char_class": "战士",
+            "level": 3,
             "attacks": [
-                {"name": "长剑", "attack_bonus": 5, "damage_dice": "1d8+3", "damage_type": "slashing", "range": "melee"},
+                {
+                    "name": "长剑",
+                    "attack_bonus": 5,
+                    "damage_dice": "1d8+3",
+                    "damage_type": "slashing",
+                    "range": "melee",
+                },
             ],
             "save_proficiencies": ["strength", "constitution"],
             "skill_proficiencies": ["athletics", "perception"],
@@ -48,8 +62,8 @@ PARTY = [
 
 SCENE_CONTEXT = {
     "campaign_id": "whispers_bell_tower",  # 本局剧本骨架（canon/whispers_bell_tower.json）
-    "dm_mode": "llm",                      # 启用 LLM 版 DM（语义推进 + 叙述都靠真模型）
-    "random_seed": 20240626,                # 可复现随机源
+    "dm_mode": "llm",  # 启用 LLM 版 DM（语义推进 + 叙述都靠真模型）
+    "random_seed": 20240626,  # 可复现随机源
     "user_id": "u1",
     "party": PARTY,
 }
@@ -81,14 +95,18 @@ async def _handle_interrupt(engine: SessionEngine, payload: dict) -> dict:
     req = payload["interrupt"]
     itype = req.get("interrupt_type")
     directed = req.get("directed_to", {})
-    print(f"\n[需要你出手] 中断类型={itype} 面向角色={directed.get('combatant_id')}（玩家={directed.get('user_id')}）")
+    print(
+        f"\n[需要你出手] 中断类型={itype} 面向角色={directed.get('combatant_id')}（玩家={directed.get('user_id')}）"
+    )
     print("提示：", req.get("prompt"))
     if req.get("bonus"):
         print(f"（引擎会自动为你加值 +{req['bonus']}，你只报 d20 原始值）")
 
     if itype == "declare_action":
         print("可选行动：\n" + _format_options(req.get("options") or {}))
-        action = (_read_line("action_type (attack/skill/item/move/improvise/pass)> ") or "").strip()
+        action = (
+            _read_line("action_type (attack/skill/item/move/improvise/pass)> ") or ""
+        ).strip()
         target = (_read_line("target_id（没有就直接回车）> ") or "").strip()
         resume: dict = {"action_type": action or "pass"}
         if target:
@@ -121,7 +139,9 @@ async def main() -> None:
     print("=== 钟楼下的低语 · 命令行试玩 ===")
     print("（直接输入你的行动；要掷骰时按提示报数；输入 /quit 退出）\n")
 
-    result = await engine.start_session(ROOM_ID, SCENE_CONTEXT, opening="（冒险开始，请为我描述开场。）")
+    result = await engine.start_session(
+        ROOM_ID, SCENE_CONTEXT, opening="（冒险开始，请为我描述开场。）"
+    )
 
     while True:
         status = result.get("status")

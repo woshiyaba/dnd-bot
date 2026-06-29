@@ -88,7 +88,10 @@ async def evaluate_advancement(state: DMState) -> dict:
     canon = current_canon(state)
     story = dict(state.get("story") or {})
     if canon is None or not story:
-        return {"next_story": "stay", "world_writes": None}  # 无剧本：退化为纯对话，不推进
+        return {
+            "next_story": "stay",
+            "world_writes": None,
+        }  # 无剧本：退化为纯对话，不推进
 
     story["turn_index"] = story.get("turn_index", 0) + 1
 
@@ -118,11 +121,17 @@ async def evaluate_advancement(state: DMState) -> dict:
     beat = canon.beat(story.get("current_beat_id", ""))
     if target_beat_id is None and beat is not None:
         for trig in beat.advance_conditions:
-            if await _condition_met(trig, story, scene, party, last_combat, messages, state):
+            if await _condition_met(
+                trig, story, scene, party, last_combat, messages, state
+            ):
                 ex = beat.exit_for(trig.id)
                 if ex is not None:
                     target_beat_id = ex.next_beat_id
-                    logger.info("[evaluate_advancement] 命中触发器 «%s» → 切拍 «%s»", trig.id, target_beat_id)
+                    logger.info(
+                        "[evaluate_advancement] 命中触发器 «%s» → 切拍 «%s»",
+                        trig.id,
+                        target_beat_id,
+                    )
                     break
 
     campaign_log = state.get("campaign_log", [])
@@ -135,13 +144,25 @@ async def evaluate_advancement(state: DMState) -> dict:
             "story": story,
             "next_story": "advance",
             "world_writes": None,
-            "campaign_log": log_event({"campaign_log": campaign_log}, {"event": "advance", "next_beat_id": target_beat_id}),
+            "campaign_log": log_event(
+                {"campaign_log": campaign_log},
+                {"event": "advance", "next_beat_id": target_beat_id},
+            ),
         }
 
     # 未命中：留在本拍，空转 +1
     story["idle_turns"] = story.get("idle_turns", 0) + 1
-    logger.info("[evaluate_advancement] 未推进，留在 «%s»（idle=%d）", story.get("current_beat_id"), story["idle_turns"])
-    return {"story": story, "next_story": "stay", "world_writes": None, "campaign_log": campaign_log}
+    logger.info(
+        "[evaluate_advancement] 未推进，留在 «%s»（idle=%d）",
+        story.get("current_beat_id"),
+        story["idle_turns"],
+    )
+    return {
+        "story": story,
+        "next_story": "stay",
+        "world_writes": None,
+        "campaign_log": campaign_log,
+    }
 
 
 async def _condition_met(
@@ -159,10 +180,14 @@ async def _condition_met(
         return verdict
     # semantic：引擎判不了 → 问 DM（窄判定）
     prompt = (trigger.predicate or {}).get("prompt") or trigger.description
-    return await world_bridge.judge_trigger(prompt, scene, messages=messages, use_llm=llm_enabled(state))
+    return await world_bridge.judge_trigger(
+        prompt, scene, messages=messages, use_llm=llm_enabled(state)
+    )
 
 
-def _apply_world_writes(canon: Canon, story: dict, state: DMState) -> tuple[dict, list[dict]]:
+def _apply_world_writes(
+    canon: Canon, story: dict, state: DMState
+) -> tuple[dict, list[dict]]:
     """把 DM 声明的世界写入（白名单校验）与引擎自动写落进 story，返回 ``(新 story, 事件列表)``。
 
     - DM 写：``flags_set``（仅 canon ``declared_flags`` 白名单内）、``moved_to``（须在本拍地点内）、``clues_delivered``。
@@ -176,7 +201,9 @@ def _apply_world_writes(canon: Canon, story: dict, state: DMState) -> tuple[dict
     for key, value in (writes.get("flags_set") or {}).items():
         if key in declared:
             flags[key] = value
-            events.append({"event": "flag_set", "flag": key, "value": value, "by": "dm"})
+            events.append(
+                {"event": "flag_set", "flag": key, "value": value, "by": "dm"}
+            )
         else:
             logger.warning("[story] 忽略白名单外的 flag «%s»（DM 越权声明）", key)
 
@@ -198,11 +225,17 @@ def _apply_world_writes(canon: Canon, story: dict, state: DMState) -> tuple[dict
 
     # 引擎自动写：战斗胜利 → on_win_flags
     last_combat = state.get("last_combat") or {}
-    if last_combat.get("outcome") == "players_win" and beat is not None and beat.encounter is not None:
+    if (
+        last_combat.get("outcome") == "players_win"
+        and beat is not None
+        and beat.encounter is not None
+    ):
         for flag in beat.encounter.on_win_flags:
             if flag in declared and not flags.get(flag):
                 flags[flag] = True
-                events.append({"event": "flag_set", "flag": flag, "value": True, "by": "engine"})
+                events.append(
+                    {"event": "flag_set", "flag": flag, "value": True, "by": "engine"}
+                )
 
     story = {
         **story,
@@ -241,21 +274,25 @@ def enter_beat(state: DMState) -> dict:
     # 合并新拍的初始 flags（保留已有世界 flag，新拍的作为补充）
     merged_flags = {**dict(scene.get("flags", {})), **story.get("flags", {})}
 
-    story.update({
-        "current_beat_id": beat.id,
-        "visited_beats": visited_beats,
-        "current_location_id": new_location,
-        "visited_locations": visited_locations,
-        "flags": merged_flags,
-        "idle_turns": 0,
-        "beat_entered_turn": story.get("turn_index", 0),
-        "pending_next_beat_id": None,
-    })
+    story.update(
+        {
+            "current_beat_id": beat.id,
+            "visited_beats": visited_beats,
+            "current_location_id": new_location,
+            "visited_locations": visited_locations,
+            "flags": merged_flags,
+            "idle_turns": 0,
+            "beat_entered_turn": story.get("turn_index", 0),
+            "pending_next_beat_id": None,
+        }
+    )
     logger.info("[enter_beat] 进入新拍 «%s»（%s）", beat.id, beat.title)
     return {
         "scene": scene,
         "story": story,
-        "campaign_log": log_event(state, {"event": "enter_beat", "beat_id": beat.id, "title": beat.title}),
+        "campaign_log": log_event(
+            state, {"event": "enter_beat", "beat_id": beat.id, "title": beat.title}
+        ),
     }
 
 
@@ -270,10 +307,15 @@ async def narrate_beat(state: DMState) -> dict:
     beat = canon.beat(story.get("current_beat_id", "")) if canon else None
     title = beat.title if beat else (scene.get("location") or "新的场景")
 
-    text = await world_bridge.narrate_beat_transition(title, scene, use_llm=llm_enabled(state))
+    text = await world_bridge.narrate_beat_transition(
+        title, scene, use_llm=llm_enabled(state)
+    )
     messages = list(state.get("messages", []))
     messages.append({"role": "dm", "content": text})
-    return {"messages": messages, "campaign_log": log_event(state, {"event": "narration", "text": text})}
+    return {
+        "messages": messages,
+        "campaign_log": log_event(state, {"event": "narration", "text": text}),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -285,7 +327,9 @@ def epilogue(state: DMState) -> dict:
     logger.info("[epilogue] 整局结束 | 结局拍=%s", story.get("current_beat_id"))
     return {
         "story_status": "finished",
-        "campaign_log": log_event(state, {"event": "story_end", "beat_id": story.get("current_beat_id")}),
+        "campaign_log": log_event(
+            state, {"event": "story_end", "beat_id": story.get("current_beat_id")}
+        ),
     }
 
 

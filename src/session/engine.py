@@ -41,7 +41,9 @@ class SessionEngine:
         self._graph = build_session_graph(checkpointer)
 
     # ---- 对外主流程 ----
-    async def start_session(self, room_id: str, scene_context: dict, *, opening: str = "") -> dict:
+    async def start_session(
+        self, room_id: str, scene_context: dict, *, opening: str = ""
+    ) -> dict:
         """开一局新冒险：载入队伍/场景，跑 DM 开场（或处理 opening 这步输入）。
 
         scene_context 格式::
@@ -71,7 +73,10 @@ class SessionEngine:
         else:
             # 无 canon：退化为纯对话开局
             if campaign_id:
-                logger.warning("[session] campaign_id «%s» 未在注册表中找到，退化为纯对话开局", campaign_id)
+                logger.warning(
+                    "[session] campaign_id «%s» 未在注册表中找到，退化为纯对话开局",
+                    campaign_id,
+                )
             scene = dict(scene_context.get("scene", {}))
             scene.setdefault("dm_mode", dm_mode)
             scene.setdefault("random_seed", scene_context.get("random_seed"))
@@ -122,7 +127,9 @@ class SessionEngine:
             request = interrupts[0].value
             logger.info(
                 "[session] 房间=%s 等待中断 类型=%s 面向=%s",
-                room_id, request.get("interrupt_type"), request.get("directed_to"),
+                room_id,
+                request.get("interrupt_type"),
+                request.get("directed_to"),
             )
             return {
                 "status": "interrupted",
@@ -136,7 +143,11 @@ class SessionEngine:
         # 整局结束（到达并叙述完结局拍）
         if result.get("story_status") == "finished":
             story = result.get("story") or {}
-            logger.info("[session] 房间=%s 整局结束 | 结局拍=%s", room_id, story.get("current_beat_id"))
+            logger.info(
+                "[session] 房间=%s 整局结束 | 结局拍=%s",
+                room_id,
+                story.get("current_beat_id"),
+            )
             return {
                 "status": "finished",
                 "room_id": room_id,

@@ -38,7 +38,9 @@ class CombatEngine:
     async def start_combat(self, room_id: str, scene_context: dict) -> dict:
         """开一场新战斗，跑到第一个玩家中断点或结束。"""
         config = {"configurable": {"thread_id": room_thread_id(room_id)}}
-        result = await self._graph.ainvoke({"scene_context": scene_context}, config=config)
+        result = await self._graph.ainvoke(
+            {"scene_context": scene_context}, config=config
+        )
         return self._interpret(room_id, result, config)
 
     async def submit(self, room_id: str, resume_value: Any) -> dict:
@@ -60,7 +62,9 @@ class CombatEngine:
             request = interrupts[0].value
             logger.info(
                 "[combat] 房间=%s 等待中断 类型=%s 面向=%s",
-                room_id, request.get("interrupt_type"), request.get("directed_to"),
+                room_id,
+                request.get("interrupt_type"),
+                request.get("directed_to"),
             )
             return {
                 "status": "interrupted",
@@ -69,7 +73,9 @@ class CombatEngine:
                 "outcome": _outcome_value(result),
             }
 
-        logger.info("[combat] 房间=%s 战斗结束 结果=%s", room_id, _outcome_value(result))
+        logger.info(
+            "[combat] 房间=%s 战斗结束 结果=%s", room_id, _outcome_value(result)
+        )
         return {
             "status": "finished",
             "room_id": room_id,

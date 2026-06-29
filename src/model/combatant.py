@@ -55,31 +55,31 @@ class Combatant:
 
     # —— 六项属性（只存原值，调整值现算；怪物可不填，默认 10 即 0 调整值）——
     # 字段名必须与 Ability 成员值一致（modifier 用 getattr 取值）。
-    strength: int = 10      # 力量
-    dexterity: int = 10     # 敏捷
+    strength: int = 10  # 力量
+    dexterity: int = 10  # 敏捷
     constitution: int = 10  # 体质
     intelligence: int = 10  # 智力
-    wisdom: int = 10        # 感知
-    charisma: int = 10      # 魅力
+    wisdom: int = 10  # 感知
+    charisma: int = 10  # 魅力
 
     # —— 战斗数值（每回合都读）——
-    current_hp: int = 1        # 当前 HP
-    max_hp: int = 1            # 最大 HP
-    ac: int = 10               # 护甲等级
+    current_hp: int = 1  # 当前 HP
+    max_hp: int = 1  # 最大 HP
+    ac: int = 10  # 护甲等级
     initiative_bonus: int = 0  # 先攻调整值
     current_zone: str = "前排"  # 当前区域
     life_state: LifeState = LifeState.ALIVE  # 存活状态
 
     # —— 攻击手段与当前状态 ——
-    attacks: list[Attack] = field(default_factory=list)      # 攻击
+    attacks: list[Attack] = field(default_factory=list)  # 攻击
     conditions: list[Condition] = field(default_factory=list)  # 状态
 
     # —— 战斗运行时追加字段（不入卡库，战斗结束后丢弃）——
-    faction: Faction = Faction.ENEMY      # 阵营
-    is_player_controlled: bool = False    # 是否玩家控制
-    controller: str | None = None         # 操控者：玩家 user_id，中断时据此推给正确的人
-    initiative: int | None = None         # 先攻值：本场掷出的先攻结果，用于排序
-    is_surprised: bool = False            # 被突袭：True 则跳过自己的第一个回合
+    faction: Faction = Faction.ENEMY  # 阵营
+    is_player_controlled: bool = False  # 是否玩家控制
+    controller: str | None = None  # 操控者：玩家 user_id，中断时据此推给正确的人
+    initiative: int | None = None  # 先攻值：本场掷出的先攻结果，用于排序
+    is_surprised: bool = False  # 被突袭：True 则跳过自己的第一个回合
 
     # ---- 派生值（现算，不存）----
     def modifier(self, ability: Ability) -> int:
@@ -106,7 +106,9 @@ class Combatant:
 
     def has_condition(self, condition_type: ConditionType) -> bool:
         """是否拥有某状态（且未过期）。"""
-        return any(s.kind == condition_type and not s.is_expired for s in self.conditions)
+        return any(
+            s.kind == condition_type and not s.is_expired for s in self.conditions
+        )
 
     # ---- 数值结算（引擎调用，保持不变量）----
     def take_damage(self, amount: int) -> int:
@@ -149,10 +151,14 @@ class Combatant:
         return {
             "id": self.id,
             "name": self.name,
-            "strength": self.strength, "dexterity": self.dexterity,
-            "constitution": self.constitution, "intelligence": self.intelligence,
-            "wisdom": self.wisdom, "charisma": self.charisma,
-            "current_hp": self.current_hp, "max_hp": self.max_hp,
+            "strength": self.strength,
+            "dexterity": self.dexterity,
+            "constitution": self.constitution,
+            "intelligence": self.intelligence,
+            "wisdom": self.wisdom,
+            "charisma": self.charisma,
+            "current_hp": self.current_hp,
+            "max_hp": self.max_hp,
             "ac": self.ac,
             "initiative_bonus": self.initiative_bonus,
             "current_zone": self.current_zone,
@@ -198,8 +204,8 @@ class Monster(Combatant):
     默认敌人阵营、DM 操控；「这回合怎么打」由 DM 决定，命中/伤害/HP 全由引擎结算。
     """
 
-    faction: Faction = Faction.ENEMY      # 阵营
-    is_player_controlled: bool = False    # 是否玩家控制
+    faction: Faction = Faction.ENEMY  # 阵营
+    is_player_controlled: bool = False  # 是否玩家控制
 
     @classmethod
     def from_card(cls, data: dict) -> "Monster":
@@ -219,17 +225,19 @@ class Character(Combatant):
     """
 
     # —— 身份与外观 ——
-    race: str | None = None        # 种族
+    race: str | None = None  # 种族
     char_class: str | None = None  # 职业
-    level: int = 1                 # 等级
-    bio: str | None = None         # 简介
+    level: int = 1  # 等级
+    bio: str | None = None  # 简介
 
     # —— 熟练项 ——
-    save_proficiencies: list[str] = field(default_factory=list)   # 熟练豁免（存 Ability 值）
+    save_proficiencies: list[str] = field(
+        default_factory=list
+    )  # 熟练豁免（存 Ability 值）
     skill_proficiencies: list[str] = field(default_factory=list)  # 熟练技能
 
     # —— 技能 / 背包 ——
-    skills: list[LearnedSkill] = field(default_factory=list)    # 已学技能
+    skills: list[LearnedSkill] = field(default_factory=list)  # 已学技能
     inventory: list[InventoryItem] = field(default_factory=list)  # 背包
 
     @property
@@ -244,32 +252,38 @@ class Character(Combatant):
     def to_card(self) -> dict:
         """导出完整角色卡面（英文键）。"""
         card = self._base_card()
-        card.update({
-            "race": self.race,
-            "char_class": self.char_class,
-            "level": self.level,
-            "bio": self.bio,
-            "save_proficiencies": list(self.save_proficiencies),
-            "skill_proficiencies": list(self.skill_proficiencies),
-            "skills": [s.to_dict() for s in self.skills],
-            "inventory": [i.to_dict() for i in self.inventory],
-        })
+        card.update(
+            {
+                "race": self.race,
+                "char_class": self.char_class,
+                "level": self.level,
+                "bio": self.bio,
+                "save_proficiencies": list(self.save_proficiencies),
+                "skill_proficiencies": list(self.skill_proficiencies),
+                "skills": [s.to_dict() for s in self.skills],
+                "inventory": [i.to_dict() for i in self.inventory],
+            }
+        )
         return card
 
     @staticmethod
     def _parse_character_fields(data: dict) -> dict:
         """把完整角色卡面解析成构造参数。"""
         params = Combatant._parse_common_fields(data)
-        params.update({
-            "race": data.get("race"),
-            "char_class": data.get("char_class"),
-            "level": int(data.get("level", 1)),
-            "bio": data.get("bio"),
-            "save_proficiencies": list(data.get("save_proficiencies", [])),
-            "skill_proficiencies": list(data.get("skill_proficiencies", [])),
-            "skills": [LearnedSkill.from_dict(s) for s in data.get("skills", [])],
-            "inventory": [InventoryItem.from_dict(i) for i in data.get("inventory", [])],
-        })
+        params.update(
+            {
+                "race": data.get("race"),
+                "char_class": data.get("char_class"),
+                "level": int(data.get("level", 1)),
+                "bio": data.get("bio"),
+                "save_proficiencies": list(data.get("save_proficiencies", [])),
+                "skill_proficiencies": list(data.get("skill_proficiencies", [])),
+                "skills": [LearnedSkill.from_dict(s) for s in data.get("skills", [])],
+                "inventory": [
+                    InventoryItem.from_dict(i) for i in data.get("inventory", [])
+                ],
+            }
+        )
         return params
 
     @classmethod
@@ -282,8 +296,8 @@ class Character(Combatant):
 class PlayerCharacter(Character):
     """玩家操控的冒险者：先攻/攻击/伤害/豁免靠 interrupt 报骰。"""
 
-    faction: Faction = Faction.PLAYER     # 阵营
-    is_player_controlled: bool = True     # 是否玩家控制
+    faction: Faction = Faction.PLAYER  # 阵营
+    is_player_controlled: bool = True  # 是否玩家控制
 
     @classmethod
     def from_card(cls, data: dict) -> "PlayerCharacter":
@@ -298,8 +312,8 @@ class NPC(Character):
     阵营默认友方（玩家方），可在创建时改为敌人；与「怪物」的区别在于拥有完整卡面。
     """
 
-    faction: Faction = Faction.PLAYER     # 阵营
-    is_player_controlled: bool = False    # 是否玩家控制
+    faction: Faction = Faction.PLAYER  # 阵营
+    is_player_controlled: bool = False  # 是否玩家控制
 
     @classmethod
     def from_card(cls, data: dict) -> "NPC":

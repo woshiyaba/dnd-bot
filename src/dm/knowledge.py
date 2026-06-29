@@ -30,12 +30,12 @@ DEFAULT_KNOWLEDGE_DIR = PROJECT_ROOT / "knowledge"
 class KnowledgeDoc:
     """一篇知识库文档的元信息（正文惰性加载）。"""
 
-    doc_id: str            # 文档 id（取自文件名）
-    name: str              # 显示名（frontmatter.name）
-    category: str          # 分类：rule / monster / skill 等
-    tags: list[str]        # 标签，用于检索
-    description: str       # 一句话摘要，进目录
-    path: Path             # 源文件路径
+    doc_id: str  # 文档 id（取自文件名）
+    name: str  # 显示名（frontmatter.name）
+    category: str  # 分类：rule / monster / skill 等
+    tags: list[str]  # 标签，用于检索
+    description: str  # 一句话摘要，进目录
+    path: Path  # 源文件路径
     _body: str | None = field(default=None, repr=False)  # 正文缓存
 
     def catalog_entry(self) -> dict:
@@ -158,7 +158,9 @@ class KnowledgeRegistry:
         for d in self._docs.values():
             if category is not None and d.category != category:
                 continue
-            haystack = " ".join([d.doc_id, d.name, d.description, " ".join(d.tags)]).lower()
+            haystack = " ".join(
+                [d.doc_id, d.name, d.description, " ".join(d.tags)]
+            ).lower()
             if not q or q in haystack:
                 results.append(d.catalog_entry())
         return results

@@ -55,7 +55,11 @@ def _brief(c: Combatant) -> dict:
         "zone": c.current_zone,
         "alive": c.is_alive,
         "attacks": [
-            {"name": a.name, "range": str(a.attack_range.value), "damage": a.damage_dice}
+            {
+                "name": a.name,
+                "range": str(a.attack_range.value),
+                "damage": a.damage_dice,
+            }
             for a in c.attacks
         ],
         "conditions": [str(s.kind.value) for s in c.conditions],
@@ -70,14 +74,19 @@ def _dump(obj) -> str:
 # ---------------------------------------------------------------------------
 # 1. 判突袭
 # ---------------------------------------------------------------------------
-async def judge_surprise_llm(combatants: dict[str, Combatant], scene: dict) -> list[str] | None:
+async def judge_surprise_llm(
+    combatants: dict[str, Combatant], scene: dict
+) -> list[str] | None:
     """让 DM 判定哪些参战者被突袭，返回被突袭者 id 列表；无法判定返回 None。
 
     DM 可用骰子做"潜行 vs 被动察觉"对抗、可查 passive_check 规则。结果只取
     确实存在于本场的 id。``scene_context["surprise_context"]`` 可给 DM 额外背景。
     """
     roster = [_brief(c) for c in combatants.values()]
-    hint = scene.get("surprise_context") or "（无额外背景，按常理判断是否有人被打个措手不及）"
+    hint = (
+        scene.get("surprise_context")
+        or "（无额外背景，按常理判断是否有人被打个措手不及）"
+    )
     task = (
         "战斗即将开始，请判定本场是否有参战者陷入【突袭】（被突袭者将跳过自己的第一个回合）。\n"
         f"背景：{hint}\n"
@@ -97,13 +106,17 @@ async def judge_surprise_llm(combatants: dict[str, Combatant], scene: dict) -> l
 # ---------------------------------------------------------------------------
 # 2. 怪物/NPC 行动决策
 # ---------------------------------------------------------------------------
-async def decide_action_llm(actor: Combatant, combatants: dict[str, Combatant]) -> dict | None:
+async def decide_action_llm(
+    actor: Combatant, combatants: dict[str, Combatant]
+) -> dict | None:
     """让 DM 替怪物/NPC 决定本回合动作，返回规范化的 action 字典；无法采纳返回 None。
 
     仅允许从"行动者已有的攻击 + 存活敌人"中选择；攻击需目标存活且够得着，
     否则视为无效、返回 None 让引擎回落到启发式。
     """
-    enemies = [c for c in combatants.values() if c.faction != actor.faction and c.is_alive]
+    enemies = [
+        c for c in combatants.values() if c.faction != actor.faction and c.is_alive
+    ]
     if not enemies:
         return {"action_type": ActionType.PASS.value}
 
@@ -119,7 +132,7 @@ async def decide_action_llm(actor: Combatant, combatants: dict[str, Combatant]) 
         "规则：只能用上面列出的攻击；攻击目标必须在该攻击的可命中列表里；"
         "够不着任何人就移动到某个敌人的区域；没有敌人就放弃。\n"
         "可 kb_read 查这个怪物的打法倾向来决定目标与风格。\n"
-        '最终只输出 JSON，三选一：\n'
+        "最终只输出 JSON，三选一：\n"
         '{"action_type":"attack","attack_name":"...","target_id":"..."}\n'
         '{"action_type":"move","target_zone":"..."}\n'
         '{"action_type":"pass"}'
@@ -140,7 +153,10 @@ async def decide_action_llm(actor: Combatant, combatants: dict[str, Combatant]) 
             }
         return None  # 非法攻击 → 回落启发式
     if action_type == ActionType.MOVE.value and data.get("target_zone"):
-        return {"action_type": ActionType.MOVE.value, "target_zone": str(data["target_zone"])}
+        return {
+            "action_type": ActionType.MOVE.value,
+            "target_zone": str(data["target_zone"]),
+        }
     if action_type == ActionType.PASS.value:
         return {"action_type": ActionType.PASS.value}
     return None

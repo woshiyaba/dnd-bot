@@ -22,10 +22,10 @@ class Condition:
     持续伤害 类状态用 `amount` + `damage_type` 描述每回合扣血；其余状态二者留空。
     """
 
-    kind: ConditionType                       # 状态类型
-    rounds_left: int = 1                       # 剩余回合
-    amount: int = 0                            # 数值：仅持续伤害使用，每回合扣的固定 HP
-    damage_type: DamageType | None = None      # 伤害类型：仅持续伤害使用，灼烧/流血等
+    kind: ConditionType  # 状态类型
+    rounds_left: int = 1  # 剩余回合
+    amount: int = 0  # 数值：仅持续伤害使用，每回合扣的固定 HP
+    damage_type: DamageType | None = None  # 伤害类型：仅持续伤害使用，灼烧/流血等
 
     @property
     def is_expired(self) -> bool:
@@ -57,8 +57,8 @@ class Condition:
 class LearnedSkill:
     """指向封闭技能定义的引用 + 消耗状态。"""
 
-    skill_id: str          # 技能 id
-    charges: int = 0       # 当前充能
+    skill_id: str  # 技能 id
+    charges: int = 0  # 当前充能
     cooldown_left: int = 0  # 冷却剩余
 
     @property
@@ -88,7 +88,7 @@ class LearnedSkill:
 class InventoryItem:
     """指向封闭道具定义的引用 + 数量。"""
 
-    item_id: str       # 道具 id
+    item_id: str  # 道具 id
     quantity: int = 1  # 数量
 
     @property

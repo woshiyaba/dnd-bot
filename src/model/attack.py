@@ -17,11 +17,11 @@ class Attack:
     命中加值 / 伤害骰 都是预先算好的最终值，引擎直接读取，不再叠加属性调整值。
     """
 
-    name: str               # 名字
-    attack_bonus: int       # 命中加值
-    damage_dice: str        # 伤害骰：骰子表达式，如 "1d8+3"
+    name: str  # 名字
+    attack_bonus: int  # 命中加值
+    damage_dice: str  # 伤害骰：骰子表达式，如 "1d8+3"
     damage_type: DamageType = DamageType.SLASHING  # 伤害类型
-    attack_range: Range = Range.MELEE              # 射程
+    attack_range: Range = Range.MELEE  # 射程
 
     @property
     def is_ranged(self) -> bool:

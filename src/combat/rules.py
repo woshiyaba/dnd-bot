@@ -19,12 +19,12 @@ from src.model.enums import Ability
 class AttackResult:
     """一次攻击检定的结果。"""
 
-    hit: bool          # 命中
-    crit: bool         # 重击
-    fumble: bool       # 必失
-    d20: int           # d20 原始值
+    hit: bool  # 命中
+    crit: bool  # 重击
+    fumble: bool  # 必失
+    d20: int  # d20 原始值
     attack_bonus: int  # 命中加值
-    target_ac: int     # 目标 AC
+    target_ac: int  # 目标 AC
 
     @property
     def total(self) -> int:
@@ -40,11 +40,32 @@ def resolve_attack(d20: int, attack_bonus: int, target_ac: int) -> AttackResult:
     - 否则：``d20 + 命中加值 >= 目标AC`` 即命中。
     """
     if d20 >= 20:
-        return AttackResult(hit=True, crit=True, fumble=False, d20=d20, attack_bonus=attack_bonus, target_ac=target_ac)
+        return AttackResult(
+            hit=True,
+            crit=True,
+            fumble=False,
+            d20=d20,
+            attack_bonus=attack_bonus,
+            target_ac=target_ac,
+        )
     if d20 <= 1:
-        return AttackResult(hit=False, crit=False, fumble=True, d20=d20, attack_bonus=attack_bonus, target_ac=target_ac)
+        return AttackResult(
+            hit=False,
+            crit=False,
+            fumble=True,
+            d20=d20,
+            attack_bonus=attack_bonus,
+            target_ac=target_ac,
+        )
     hit = (d20 + attack_bonus) >= target_ac
-    return AttackResult(hit=hit, crit=False, fumble=False, d20=d20, attack_bonus=attack_bonus, target_ac=target_ac)
+    return AttackResult(
+        hit=hit,
+        crit=False,
+        fumble=False,
+        d20=d20,
+        attack_bonus=attack_bonus,
+        target_ac=target_ac,
+    )
 
 
 def saving_throw_bonus(who: Combatant, ability: Ability) -> int:
@@ -58,7 +79,9 @@ def saving_throw_bonus(who: Combatant, ability: Ability) -> int:
     return bonus
 
 
-def ability_check_bonus(who: Combatant, ability: Ability, *, proficient: bool = False) -> int:
+def ability_check_bonus(
+    who: Combatant, ability: Ability, *, proficient: bool = False
+) -> int:
     """属性检定加值：属性调整值 (+熟练加值，若熟练)。"""
     bonus = who.modifier(ability)
     if proficient:

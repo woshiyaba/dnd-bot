@@ -20,7 +20,11 @@ class ConnectionManager:
     async def connect(self, user_id: str, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.setdefault(user_id, []).append(websocket)
-        logger.info("[ws] 用户 %s 已连接，当前连接数: %d", user_id, len(self.active_connections[user_id]))
+        logger.info(
+            "[ws] 用户 %s 已连接，当前连接数: %d",
+            user_id,
+            len(self.active_connections[user_id]),
+        )
 
     def disconnect(self, user_id: str, websocket: WebSocket):
         conns = self.active_connections.get(user_id)

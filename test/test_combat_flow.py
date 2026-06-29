@@ -66,18 +66,35 @@ def build_scene() -> dict:
                 "type": "player",  # 玩家角色：先攻/攻击靠中断报骰
                 "controller": "user_aria",  # 操控者 user_id：中断据此推给该玩家
                 "card": {
-                    "id": "pc_aria", "name": "艾莉亚",
-                    "strength": 16, "dexterity": 16, "constitution": 14,
-                    "intelligence": 10, "wisdom": 12, "charisma": 13,
-                    "max_hp": 30, "ac": 16, "level": 3,
-                    "race": "人类", "char_class": "战士",
+                    "id": "pc_aria",
+                    "name": "艾莉亚",
+                    "strength": 16,
+                    "dexterity": 16,
+                    "constitution": 14,
+                    "intelligence": 10,
+                    "wisdom": 12,
+                    "charisma": 13,
+                    "max_hp": 30,
+                    "ac": 16,
+                    "level": 3,
+                    "race": "人类",
+                    "char_class": "战士",
                     "save_proficiencies": ["strength", "constitution"],
                     "attacks": [
-                        {"name": "长剑", "attack_bonus": 6, "damage_dice": "1d8+4",
-                         "damage_type": "slashing", "range": "melee"},
+                        {
+                            "name": "长剑",
+                            "attack_bonus": 6,
+                            "damage_dice": "1d8+4",
+                            "damage_type": "slashing",
+                            "range": "melee",
+                        },
                     ],
                     "skills": [
-                        {"skill_id": "skill_second_wind", "charges": 1, "cooldown_left": 0},
+                        {
+                            "skill_id": "skill_second_wind",
+                            "charges": 1,
+                            "cooldown_left": 0,
+                        },
                     ],
                     "inventory": [
                         {"item_id": "item_healing_potion", "quantity": 1},
@@ -87,35 +104,63 @@ def build_scene() -> dict:
             {
                 "type": "npc",  # NPC 盟友：玩家阵营，但由 DM(引擎) 自动掷骰
                 "card": {
-                    "id": "npc_bron", "name": "布隆",
-                    "strength": 15, "dexterity": 12, "constitution": 14,
-                    "max_hp": 24, "ac": 15, "level": 2,
+                    "id": "npc_bron",
+                    "name": "布隆",
+                    "strength": 15,
+                    "dexterity": 12,
+                    "constitution": 14,
+                    "max_hp": 24,
+                    "ac": 15,
+                    "level": 2,
                     "char_class": "牧师",
                     "attacks": [
-                        {"name": "战锤", "attack_bonus": 5, "damage_dice": "1d8+3",
-                         "damage_type": "bludgeoning", "range": "melee"},
+                        {
+                            "name": "战锤",
+                            "attack_bonus": 5,
+                            "damage_dice": "1d8+3",
+                            "damage_type": "bludgeoning",
+                            "range": "melee",
+                        },
                     ],
                 },
             },
             {
                 "type": "monster",  # 怪物：默认敌人阵营、DM 操控、引擎自动掷骰
                 "card": {
-                    "id": "goblin_1", "name": "哥布林·斥候",
-                    "dexterity": 14, "max_hp": 12, "ac": 13, "initiative_bonus": 2,
+                    "id": "goblin_1",
+                    "name": "哥布林·斥候",
+                    "dexterity": 14,
+                    "max_hp": 12,
+                    "ac": 13,
+                    "initiative_bonus": 2,
                     "attacks": [
-                        {"name": "弯刀", "attack_bonus": 4, "damage_dice": "1d6+2",
-                         "damage_type": "slashing", "range": "melee"},
+                        {
+                            "name": "弯刀",
+                            "attack_bonus": 4,
+                            "damage_dice": "1d6+2",
+                            "damage_type": "slashing",
+                            "range": "melee",
+                        },
                     ],
                 },
             },
             {
                 "type": "monster",
                 "card": {
-                    "id": "goblin_2", "name": "哥布林·弓手",
-                    "dexterity": 14, "max_hp": 10, "ac": 13, "initiative_bonus": 2,
+                    "id": "goblin_2",
+                    "name": "哥布林·弓手",
+                    "dexterity": 14,
+                    "max_hp": 10,
+                    "ac": 13,
+                    "initiative_bonus": 2,
                     "attacks": [
-                        {"name": "短弓", "attack_bonus": 4, "damage_dice": "1d6+2",
-                         "damage_type": "piercing", "range": "ranged"},
+                        {
+                            "name": "短弓",
+                            "attack_bonus": 4,
+                            "damage_dice": "1d6+2",
+                            "damage_type": "piercing",
+                            "range": "ranged",
+                        },
                     ],
                 },
             },
@@ -136,7 +181,9 @@ def auto_respond(interrupt: dict) -> dict:
     """
     kind = interrupt.get("interrupt_type")
     who = interrupt.get("directed_to", {})
-    print(f"    >> 中断[{kind}] 面向 combatant={who.get('combatant_id')} user={who.get('user_id')}")
+    print(
+        f"    >> 中断[{kind}] 面向 combatant={who.get('combatant_id')} user={who.get('user_id')}"
+    )
     print(f"      提示：{interrupt.get('prompt')}")
 
     if kind == InterruptType.DECLARE_ACTION.value:
@@ -160,8 +207,10 @@ def _decide_player_action(options: dict) -> dict:
     - 创意：{"action_type": "improvise", "description": "掀翻火盆", "dc": 12, "ability": "strength"}
     - 移动：{"action_type": "move", "target_zone": "后排"}
     """
-    print(f"      可选行动：攻击={_attack_summary(options.get('attack'))} "
-          f"技能={options.get('skill')} 道具={options.get('item')} 移动={options.get('move')}")
+    print(
+        f"      可选行动：攻击={_attack_summary(options.get('attack'))} "
+        f"技能={options.get('skill')} 道具={options.get('item')} 移动={options.get('move')}"
+    )
 
     for weapon in options.get("attack", []):
         targets = weapon.get("targets") or []
@@ -244,7 +293,9 @@ def _print_final_state(state: dict) -> None:
     print("=" * 64)
     for cid, c in state.get("combatants", {}).items():
         flag = "存活" if c.is_alive else "倒下"
-        print(f"  {c.name:<10}({cid}) HP={c.current_hp}/{c.max_hp} 阵营={c.faction.value} [{flag}]")
+        print(
+            f"  {c.name:<10}({cid}) HP={c.current_hp}/{c.max_hp} 阵营={c.faction.value} [{flag}]"
+        )
 
     scene = state.get("scene_context", {}) or {}
     print(f"\n  战利品 granted_loot = {scene.get('granted_loot')}")
@@ -273,13 +324,17 @@ def test_full_combat_flow() -> None:
     payload = asyncio.run(_amain())
 
     assert payload["status"] == "finished", f"战斗未正常结束：{payload}"
-    assert payload.get("result") in ("players_win", "players_lose"), \
-        f"结果应分出胜负，实际={payload.get('result')}"
+    assert payload.get("result") in (
+        "players_win",
+        "players_lose",
+    ), f"结果应分出胜负，实际={payload.get('result')}"
 
     state = payload["state"]
     assert state.get("combat_log"), "战斗日志不应为空"
     # 结算节点应当落了一条 settle 事件
-    assert any(e.get("event") == "settle" for e in state["combat_log"]), "缺少 settle 结算事件"
+    assert any(
+        e.get("event") == "settle" for e in state["combat_log"]
+    ), "缺少 settle 结算事件"
 
 
 if __name__ == "__main__":

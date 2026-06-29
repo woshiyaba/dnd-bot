@@ -44,8 +44,13 @@ def _dump(obj) -> str:
 def _party_brief(party: dict[str, Combatant]) -> list[dict]:
     """玩家角色册压成最小画像。"""
     return [
-        {"id": c.id, "name": c.name, "hp": f"{c.current_hp}/{c.max_hp}",
-         "class": getattr(c, "char_class", None), "alive": c.is_alive}
+        {
+            "id": c.id,
+            "name": c.name,
+            "hp": f"{c.current_hp}/{c.max_hp}",
+            "class": getattr(c, "char_class", None),
+            "alive": c.is_alive,
+        }
         for c in party.values()
     ]
 
@@ -53,8 +58,11 @@ def _party_brief(party: dict[str, Combatant]) -> list[dict]:
 def _scene_brief(scene: dict) -> dict:
     """世界场景压成最小画像（地点 / 描述 / 在场者 / 出口 / 威胁）。"""
     actors = [
-        {"actor_id": a.get("actor_id"), "name": a.get("name"),
-         "disposition": a.get("disposition")}
+        {
+            "actor_id": a.get("actor_id"),
+            "name": a.get("name"),
+            "disposition": a.get("disposition"),
+        }
         for a in (scene or {}).get("actors", [])
     ]
     return {
@@ -68,7 +76,10 @@ def _scene_brief(scene: dict) -> dict:
 
 def _history_brief(messages: list[dict], limit: int = 6) -> list[dict]:
     """取最近 limit 条对话（截断，控延迟）。"""
-    return [{"role": m.get("role"), "content": m.get("content")} for m in (messages or [])[-limit:]]
+    return [
+        {"role": m.get("role"), "content": m.get("content")}
+        for m in (messages or [])[-limit:]
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -103,16 +114,24 @@ async def decide_turn(
     """
     party_ids = list(party.keys())
     if use_llm:
-        data = await _decide_llm(user_input, scene, party, messages or [], beat_brief, stuck_hint)
+        data = await _decide_llm(
+            user_input, scene, party, messages or [], beat_brief, stuck_hint
+        )
         if data is not None:
             return _normalize_decision(data, scene, party_ids)
         logger.warning("[dm] decide_turn LLM 解析失败，回落启发式")
     return _decide_heuristic(user_input, scene, party_ids)
 
 
-async def _decide_llm(user_input, scene, party, messages, beat_brief=None, stuck_hint=None) -> dict | None:
+async def _decide_llm(
+    user_input, scene, party, messages, beat_brief=None, stuck_hint=None
+) -> dict | None:
     """LLM 决策：拼最小上下文（含当前拍骨架）+ 严格 JSON 格式要求，调 DM 智能体。"""
-    beat_line = f"【当前剧情拍·只供你把控方向，勿照搬，尤其别直接抖出 NPC 秘密】{_dump(beat_brief)}\n" if beat_brief else ""
+    beat_line = (
+        f"【当前剧情拍·只供你把控方向，勿照搬，尤其别直接抖出 NPC 秘密】{_dump(beat_brief)}\n"
+        if beat_brief
+        else ""
+    )
     stuck_line = f"【推进提示】{stuck_hint}\n" if stuck_hint else ""
     task = (
         "你在主持一场有预定剧本(canon)的 D&D 冒险。请阅读当前局面，决定如何回应玩家这一步，并**只输出一个 JSON 对象**。\n"
@@ -125,15 +144,15 @@ async def _decide_llm(user_input, scene, party, messages, beat_brief=None, stuck
         "叙述要自然朝当前拍目标推进但不硬拽玩家；你无权跳拍或改写骨架，推进由引擎判定。\n"
         "判断本步属于以下哪一类（判据见你的系统提示）：\n"
         "1) 纯叙事/社交/信息，或该掷暗骰（陷阱、对抗、环境）——你可调骰子工具自己掷，"
-        "把结果编进叙述，输出 {\"intent\":\"reply\",\"say\":\"给玩家看的叙述\"}。\n"
+        '把结果编进叙述，输出 {"intent":"reply","say":"给玩家看的叙述"}。\n'
         "2) 玩家主动做一件结果不确定且成败都有意义的事（撬锁/说服/跳跃/豁免…）——交玩家明骰，"
-        "输出 {\"intent\":\"player_check\",\"check\":{\"actor_id\":\"哪个玩家角色id\",\"ability\":\"strength|dexterity|constitution|intelligence|wisdom|charisma\","
-        "\"dc\":数字,\"kind\":\"ability_check|saving_throw\",\"proficient\":true/false,\"prompt\":\"提示玩家掷什么\",\"reason\":\"为什么要检定\"}}。\n"
-        "3) 局势升级为战斗——输出 {\"intent\":\"start_combat\",\"encounter\":{\"monster_ids\":[\"场景里敌意在场者的actor_id\"],\"surprised\":[\"被突袭者id\"],\"reason\":\"...\"}}。\n"
+        '输出 {"intent":"player_check","check":{"actor_id":"哪个玩家角色id","ability":"strength|dexterity|constitution|intelligence|wisdom|charisma",'
+        '"dc":数字,"kind":"ability_check|saving_throw","proficient":true/false,"prompt":"提示玩家掷什么","reason":"为什么要检定"}}。\n'
+        '3) 局势升级为战斗——输出 {"intent":"start_combat","encounter":{"monster_ids":["场景里敌意在场者的actor_id"],"surprised":["被突袭者id"],"reason":"..."}}。\n'
         "【可选·世界写入】当玩家这步确实改变了世界时，可在 JSON 里附带（不改变上面的 intent）：\n"
-        "  \"flags_set\":{\"flag名\":true} —— 仅声明 canon 白名单内的世界 flag（如玩家发现了某条线索）；\n"
-        "  \"moved_to\":\"地点id\" —— 玩家移动到的当前拍内地点；\n"
-        "  \"clues_delivered\":[\"你这步已讲给玩家的关键线索id\"]。\n"
+        '  "flags_set":{"flag名":true} —— 仅声明 canon 白名单内的世界 flag（如玩家发现了某条线索）；\n'
+        '  "moved_to":"地点id" —— 玩家移动到的当前拍内地点；\n'
+        '  "clues_delivered":["你这步已讲给玩家的关键线索id"]。\n'
         "不确定 DC 时可 kb_read ability_check / 即兴伤害表。只输出 JSON，不要额外文字。"
     )
     return await dm_complete_json(task)
@@ -166,10 +185,18 @@ def _normalize_decision(data: dict, scene: dict, party_ids: list[str]) -> dict:
     writes = _world_writes(data)
     intent = data.get("intent")
     if intent not in _INTENTS:
-        return {"intent": "reply", "say": str(data.get("say") or "（你环顾四周，等待着什么。）"), "world_writes": writes}
+        return {
+            "intent": "reply",
+            "say": str(data.get("say") or "（你环顾四周，等待着什么。）"),
+            "world_writes": writes,
+        }
 
     if intent == "reply":
-        return {"intent": "reply", "say": str(data.get("say") or ""), "world_writes": writes}
+        return {
+            "intent": "reply",
+            "say": str(data.get("say") or ""),
+            "world_writes": writes,
+        }
 
     if intent == "player_check":
         check = data.get("check") or {}
@@ -180,17 +207,27 @@ def _normalize_decision(data: dict, scene: dict, party_ids: list[str]) -> dict:
         if actor_id not in party_ids:
             actor_id = party_ids[0] if party_ids else None
         if actor_id is None:  # 无玩家角色可检定 → 回落叙述
-            return {"intent": "reply", "say": str(check.get("reason") or ""), "world_writes": writes}
-        kind = check.get("kind") if check.get("kind") in _CHECK_KINDS else "ability_check"
-        return {"intent": "player_check", "world_writes": writes, "check": {
-            "actor_id": actor_id,
-            "ability": ability,
-            "dc": _safe_int(check.get("dc"), 12),
-            "kind": kind,
-            "proficient": bool(check.get("proficient", False)),
-            "prompt": str(check.get("prompt") or "请掷 d20"),
-            "reason": str(check.get("reason") or ""),
-        }}
+            return {
+                "intent": "reply",
+                "say": str(check.get("reason") or ""),
+                "world_writes": writes,
+            }
+        kind = (
+            check.get("kind") if check.get("kind") in _CHECK_KINDS else "ability_check"
+        )
+        return {
+            "intent": "player_check",
+            "world_writes": writes,
+            "check": {
+                "actor_id": actor_id,
+                "ability": ability,
+                "dc": _safe_int(check.get("dc"), 12),
+                "kind": kind,
+                "proficient": bool(check.get("proficient", False)),
+                "prompt": str(check.get("prompt") or "请掷 d20"),
+                "reason": str(check.get("reason") or ""),
+            },
+        }
 
     # start_combat：把 monster_ids 收敛到场景里真实存在的敌意在场者
     encounter = data.get("encounter") or {}
@@ -199,13 +236,21 @@ def _normalize_decision(data: dict, scene: dict, party_ids: list[str]) -> dict:
     if not chosen:
         chosen = list(hostiles.keys())  # DM 没给或给错 → 全部敌意在场者参战
     if not chosen:  # 场景里压根没有敌人 → 无法开战，回落叙述
-        return {"intent": "reply", "say": str(encounter.get("reason") or "这里并没有敌人。"), "world_writes": writes}
+        return {
+            "intent": "reply",
+            "say": str(encounter.get("reason") or "这里并没有敌人。"),
+            "world_writes": writes,
+        }
     surprised = [sid for sid in (encounter.get("surprised") or []) if sid in chosen]
-    return {"intent": "start_combat", "world_writes": writes, "encounter": {
-        "monster_ids": chosen,
-        "surprised": surprised,
-        "reason": str(encounter.get("reason") or ""),
-    }}
+    return {
+        "intent": "start_combat",
+        "world_writes": writes,
+        "encounter": {
+            "monster_ids": chosen,
+            "surprised": surprised,
+            "reason": str(encounter.get("reason") or ""),
+        },
+    }
 
 
 def _safe_int(value, default: int) -> int:
@@ -220,7 +265,20 @@ def _safe_int(value, default: int) -> int:
 # 启发式决策（离线/无模型回落，确定性）
 # ---------------------------------------------------------------------------
 # 攻击/开战关键词
-_COMBAT_WORDS = ("攻击", "开打", "动手", "拔剑", "砍", "杀", "战斗", "冲上去", "打它", "打他", "宣战", "attack")
+_COMBAT_WORDS = (
+    "攻击",
+    "开打",
+    "动手",
+    "拔剑",
+    "砍",
+    "杀",
+    "战斗",
+    "冲上去",
+    "打它",
+    "打他",
+    "宣战",
+    "attack",
+)
 
 # 检定关键词 → (属性, DC, kind)；命中即让玩家明骰
 _CHECK_WORDS: list[tuple[tuple[str, ...], str, int, str]] = [
@@ -228,9 +286,24 @@ _CHECK_WORDS: list[tuple[tuple[str, ...], str, int, str]] = [
     (("说服", "劝说", "谈判", "游说"), Ability.CHARISMA.value, 13, "ability_check"),
     (("欺骗", "唬", "蒙骗"), Ability.CHARISMA.value, 13, "ability_check"),
     (("威吓", "恐吓"), Ability.CHARISMA.value, 13, "ability_check"),
-    (("搜索", "搜查", "调查", "查看", "检查", "翻找"), Ability.INTELLIGENCE.value, 12, "ability_check"),
-    (("察觉", "感知", "留意", "倾听", "察看"), Ability.WISDOM.value, 12, "ability_check"),
-    (("跳", "攀爬", "攀登", "推开", "搬", "掰", "破门"), Ability.STRENGTH.value, 13, "ability_check"),
+    (
+        ("搜索", "搜查", "调查", "查看", "检查", "翻找"),
+        Ability.INTELLIGENCE.value,
+        12,
+        "ability_check",
+    ),
+    (
+        ("察觉", "感知", "留意", "倾听", "察看"),
+        Ability.WISDOM.value,
+        12,
+        "ability_check",
+    ),
+    (
+        ("跳", "攀爬", "攀登", "推开", "搬", "掰", "破门"),
+        Ability.STRENGTH.value,
+        13,
+        "ability_check",
+    ),
     (("潜行", "躲", "藏", "溜"), Ability.DEXTERITY.value, 13, "ability_check"),
     (("豁免", "抵抗", "闪避"), Ability.DEXTERITY.value, 13, "saving_throw"),
 ]
@@ -243,29 +316,38 @@ def _decide_heuristic(user_input: str, scene: dict, party_ids: list[str]) -> dic
 
     # 1) 开战：有攻击意图且场上有敌意在场者
     if hostiles and any(w in text for w in _COMBAT_WORDS):
-        return {"intent": "start_combat", "encounter": {
-            "monster_ids": [a["actor_id"] for a in hostiles if a.get("actor_id")],
-            "surprised": [sid for sid in (scene or {}).get("surprised", [])],
-            "reason": "玩家发起攻击",
-        }}
+        return {
+            "intent": "start_combat",
+            "encounter": {
+                "monster_ids": [a["actor_id"] for a in hostiles if a.get("actor_id")],
+                "surprised": [sid for sid in (scene or {}).get("surprised", [])],
+                "reason": "玩家发起攻击",
+            },
+        }
 
     # 2) 检定：命中关键词且有玩家角色可掷
     if party_ids:
         for keywords, ability, dc, kind in _CHECK_WORDS:
             if any(k in text for k in keywords):
-                return {"intent": "player_check", "check": {
-                    "actor_id": party_ids[0],
-                    "ability": ability,
-                    "dc": dc,
-                    "kind": kind,
-                    "proficient": False,
-                    "prompt": f"请掷 d20（{ability} 检定，DC {dc}）",
-                    "reason": f"你尝试「{text}」，结果尚不确定。",
-                }}
+                return {
+                    "intent": "player_check",
+                    "check": {
+                        "actor_id": party_ids[0],
+                        "ability": ability,
+                        "dc": dc,
+                        "kind": kind,
+                        "proficient": False,
+                        "prompt": f"请掷 d20（{ability} 检定，DC {dc}）",
+                        "reason": f"你尝试「{text}」，结果尚不确定。",
+                    },
+                }
 
     # 3) 纯叙述：模板回应（离线占位，接 LLM 后被替换）
     loc = (scene or {}).get("location") or "此地"
-    return {"intent": "reply", "say": f"（{loc}）你说：「{text}」。四下安静，故事在等你的下一步。"}
+    return {
+        "intent": "reply",
+        "say": f"（{loc}）你说：「{text}」。四下安静，故事在等你的下一步。",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -286,7 +368,9 @@ def narrate_reply(text: str, *, node_name: str = "dm") -> str:
     return collector.result
 
 
-async def narrate_result(check_result: dict, *, use_llm: bool, node_name: str = "dm") -> str:
+async def narrate_result(
+    check_result: dict, *, use_llm: bool, node_name: str = "dm"
+) -> str:
     """叙述一次玩家检定的成败（成功→「是,然后…」，失败→「不,但是…」）。"""
     if use_llm:
         verdict = "成功" if check_result.get("success") else "失败"
@@ -300,11 +384,15 @@ async def narrate_result(check_result: dict, *, use_llm: bool, node_name: str = 
     # 离线模板
     ok = check_result.get("success")
     tail = "你做到了，事情顺势展开。" if ok else "没能成功，但门路并未完全堵死。"
-    return narrate_reply(f"（检定{'成功' if ok else '失败'}：{check_result.get('total')} vs DC {check_result.get('dc')}）{tail}",
-                         node_name=node_name)
+    return narrate_reply(
+        f"（检定{'成功' if ok else '失败'}：{check_result.get('total')} vs DC {check_result.get('dc')}）{tail}",
+        node_name=node_name,
+    )
 
 
-async def narrate_aftermath(last_combat: dict, scene: dict, *, use_llm: bool, node_name: str = "dm") -> str:
+async def narrate_aftermath(
+    last_combat: dict, scene: dict, *, use_llm: bool, node_name: str = "dm"
+) -> str:
     """战斗结束后，叙述战后世界（谁倒下、战利品、接下来），把故事交回 DM。"""
     if use_llm:
         task = (
@@ -318,7 +406,11 @@ async def narrate_aftermath(last_combat: dict, scene: dict, *, use_llm: bool, no
     outcome = (last_combat or {}).get("outcome")
     loot = (last_combat or {}).get("granted_loot")
     won = outcome == "players_win"
-    msg = ("尘埃落定，你们赢了。" if won else "战斗失利……") + (f" 战利品：{loot}。" if loot else "") + " 接下来你打算怎么做？"
+    msg = (
+        ("尘埃落定，你们赢了。" if won else "战斗失利……")
+        + (f" 战利品：{loot}。" if loot else "")
+        + " 接下来你打算怎么做？"
+    )
     return narrate_reply(msg, node_name=node_name)
 
 
@@ -349,7 +441,7 @@ async def judge_trigger(
         f"当前场景：{_dump(_scene_brief(scene))}\n"
         f"最近对话：{_dump(_history_brief(messages or []))}\n\n"
         "只依据已经发生的事实判断，不要替玩家臆想未做的事。**只输出一个 JSON 对象**："
-        "{\"answer\": true 或 false, \"reason\": \"一句话依据\"}。"
+        '{"answer": true 或 false, "reason": "一句话依据"}。'
     )
     data = await dm_complete_json(task)
     if not isinstance(data, dict):
@@ -376,5 +468,11 @@ async def narrate_beat_transition(
         )
         return await dm_narrate(task, node_name=node_name)
     # 离线模板
-    desc = (next_scene or {}).get("description") or (next_scene or {}).get("location") or "新的场景"
-    return narrate_reply(f"【{next_title}】{desc} 你接下来打算怎么做？", node_name=node_name)
+    desc = (
+        (next_scene or {}).get("description")
+        or (next_scene or {}).get("location")
+        or "新的场景"
+    )
+    return narrate_reply(
+        f"【{next_title}】{desc} 你接下来打算怎么做？", node_name=node_name
+    )

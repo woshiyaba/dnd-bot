@@ -20,9 +20,16 @@ from src.combat.rules import (
 )
 
 __all__ = [
-    "Dice", "RollResult", "parse_dice",
-    "resolve_attack", "AttackResult", "check_success", "saving_throw_bonus",
-    "ability_check_bonus", "in_reach",
+    "Dice",
+    "RollResult",
+    "parse_dice",
+    "resolve_attack",
+    "AttackResult",
+    "check_success",
+    "saving_throw_bonus",
+    "ability_check_bonus",
+    "in_reach",
     "build_combat_graph",
-    "CombatEngine", "room_thread_id",
+    "CombatEngine",
+    "room_thread_id",
 ]

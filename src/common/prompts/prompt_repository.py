@@ -32,7 +32,9 @@ def _get_cache_ttl_seconds() -> int:
     try:
         ttl = int(raw_ttl)
     except ValueError as exc:
-        raise RuntimeError(f"PROMPT_CACHE_TTL_SECONDS 必须是整数，当前值：{raw_ttl}") from exc
+        raise RuntimeError(
+            f"PROMPT_CACHE_TTL_SECONDS 必须是整数，当前值：{raw_ttl}"
+        ) from exc
     return max(ttl, 0)
 
 

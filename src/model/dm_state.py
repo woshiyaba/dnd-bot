@@ -23,37 +23,47 @@ class DMState(TypedDict, total=False):
     """整局冒险的图状态（会话主图）。"""
 
     # —— 对话 ——
-    messages: list[dict]          # 对话历史：[{"role": "user"|"dm", "content": str}]
-    user_input: str               # 本回合玩家输入（perceive 读取，dm_decide 据此决策）
-    user_id: str                  # 当前玩家 user_id（单人；多人二期）
-    room_id: str                  # 房间/局 id，派生 thread_id
+    messages: list[dict]  # 对话历史：[{"role": "user"|"dm", "content": str}]
+    user_input: str  # 本回合玩家输入（perceive 读取，dm_decide 据此决策）
+    user_id: str  # 当前玩家 user_id（单人；多人二期）
+    room_id: str  # 房间/局 id，派生 thread_id
 
     # —— 世界 ——
-    scene: dict                   # 当前世界场景（WorldScene，见模块文档）
-    party: dict[str, Combatant]   # 玩家角色册：pc_id -> 角色对象（HP/物品跨场景延续，唯一真相源）
+    scene: dict  # 当前世界场景（WorldScene，见模块文档）
+    party: dict[
+        str, Combatant
+    ]  # 玩家角色册：pc_id -> 角色对象（HP/物品跨场景延续，唯一真相源）
 
     # —— DM 决策工作区（每回合刷新）——
-    intent: str                   # dm_decide 产出的意图：reply | player_check | start_combat
-    say: str                      # reply 文本：DM 面向玩家要说的话
-    pending_check: dict | None    # player_check 规格：{actor_id, ability, dc, kind, proficient, prompt, reason}
-    last_check: dict | None       # 检定结算结果：{actor_id, ability, dc, d20, bonus, total, success}
-    combat_request: dict | None   # start_combat 产出的遭遇：{monsters:[卡面条目], surprised, loot_table, random_seed}
-    last_combat: dict | None      # 战斗结算回灌：{outcome, granted_loot, casualties, ...}
+    intent: str  # dm_decide 产出的意图：reply | player_check | start_combat
+    say: str  # reply 文本：DM 面向玩家要说的话
+    pending_check: (
+        dict | None
+    )  # player_check 规格：{actor_id, ability, dc, kind, proficient, prompt, reason}
+    last_check: (
+        dict | None
+    )  # 检定结算结果：{actor_id, ability, dc, d20, bonus, total, success}
+    combat_request: (
+        dict | None
+    )  # start_combat 产出的遭遇：{monsters:[卡面条目], surprised, loot_table, random_seed}
+    last_combat: dict | None  # 战斗结算回灌：{outcome, granted_loot, casualties, ...}
 
     # —— 路由信号 ——
-    next: str                     # 会话主图条件路由：wait（等玩家下一条消息）| combat（进战斗子图）
+    next: str  # 会话主图条件路由：wait（等玩家下一条消息）| combat（进战斗子图）
 
     # —— 故事进度（糖葫芦剧本骨架，见 src/model/canon.py）——
-    campaign_id: str              # 本局 canon 的注册表 key（canon 本体不入 state，按引用存）
-    story: dict                   # 进度工作区：current_beat_id/visited_beats/flags/delivered_clues/
-                                  #   visited_locations/current_location_id/beat_entered_turn/idle_turns/
-                                  #   turn_index/pending_next_beat_id（纯 dict，JSON 可序列化，规避 serde）
-    world_writes: dict | None     # DM 本回合声明的世界写入：{flags_set, moved_to, clues_delivered}，引擎校验后消费
-    next_story: str               # 推进路由信号：advance（切到下一拍）| stay（留在本拍）
-    story_status: str             # ongoing | finished（结局拍叙述完置 finished）
+    campaign_id: str  # 本局 canon 的注册表 key（canon 本体不入 state，按引用存）
+    story: dict  # 进度工作区：current_beat_id/visited_beats/flags/delivered_clues/
+    #   visited_locations/current_location_id/beat_entered_turn/idle_turns/
+    #   turn_index/pending_next_beat_id（纯 dict，JSON 可序列化，规避 serde）
+    world_writes: (
+        dict | None
+    )  # DM 本回合声明的世界写入：{flags_set, moved_to, clues_delivered}，引擎校验后消费
+    next_story: str  # 推进路由信号：advance（切到下一拍）| stay（留在本拍）
+    story_status: str  # ongoing | finished（结局拍叙述完置 finished）
 
     # —— 输出 ——
-    campaign_log: list[dict]      # 全程世界事件流（前端回放 + DM 长期上下文）
+    campaign_log: list[dict]  # 全程世界事件流（前端回放 + DM 长期上下文）
 
 
 # 一份「世界场景」WorldScene 约定（scene 字段的形状，供 DM 感知环境）::
@@ -90,8 +100,7 @@ def load_party(scene_context: dict) -> dict[str, Combatant]:
 def hostile_actors(scene: dict) -> list[dict]:
     """取场景里所有「敌意」在场者条目（用于触发战斗时组装敌方）。"""
     return [
-        a for a in (scene or {}).get("actors", [])
-        if a.get("disposition") == "hostile"
+        a for a in (scene or {}).get("actors", []) if a.get("disposition") == "hostile"
     ]
 
 
@@ -100,7 +109,9 @@ def player_characters(party: dict[str, Combatant]) -> list[PlayerCharacter]:
     return [c for c in party.values() if isinstance(c, PlayerCharacter)]
 
 
-def fold_combat_writeback(party: dict[str, Combatant], combat_state: dict) -> dict[str, Any]:
+def fold_combat_writeback(
+    party: dict[str, Combatant], combat_state: dict
+) -> dict[str, Any]:
     """把战斗结束后的参战者状态（HP/存活）折回角色册，并汇总一份战斗结算摘要。
 
     战斗子图与会话主图共用同一批玩家角色对象（同一引用），HP 其实已就地更新；
@@ -110,14 +121,15 @@ def fold_combat_writeback(party: dict[str, Combatant], combat_state: dict) -> di
     for pc_id, pc in party.items():
         fighter = combatants.get(pc_id)
         if fighter is not None:
-            pc.current_hp = fighter.current_hp      # 对齐 HP
-            pc.life_state = fighter.life_state       # 对齐存活状态
-            pc.conditions = fighter.conditions       # 对齐残留状态
+            pc.current_hp = fighter.current_hp  # 对齐 HP
+            pc.life_state = fighter.life_state  # 对齐存活状态
+            pc.conditions = fighter.conditions  # 对齐残留状态
 
     scene_ctx = combat_state.get("scene_context", {}) or {}
     casualties = [
         {"id": c.id, "name": c.name, "faction": str(c.faction.value)}
-        for c in combatants.values() if not c.is_alive
+        for c in combatants.values()
+        if not c.is_alive
     ]
     return {
         "outcome": _outcome_value(combat_state.get("outcome")),
@@ -143,15 +155,17 @@ def build_beat_scene(canon: Canon, beat: Beat) -> dict:
     entry = dict(beat.entry_state or {})
     location_id = entry.get("location_id")
     scene: dict = {
-        "beat_id": beat.id,                                  # 当前拍 id（便于前端/日志定位）
-        "location_id": location_id,                          # 当前地点 id（location 触发器据此判定到达）
-        "location": entry.get("location"),                   # 地点名
-        "description": entry.get("description", ""),         # 环境描述
-        "actors": [dict(a) for a in entry.get("actors", [])],  # 在场 NPC / 潜在敌人（带卡面）
-        "exits": list(entry.get("exits", [])),               # 叙事出口提示
-        "flags": dict(entry.get("flags", {})),               # 场景开关
-        "threat": entry.get("threat"),                       # 威胁提示
-        "dm_mode": entry.get("dm_mode"),                     # 由引擎在 init 时统一覆盖
+        "beat_id": beat.id,  # 当前拍 id（便于前端/日志定位）
+        "location_id": location_id,  # 当前地点 id（location 触发器据此判定到达）
+        "location": entry.get("location"),  # 地点名
+        "description": entry.get("description", ""),  # 环境描述
+        "actors": [
+            dict(a) for a in entry.get("actors", [])
+        ],  # 在场 NPC / 潜在敌人（带卡面）
+        "exits": list(entry.get("exits", [])),  # 叙事出口提示
+        "flags": dict(entry.get("flags", {})),  # 场景开关
+        "threat": entry.get("threat"),  # 威胁提示
+        "dm_mode": entry.get("dm_mode"),  # 由引擎在 init 时统一覆盖
     }
     # 用 LocationSpec 补全地点名/描述
     loc = canon.location(location_id) if location_id else None
@@ -176,20 +190,22 @@ def init_story(canon: Canon) -> tuple[dict, dict]:
     """
     start = canon.beat(canon.start_beat_id)
     if start is None:
-        raise ValueError(f"canon «{canon.campaign_id}» 的 start_beat_id «{canon.start_beat_id}» 不存在")
+        raise ValueError(
+            f"canon «{canon.campaign_id}» 的 start_beat_id «{canon.start_beat_id}» 不存在"
+        )
 
     scene = build_beat_scene(canon, start)
     location_id = scene.get("location_id")
     story = {
-        "current_beat_id": start.id,                                   # 当前在哪颗珠子
-        "visited_beats": [start.id],                                   # 已走过的拍
-        "flags": dict(scene.get("flags", {})),                         # 世界 flag（推进判定依据，唯一真相源）
-        "delivered_clues": [],                                         # 已传达的关键线索 id
-        "visited_locations": [location_id] if location_id else [],     # 已到达的地点 id
-        "current_location_id": location_id,                            # 当前地点 id
-        "beat_entered_turn": 0,                                        # 进入本拍时的回合序号
-        "idle_turns": 0,                                              # 在本拍空转的回合数（驱动卡关兜底）
-        "turn_index": 0,                                              # 全局回合计数
-        "pending_next_beat_id": None,                                 # 待切入的下一拍（evaluate_advancement 命中时写）
+        "current_beat_id": start.id,  # 当前在哪颗珠子
+        "visited_beats": [start.id],  # 已走过的拍
+        "flags": dict(scene.get("flags", {})),  # 世界 flag（推进判定依据，唯一真相源）
+        "delivered_clues": [],  # 已传达的关键线索 id
+        "visited_locations": [location_id] if location_id else [],  # 已到达的地点 id
+        "current_location_id": location_id,  # 当前地点 id
+        "beat_entered_turn": 0,  # 进入本拍时的回合序号
+        "idle_turns": 0,  # 在本拍空转的回合数（驱动卡关兜底）
+        "turn_index": 0,  # 全局回合计数
+        "pending_next_beat_id": None,  # 待切入的下一拍（evaluate_advancement 命中时写）
     }
     return story, scene

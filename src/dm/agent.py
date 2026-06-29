@@ -45,7 +45,7 @@ async def get_dm_agent() -> Any:
         if _cached_agent is not None and _cached_prompt == system_prompt:
             return _cached_agent
         _cached_agent = create_agent(
-            create_chat_model(),       # 复用默认模型（qwen3.5-plus，DashScope 兼容）
+            create_chat_model(),  # 复用默认模型（qwen3.5-plus，DashScope 兼容）
             tools=ALL_DM_TOOLS,
             system_prompt=system_prompt,
         )
@@ -62,7 +62,9 @@ def _last_text(result: dict) -> str:
     if isinstance(content, str):
         return content
     # 某些模型把内容拆成分段列表，拼接其中的文本片段
-    parts = [seg.get("text", "") if isinstance(seg, dict) else str(seg) for seg in content]
+    parts = [
+        seg.get("text", "") if isinstance(seg, dict) else str(seg) for seg in content
+    ]
     return "".join(parts)
 
 

@@ -31,18 +31,19 @@ def build_interrupt_request(
     """
     request: dict[str, Any] = {
         "interrupt_type": str(kind.value),  # 中断类型
-        "directed_to": {                    # 面向：推给谁
+        "directed_to": {  # 面向：推给谁
             "combatant_id": actor.id,
             "user_id": actor.controller,
         },
-        "prompt": prompt,                   # 提示
-        "required_dice": required_dice,     # 需要骰子
-        "bonus": bonus,                     # 加值（引擎会替你加的固定值）
-        "options": options,                 # 选项（仅声明行动用）
-        "expected_return": expected_return or _default_expected_return(kind),  # 期望返回
+        "prompt": prompt,  # 提示
+        "required_dice": required_dice,  # 需要骰子
+        "bonus": bonus,  # 加值（引擎会替你加的固定值）
+        "options": options,  # 选项（仅声明行动用）
+        "expected_return": expected_return
+        or _default_expected_return(kind),  # 期望返回
     }
     if extra:
-        request["extra"] = extra            # 附带
+        request["extra"] = extra  # 附带
     return request
 
 
@@ -56,15 +57,16 @@ def _default_expected_return(kind: InterruptType) -> dict:
     return {"d20": "int 1-20 原始值"}
 
 
-def build_action_options(actor: Combatant, combatants: dict[str, Combatant]) -> dict[str, Any]:
+def build_action_options(
+    actor: Combatant, combatants: dict[str, Combatant]
+) -> dict[str, Any]:
     """为「声明行动」中断构造合法选项（文档 2.1）。
 
     - 攻击：每件武器列出射程内、存活的敌方目标（按区域过滤）。
     - 技能/道具/移动/创意：仅角色（含 NPC）持有，怪物为空。
     """
     enemies_alive = [
-        c for c in combatants.values()
-        if c.faction != actor.faction and c.is_alive
+        c for c in combatants.values() if c.faction != actor.faction and c.is_alive
     ]
 
     attack_options = []
@@ -74,11 +76,13 @@ def build_action_options(actor: Combatant, combatants: dict[str, Combatant]) -> 
             for t in enemies_alive
             if in_reach(actor, t, weapon.is_ranged)
         ]
-        attack_options.append({
-            "attack_name": weapon.name,
-            "range": str(weapon.attack_range.value),
-            "targets": targets,
-        })
+        attack_options.append(
+            {
+                "attack_name": weapon.name,
+                "range": str(weapon.attack_range.value),
+                "targets": targets,
+            }
+        )
 
     options: dict[str, Any] = {"attack": attack_options, "improvise": True}
 
@@ -90,12 +94,18 @@ def build_action_options(actor: Combatant, combatants: dict[str, Combatant]) -> 
 
     if isinstance(actor, Character):
         options["skill"] = [
-            {"skill_id": s.skill_id, "charges_left": s.charges, "cooldown_left": s.cooldown_left}
-            for s in actor.skills if s.is_available
+            {
+                "skill_id": s.skill_id,
+                "charges_left": s.charges,
+                "cooldown_left": s.cooldown_left,
+            }
+            for s in actor.skills
+            if s.is_available
         ]
         options["item"] = [
             {"item_id": i.item_id, "quantity": i.quantity}
-            for i in actor.inventory if i.is_available
+            for i in actor.inventory
+            if i.is_available
         ]
     return options
 
