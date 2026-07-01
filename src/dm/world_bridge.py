@@ -120,7 +120,7 @@ async def decide_turn(
         if data is not None:
             return _normalize_decision(data, scene, party_ids)
         logger.warning("[dm] decide_turn LLM 解析失败，回落启发式")
-    return _decide_heuristic(user_input, scene, party_ids)
+    return _decide_heuristic(user_input, scene, party_ids, beat_brief)
 
 
 async def _decide_llm(
@@ -308,11 +308,58 @@ _CHECK_WORDS: list[tuple[tuple[str, ...], str, int, str]] = [
     (("豁免", "抵抗", "闪避"), Ability.DEXTERITY.value, 13, "saving_throw"),
 ]
 
+_ACCEPT_WORDS = (
+    "接受",
+    "接下",
+    "答应",
+    "同意",
+    "出发",
+    "动身",
+    "前往",
+    "去废村",
+    "去钟楼",
+    "走向废村",
+    "赶往",
+)
 
-def _decide_heuristic(user_input: str, scene: dict, party_ids: list[str]) -> dict:
-    """关键词启发式：先看是否开战，再看是否检定，否则纯叙述。"""
+_MOVE_RULES: list[tuple[tuple[str, ...], str]] = [
+    (("枯井", "井口", "井底", "干井"), "dry_well"),
+    (("墓园", "墓地", "坟", "无名碑"), "graveyard"),
+    (("前厅", "大厅", "石厅"), "bell_tower_hall"),
+]
+
+_CLUE_RULES: list[tuple[str, tuple[str, ...], str]] = [
+    (
+        "bell_tower_hall",
+        ("搜索", "搜查", "调查", "查看", "检查", "吊钟", "熔痕", "钟绳"),
+        "clue_bell_crack",
+    ),
+    (
+        "dry_well",
+        ("搜索", "搜查", "调查", "查看", "检查", "井底", "木牌", "玩具"),
+        "clue_spirit_name",
+    ),
+    (
+        "graveyard",
+        ("搜索", "搜查", "调查", "查看", "检查", "墓碑", "无名碑", "圣水"),
+        "clue_holy_water",
+    ),
+]
+
+_CLUE_TEXT = {
+    "clue_bell_crack": "你发现吊钟上一道被高热撕开的熔痕，怨念正是从裂缝里渗出来的。",
+    "clue_spirit_name": "井底木牌上刻着「赫尔薇」这个名字，像是某个被遗忘孩子的最后痕迹。",
+    "clue_holy_water": "无名碑下压着一小瓶圣水，瓶身仍残留微弱的银光。",
+}
+
+
+def _decide_heuristic(
+    user_input: str, scene: dict, party_ids: list[str], beat_brief: dict | None = None
+) -> dict:
+    """关键词启发式：先看是否开战，再看移动/线索/检定，否则纯叙述。"""
     text = user_input or ""
     hostiles = hostile_actors(scene)
+    writes = _heuristic_world_writes(text, scene)
 
     # 1) 开战：有攻击意图且场上有敌意在场者
     if hostiles and any(w in text for w in _COMBAT_WORDS):
@@ -323,14 +370,21 @@ def _decide_heuristic(user_input: str, scene: dict, party_ids: list[str]) -> dic
                 "surprised": [sid for sid in (scene or {}).get("surprised", [])],
                 "reason": "玩家发起攻击",
             },
+            "world_writes": writes,
         }
 
-    # 2) 检定：命中关键词且有玩家角色可掷
+    # 2) 钟楼开场：优先给委托钩子，避免「推开酒馆门」被误判成力量检定
+    opening_say = _heuristic_opening_say(text, scene)
+    if opening_say:
+        return {"intent": "reply", "say": opening_say}
+
+    # 3) 检定：命中关键词且有玩家角色可掷；线索写入随检定回合一起结算
     if party_ids:
         for keywords, ability, dc, kind in _CHECK_WORDS:
             if any(k in text for k in keywords):
                 return {
                     "intent": "player_check",
+                    "world_writes": writes,
                     "check": {
                         "actor_id": party_ids[0],
                         "ability": ability,
@@ -342,12 +396,106 @@ def _decide_heuristic(user_input: str, scene: dict, party_ids: list[str]) -> dic
                     },
                 }
 
-    # 3) 纯叙述：模板回应（离线占位，接 LLM 后被替换）
+    # 4) 剧本推进写入：移动等无需检定的动作直接落状态，再给叙述
+    if writes:
+        return {
+            "intent": "reply",
+            "say": _heuristic_progress_say(text, scene, writes, beat_brief),
+            "world_writes": writes,
+        }
+
+    # 5) 纯叙述：模板回应（离线占位，接 LLM 后被替换）
     loc = (scene or {}).get("location") or "此地"
     return {
         "intent": "reply",
         "say": f"（{loc}）你说：「{text}」。四下安静，故事在等你的下一步。",
     }
+
+
+def _heuristic_world_writes(text: str, scene: dict) -> dict:
+    """为离线试玩切片生成最小世界写入：移动与三条钟楼线索。"""
+    writes: dict = {}
+    target_location = _target_location(text, scene)
+    if target_location and target_location != (scene or {}).get("location_id"):
+        writes["moved_to"] = target_location
+
+    clue_ids = _clue_ids_for(text, scene, target_location)
+    if clue_ids:
+        writes["clues_delivered"] = clue_ids
+        writes["flags_set"] = {clue_id: True for clue_id in clue_ids}
+    return writes
+
+
+def _target_location(text: str, scene: dict) -> str | None:
+    """根据玩家话语判断当前拍内移动目标。"""
+    exits = set((scene or {}).get("exits", []))
+    for keywords, location_id in _MOVE_RULES:
+        if any(keyword in text for keyword in keywords):
+            return location_id
+    if "钟楼" in text and any("钟楼" in exit_name for exit_name in exits):
+        return "bell_tower_hall"
+    return None
+
+
+def _clue_ids_for(text: str, scene: dict, target_location: str | None) -> list[str]:
+    """根据地点与搜索语义判断本回合传达的线索 id。"""
+    location_id = target_location or (scene or {}).get("location_id")
+    result: list[str] = []
+    for rule_location, keywords, clue_id in _CLUE_RULES:
+        if rule_location == location_id and any(keyword in text for keyword in keywords):
+            result.append(clue_id)
+    return result
+
+
+def _heuristic_progress_say(
+    text: str, scene: dict, writes: dict, beat_brief: dict | None
+) -> str:
+    """为离线模式生成承接移动/线索的简短叙述。"""
+    parts: list[str] = []
+    moved_to = writes.get("moved_to")
+    if moved_to:
+        name = _location_name(moved_to, beat_brief) or moved_to
+        parts.append(f"你穿过废村的阴影，来到{name}。")
+    for clue_id in writes.get("clues_delivered", []):
+        parts.append(_CLUE_TEXT.get(clue_id, "你发现了一条重要线索。"))
+    if not parts:
+        loc = (scene or {}).get("location") or "此地"
+        parts.append(f"（{loc}）你说：「{text}」。世界安静地回应了你的行动。")
+    parts.append("你接下来打算怎么做？")
+    return "".join(parts)
+
+
+def _heuristic_opening_say(text: str, scene: dict) -> str | None:
+    """为钟楼开场生成固定委托钩子。"""
+    if (scene or {}).get("beat_id") != "tavern_quest":
+        return None
+    if text and not any(word in text for word in ("村长", "酒馆", "委托", "孩子")):
+        return None
+    return (
+        "破钟酒馆里只剩炉火和雨声。村长马伦把一张发皱的地图推到你面前："
+        "灰岩村夜夜响起废钟声，三名孩子已经在钟声后失踪；他请求你立刻前往废村钟楼查明真相。"
+    )
+
+
+def _location_name(location_id: str, beat_brief: dict | None) -> str | None:
+    """从当前拍画像里取地点名。"""
+    for loc in (beat_brief or {}).get("locations", []):
+        if loc.get("id") == location_id:
+            return loc.get("name")
+    return None
+
+
+def _judge_trigger_heuristic(prompt: str, user_input: str | None) -> bool:
+    """离线模式下对少量 semantic trigger 做保守判定。"""
+    prompt_text = prompt or ""
+    action_text = user_input or ""
+    if "接受" in prompt_text or "委托" in prompt_text or "动身" in prompt_text:
+        has_accept = any(word in action_text for word in _ACCEPT_WORDS)
+        has_destination = any(
+            word in action_text for word in ("委托", "废村", "钟楼", "孩子", "村口")
+        )
+        return has_accept and has_destination
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -457,7 +605,7 @@ async def judge_trigger(
     :return: 条件是否满足。
     """
     if not use_llm:
-        return False
+        return _judge_trigger_heuristic(prompt, user_input)
     action_line = f"玩家最新这步言行：{user_input}\n" if user_input else ""
     task = (
         "你在主持一场有预定剧本的 D&D 冒险。下面是一道**是/否判定题**，问的是「截至当前，某条预设的剧情推进条件是否已经为真」。\n"

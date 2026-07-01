@@ -45,6 +45,12 @@ Offline combat/session drivers can run without MySQL or DashScope when they stay
 - `src/common/ws/ws_manager.py` contains the shared `ConnectionManager` singleton used by both routes and graph streaming.
 - `skills/` contains deepagents skills as `SKILL.md` files with frontmatter (`name`, `description`) and is mounted read-only into the agent virtual filesystem.
 
+## Implementation Constraints
+
+- Think through the actual code path before changing code. Match the current project style and local abstractions instead of introducing generic patterns that do not fit the surrounding modules.
+- Do not add transitional fallback or compatibility layers unless a real migration path, external input, or runtime boundary requires them.
+- Do not handle states that cannot occur under the current model invariants. Validate untrusted input at boundaries, but let impossible internal states surface clearly instead of hiding them behind defensive defaults.
+
 ## Combat Subsystem Notes
 
 The combat subsystem implements the docs in `docs/战斗/` on top of `docs/原始数据.md`. Its guiding principle is: **规则归引擎，叙述归 DM，骰子归玩家**.
