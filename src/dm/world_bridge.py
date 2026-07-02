@@ -31,6 +31,17 @@ logger = logging.getLogger(__name__)
 _ABILITY_VALUES = {a.value for a in Ability}
 _CHECK_KINDS = {"ability_check", "saving_throw"}
 _INTENTS = {"reply", "player_check", "start_combat"}
+_DECISION_ATTEMPTS = 3
+_ACTION_HOOK_MARKERS = (
+    "你可以",
+    "可以选择",
+    "接下来",
+    "现在你",
+    "你要",
+    "你想",
+    "选择",
+    "先",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -113,16 +124,45 @@ async def decide_turn(
     ``use_llm`` 参数保留给旧调用签名；DM 决策始终强制使用真实 LLM。
     """
     party_ids = list(party.keys())
-    data = await _decide_llm(
-        user_input, scene, party, messages or [], beat_brief, stuck_hint
-    )
-    if data is None:
-        raise RuntimeError("[dm] decide_turn LLM 未返回可解析 JSON，拒绝使用模拟 DM")
-    return _normalize_decision(data, scene, party_ids)
+    correction_hint = None
+    last_error = ""
+    for attempt in range(1, _DECISION_ATTEMPTS + 1):
+        data = await _decide_llm(
+            user_input,
+            scene,
+            party,
+            messages or [],
+            beat_brief,
+            stuck_hint,
+            correction_hint=correction_hint,
+        )
+        if data is None:
+            last_error = "LLM 未返回可解析 JSON"
+            correction_hint = _decision_correction_hint(last_error, scene, party_ids)
+            logger.warning("[dm_decide] 第 %d 次决策不可解析，交回真实 LLM 重评", attempt)
+            continue
+        try:
+            return _normalize_decision(data, scene, party_ids)
+        except ValueError as exc:
+            last_error = str(exc)
+            correction_hint = _decision_correction_hint(last_error, scene, party_ids)
+            logger.warning(
+                "[dm_decide] 第 %d 次决策不合法，交回真实 LLM 重评 | error=%s | raw=%s",
+                attempt,
+                last_error,
+                _dump(data),
+            )
+    raise RuntimeError(f"[dm] decide_turn LLM 连续输出非法决策：{last_error}")
 
 
 async def _decide_llm(
-    user_input, scene, party, messages, beat_brief=None, stuck_hint=None
+    user_input,
+    scene,
+    party,
+    messages,
+    beat_brief=None,
+    stuck_hint=None,
+    correction_hint=None,
 ) -> dict | None:
     """LLM 决策：拼最小上下文（含当前拍骨架）+ 严格 JSON 格式要求，调 DM 智能体。"""
     beat_line = (
@@ -131,6 +171,7 @@ async def _decide_llm(
         else ""
     )
     stuck_line = f"【推进提示】{stuck_hint}\n" if stuck_hint else ""
+    correction_line = f"【上次输出不合法，请重新裁定】{correction_hint}\n" if correction_hint else ""
     task = (
         "你在主持一场有预定剧本(canon)的 D&D 冒险。请阅读当前局面，决定如何回应玩家这一步，并**只输出一个 JSON 对象**。\n"
         f"当前场景：{_dump(_scene_brief(scene))}\n"
@@ -138,8 +179,12 @@ async def _decide_llm(
         f"最近对话：{_dump(_history_brief(messages))}\n"
         f"{beat_line}"
         f"{stuck_line}"
+        f"{correction_line}"
         f"玩家这一步说/做：{user_input}\n\n"
         "叙述要自然朝当前拍目标推进但不硬拽玩家；你无权跳拍或改写骨架，推进由引擎判定。\n"
+        "若输出 reply，say 必须简洁：通常 2-4 句，少铺陈；最后一句必须直接引导玩家行动，"
+        "优先使用「你可以……，也可以……」列出 2-3 个可选方向（例如：询问某人、检查某物、前往某处），"
+        "但不要替玩家行动。\n"
         "判断本步属于以下哪一类（判据见你的系统提示）：\n"
         "1) 纯叙事/社交/信息，或该掷暗骰（陷阱、对抗、环境）——你可调骰子工具自己掷，"
         '把结果编进叙述，输出 {"intent":"reply","say":"给玩家看的叙述"}。\n'
@@ -154,6 +199,28 @@ async def _decide_llm(
         "不确定 DC 时可 kb_read ability_check / 即兴伤害表。只输出 JSON，不要额外文字。"
     )
     return await dm_complete_json(task)
+
+
+def _decision_correction_hint(error: str, scene: dict, party_ids: list[str]) -> str:
+    """把非法决策反馈给真实 LLM，要求它重新产出合法 JSON。"""
+    hostiles = [
+        {
+            "actor_id": actor.get("actor_id"),
+            "name": actor.get("name"),
+            "disposition": actor.get("disposition"),
+        }
+        for actor in hostile_actors(scene)
+        if actor.get("actor_id")
+    ]
+    return (
+        f"错误原因：{error}。"
+        f"合法玩家 actor_id：{_dump(party_ids)}。"
+        f"当前场景合法敌意 actor_id：{_dump(hostiles)}。"
+        "如果要 start_combat，monster_ids 必须只使用上面敌意 actor_id；"
+        "如果没有合法敌人或局势还不到战斗，请改为 reply，引导玩家继续调查、交谈、靠近或明确攻击。"
+        "如果错误是 reply 缺少行动引导，请保留必要叙事并重写最后一句，使用「你可以……，也可以……」给出 2-3 个选择。"
+        "不要编造不存在的 actor_id。只输出修正后的 JSON。"
+    )
 
 
 def _world_writes(data: dict) -> dict:
@@ -186,9 +253,14 @@ def _normalize_decision(data: dict, scene: dict, party_ids: list[str]) -> dict:
         raise ValueError(f"[dm] 非法 DM 意图：{intent!r}")
 
     if intent == "reply":
+        say = str(data.get("say") or "").strip()
+        if not say:
+            raise ValueError("[dm] reply 未给出叙述 say")
+        if not _has_action_hook(say):
+            raise ValueError("[dm] reply 结尾缺少玩家行动引导")
         return {
             "intent": "reply",
-            "say": str(data.get("say") or ""),
+            "say": say,
             "world_writes": writes,
         }
 
@@ -243,6 +315,12 @@ def _safe_int(value, default: int) -> int:
         return default
 
 
+def _has_action_hook(text: str) -> bool:
+    """粗校验 DM 叙述是否把选择权交回玩家。"""
+    tail = text[-90:]
+    return any(marker in tail for marker in _ACTION_HOOK_MARKERS)
+
+
 # ---------------------------------------------------------------------------
 # 叙述：把要对玩家说的话推给前端
 # ---------------------------------------------------------------------------
@@ -289,7 +367,8 @@ async def narrate_result(
         f"{history_line}"
         f"判定为【{verdict}】。请用 1-3 句生动的中文叙述这个结果：**叙述要紧扣玩家当时尝试做的那件事，"
         "并与当前场景和上文连贯**（地点、气氛、在场者都要对得上），成功就「是，然后…」推进，"
-        "失败就「不，但是…」给条出路，让故事继续。只描述结果，别罗列字段，别改判定数字。"
+        "失败就「不，但是…」给条出路，让故事继续。最后一句必须以「你可以」开头，给 1-2 个可做方向。"
+        "只描述结果，别罗列字段，别改判定数字。"
     )
     return await dm_narrate(task, node_name=node_name)
 
@@ -302,8 +381,9 @@ async def narrate_aftermath(
         "一场战斗刚结束，结果已由战斗引擎结算（既定事实）：\n"
         f"{_dump(last_combat)}\n"
         f"当前场景：{_dump(_scene_brief(scene))}\n"
-        "请用 2-4 句中文收尾这场战斗：胜负、伤亡、捡到的战利品，并自然地把镜头交回玩家，"
-        "邀请他们决定下一步。只描述既定结果，别新增战斗数字。"
+        "请用 2-4 句中文收尾这场战斗：胜负、伤亡、捡到的战利品，并自然地把镜头交回玩家。"
+        "最后一句必须以「你可以」开头，给出 2-3 个自然后续方向，例如搜查、治疗、审问、离开或继续深入。"
+        "只描述既定结果，别新增战斗数字。"
     )
     return await dm_narrate(task, node_name=node_name)
 
@@ -363,7 +443,8 @@ async def narrate_beat_transition(
     """叙述「进入新一拍（新珠子）」的过场：把镜头从上一颗珠子推到下一颗。"""
     task = (
         "故事推进到了新的一拍。请用 2-4 句生动的中文叙述这段过场，把玩家自然带入新场景，"
-        "点出此地的气氛与可做的事，但**不要替玩家行动**，最后把决定权交回玩家。\n"
+        "点出此地的气氛与可做的事，但**不要替玩家行动**。最后一句必须以「你可以」开头，"
+        "给 2-3 个可选方向，帮助玩家知道能做什么。\n"
         f"新一拍标题：{next_title}\n"
         f"新场景：{_dump(_scene_brief(next_scene))}\n"
         "只描述场景与过渡，别罗列字段。"
