@@ -167,7 +167,7 @@ function App() {
         room_id: nextRoomId,
         user_id: DEFAULT_USER_ID,
         campaign_id: 'whispers_bell_tower',
-        dm_mode: 'heuristic',
+        dm_mode: 'llm',
         opening: '我推开破钟酒馆的门，走向村长。',
         random_seed: 20260626,
       }),

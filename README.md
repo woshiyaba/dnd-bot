@@ -1,5 +1,20 @@
 # dnd-bot
 
+## 启动指令
+
+后端服务：
+
+```bash
+uv run python main.py
+```
+
+前端服务：
+
+```bash
+cd front/pc-dnd-bot
+npm run dev
+```
+
 一个面向 D&D 跑团的后端原型项目。当前代码里同时存在两条线：
 
 1. **业务主线**：`SessionEngine` 驱动一整局冒险，中央 DM 子图负责对话、检定、剧情推进，战斗子图负责回合制战斗结算。
@@ -192,7 +207,7 @@ copy .env.example .env
 
 系统提示词从 MySQL 表 `agent_system_prompts` 读取，不从源码文件读取。没有 MySQL 时，主 deepagents 示例入口不可完整使用。
 
-combat/session 的启发式路径可以离线运行；启用 `dm_mode="llm"` 时需要模型环境变量可用。
+combat/session 的 DM 决策与叙述必须使用真实 LLM；缺少模型环境变量、模型调用失败或 LLM 输出无法解析时，应显式失败，不允许回落到离线模拟 DM。
 
 ## 开发命令
 
@@ -251,8 +266,8 @@ npm run build
 
 当前还没有完整测试套件，`test/` 更接近流程驱动：
 
-- `test/test_combat_flow.py`：战斗全流程，可离线跑。
-- `test/test_session_flow.py`：中央 DM 到战斗子图的会话流程。
+- `test/test_combat_flow.py`：战斗全流程；涉及 DM 决策/叙述时需要真实模型配置。
+- `test/test_session_flow.py`：中央 DM 到战斗子图的会话流程；需要真实模型配置。
 - `test/test_story_flow.py`：交互式 CLI，需要真实模型 key。
 - `test/dp.py`：deepagents 示例，导入时可能发起真实模型调用，不要放进常规自动测试。
 

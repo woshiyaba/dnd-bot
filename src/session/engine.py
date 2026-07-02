@@ -50,7 +50,7 @@ class SessionEngine:
 
             {
               "campaign_id": "whispers_bell_tower",  # 本局 canon（注册表 key）；给定即按剧本骨架开局
-              "dm_mode": "llm" ,                      # 启用 LLM 版 DM
+              "dm_mode": "llm" ,                      # 固定启用真实 LLM 版 DM
               "random_seed": int,                     # 可复现随机源（探索暗骰 + 战斗）
               "scene": { ...WorldScene... },           # 无 canon 时的初始世界场景（退化纯对话）
               "party": [ {type:"player", controller, card}, ... ],  # 玩家队伍
@@ -60,7 +60,7 @@ class SessionEngine:
         否则退化为旧的「纯对话」开局（无故事主轴）。
         """
         reset_session_dice(scene_context)
-        dm_mode = scene_context.get("dm_mode", "llm")
+        dm_mode = "llm"
         campaign_id = scene_context.get("campaign_id")
         canon = get_registry().get(campaign_id) if campaign_id else None
 

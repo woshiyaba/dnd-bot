@@ -31,7 +31,7 @@ Copy `.env.example` for local configuration. The main backend agent needs DashSc
 - `MYSQL_*` settings are required because system prompts are read from the `agent_system_prompts` table, not source files. No database means no usable main agent.
 - `PROMPT_CACHE_TTL_SECONDS` controls prompt cache TTL; `0` queries the database every time.
 
-Offline combat/session drivers can run without MySQL or DashScope when they stay on deterministic placeholder paths.
+DM 决策与叙述必须使用真实 LLM。不要添加、保留或恢复离线 DM 模拟、启发式 DM 回答、模板 DM 叙述，或在 LLM 失败时自动回落到假 DM。缺少模型配置、LLM 调用失败、LLM 输出无法解析时，应显式失败并暴露错误，而不是继续用 mock/heuristic 内容推进剧情。规则结算仍归引擎，LLM 只负责 DM 裁定与叙述。
 
 ## Backend Architecture Notes
 
@@ -58,7 +58,7 @@ The combat subsystem implements the docs in `docs/战斗/` on top of `docs/原�
 - Engine nodes perform deterministic Python resolution for hit, damage, HP, initiative, and victory checks. Do not let an LLM compute hits, damage, or HP.
 - Player dice are collected through LangGraph `interrupt()` only for `is_player_controlled` combatants. Interrupt payloads include `directed_to.user_id` so the frontend can route rolls to the right player.
 - Monster and environment dice are rolled by the engine with reproducible RNG in `src/combat/dice.py`, seedable through `scene_context["random_seed"]`.
-- DM decisions and narration in `_dm_decide`/`narrate` are deterministic placeholders with hooks for a future LLM.
+- DM decisions and narration must be produced by the real LLM DM. Do not use deterministic placeholder DM decisions or template narration as a fallback.
 - `src/combat/graph.py` assembles the combat `StateGraph(CombatState)` and uses its own `MemorySaver` plus a serializer whitelist for model objects. Use a durable checkpointer for restartable multiplayer combat.
 - `src/combat/engine.py` is the facade. One engine can serve many rooms, with fights keyed by `combat:{room_id}`.
 - `src/combat/rules.py` holds pure judgment functions. Callers supply d20 values; rules never roll. Critical hit is d20 `20`, auto-miss is d20 `1`.

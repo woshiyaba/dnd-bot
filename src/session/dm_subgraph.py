@@ -9,7 +9,7 @@
                                   └─(combat)─────────────────────────► END(next=combat)
 
 设计要点（与三个验证探针一致，见方案 §二）：
-- **dm_decide 是独立节点**（跑 LLM/启发式决策）；**await_roll 是独立的中断节点**。
+- **dm_decide 是独立节点**（跑真实 LLM 决策）；**await_roll 是独立的中断节点**。
   这样玩家报骰恢复时，langgraph 从中断节点续跑，dm_decide 不会重跑（不重复调用 LLM）。
 - 玩家明检定的 d20 只能由玩家经 ``interrupt()`` 报，**加值与成败一律引擎算**（resolve_check），
   守住「规则归引擎」。DM 只产出检定规格（属性/DC），不裁定成败。

@@ -11,16 +11,14 @@
 - 引擎节点 = 纯 Python 确定性结算；
 - 玩家骰子 = `interrupt()` 收集（仅 `is_player_controlled` 的参战者）；
 - 怪物/环境骰子 = 引擎用可复现随机源自动掷；
-- DM 决策/叙述目前为确定性启发式占位（见 `_dm_decide` / `narrate`），保留接 LLM 的钩子。
+- DM 决策/叙述必须由真实 LLM 完成，不允许确定性模拟 DM 回答。
 """
 
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any
 
-from langgraph.config import get_stream_writer
 from langgraph.types import interrupt
 
 from src.combat.dice import current_engine_dice, reset_engine_dice
@@ -52,23 +50,6 @@ logger = logging.getLogger(__name__)
 
 # 可复现随机源：怪物/环境骰子（与 DM 骰子工具）共用 dice.py 的引擎骰子单例，
 # 可在 enter_combat 用场景里的「random_seed」重置（见 reset_engine_dice）。
-
-
-def _dm_mode_on(scene: dict | None) -> bool:
-    """是否启用 LLM 版 DM。
-
-    轻量内联判断，避免在启发式模式下提前 import DM/agent 依赖（保持战斗可独立运行）；
-    真正调用 DM 时才惰性 import ``dm_bridge``。
-    """
-    if (scene or {}).get("dm_mode") != "llm":
-        return False
-    from dotenv import load_dotenv
-
-    load_dotenv()
-    if not os.getenv("DASHSCOPE_API_KEY"):
-        logger.warning("[dm] dm_mode=llm 但未配置 DASHSCOPE_API_KEY，回落启发式 DM")
-        return False
-    return True
 
 
 # ---------------------------------------------------------------------------
@@ -124,23 +105,14 @@ def enter_combat(state: CombatState) -> dict:
 async def judge_surprise(state: CombatState) -> dict:
     """判定突袭。
 
-    - 启发式（默认）：被突袭名单由 `scene_context["surprised"]`（id 列表）给出，缺省则无人被突袭；
-    - LLM 模式（`dm_mode="llm"`）：交给 DM 做「潜行 vs 被动察觉」对抗判定，失败回落启发式。
+    交给真实 DM LLM 做「潜行 vs 被动察觉」对抗判定；失败直接抛错。
     """
     scene = state.get("scene_context", {}) or {}
     combatants = state["combatants"]
 
-    surprised: list[str] | None = None
-    if _dm_mode_on(scene):
-        from src.combat import dm_bridge
+    from src.combat import dm_bridge
 
-        try:
-            surprised = await dm_bridge.judge_surprise_llm(combatants, scene)
-        except Exception:  # noqa: BLE001 - DM 失败不应中断战斗
-            logger.exception("[judge_surprise] DM 判突袭失败，回落启发式")
-            surprised = None
-    if surprised is None:
-        surprised = [cid for cid in scene.get("surprised", []) if cid in combatants]
+    surprised = await dm_bridge.judge_surprise_llm(combatants, scene)
 
     for cid in surprised:
         combatants[cid].is_surprised = True
@@ -309,7 +281,7 @@ def next_turn(state: CombatState) -> dict:
 async def declare_action(state: CombatState) -> dict:
     """声明行动与目标：玩家中断选择；怪物/NPC 由 DM 决策。
 
-    怪物/NPC 决策：LLM 模式下交给 DM（可读怪物卡、查规则），失败或被判非法时回落启发式 `_dm_decide`。
+    怪物/NPC 决策必须交给真实 DM LLM（可读怪物卡、查规则）；失败直接抛错。
     """
     scene = state.get("scene_context", {}) or {}
     combatants = state["combatants"]
@@ -327,17 +299,9 @@ async def declare_action(state: CombatState) -> dict:
         )
         current_action = _normalize_action(resume_value, actor, combatants)
     else:
-        current_action = None
-        if _dm_mode_on(scene):
-            from src.combat import dm_bridge
+        from src.combat import dm_bridge
 
-            try:
-                current_action = await dm_bridge.decide_action_llm(actor, combatants)
-            except Exception:  # noqa: BLE001 - DM 失败不应中断战斗
-                logger.exception("[declare_action] DM 决策失败，回落启发式")
-                current_action = None
-        if current_action is None:
-            current_action = _dm_decide(actor, combatants)
+        current_action = await dm_bridge.decide_action_llm(actor, combatants)
 
     logger.info("[declare_action] %s -> %s", actor.id, current_action)
     return {"current_action": current_action}
@@ -352,33 +316,6 @@ def _normalize_action(
     action = dict(resume_value)
     action.setdefault("action_type", ActionType.PASS.value)
     return action
-
-
-def _dm_decide(actor: Combatant, combatants: dict[str, Combatant]) -> dict:
-    """怪物/NPC 的确定性决策（占位，可替换为 LLM）。
-
-    策略：选第一件能够得着存活敌人的武器，打血量最低的目标；
-    都够不着 → 移动到最近敌人的区域；没有敌人 → 放弃。
-    """
-    enemies_alive = [
-        c for c in combatants.values() if c.faction != actor.faction and c.is_alive
-    ]
-    if not enemies_alive:
-        return {"action_type": ActionType.PASS.value}
-
-    for weapon in actor.attacks:
-        reachable = [t for t in enemies_alive if in_reach(actor, t, weapon.is_ranged)]
-        if reachable:
-            target = min(reachable, key=lambda t: t.current_hp)
-            return {
-                "action_type": ActionType.ATTACK.value,
-                "attack_name": weapon.name,
-                "target_id": target.id,
-            }
-
-    # 够不着任何人：移动到最近敌人的区域（下回合再打）
-    target = min(enemies_alive, key=lambda t: t.current_hp)
-    return {"action_type": ActionType.MOVE.value, "target_zone": target.current_zone}
 
 
 # ---------------------------------------------------------------------------
@@ -628,26 +565,18 @@ def _resolve_move(actor: Combatant, action: dict) -> list[dict]:
 async def narrate(state: CombatState) -> dict:
     """把本回合事件讲成故事。不改任何数值。
 
-    - LLM 模式：交给 DM 流式生成叙述（token 经 custom 通道实时推送），失败回落模板；
-    - 启发式（默认）：用确定性模板拼句，并把整段经 custom 通道推给前端。
-    两条路径都复用与 `graph.py` 一致的 custom 事件通道（`{node:"narrate", status, chunk}`）。
+    交给真实 DM LLM 流式生成叙述（token 经 custom 通道实时推送）。失败直接抛错。
     """
     events = state.get("turn_events", []) or []
     combatants = state["combatants"]
-    scene = state.get("scene_context", {}) or {}
 
-    if events and _dm_mode_on(scene):
+    if events:
         from src.combat import dm_bridge
 
-        try:
-            narration = await dm_bridge.narrate_llm(
-                events, combatants, state.get("current_round")
-            )
-        except Exception:  # noqa: BLE001 - DM 失败不应中断战斗
-            logger.exception("[narrate] DM 叙述失败，回落模板")
-            narration = None
+        narration = await dm_bridge.narrate_llm(
+            events, combatants, state.get("current_round")
+        )
         if narration:
-            # DM 路径已在流式过程中推过 custom 事件，这里只落日志
             log = _append_log(
                 state,
                 [
@@ -660,71 +589,7 @@ async def narrate(state: CombatState) -> dict:
             )
             return {"combat_log": log}
 
-    # —— 回落：确定性模板叙述 ——
-    sentences = [_narrate_event(e, combatants) for e in events]
-    narration = " ".join(s for s in sentences if s)
-
-    writer = None
-    try:
-        writer = get_stream_writer()
-    except Exception:  # 非图执行上下文（如单测直接调用）时无 writer
-        writer = None
-    if writer and narration:
-        writer({"node": "narrate", "status": "start"})
-        writer({"node": "narrate", "status": "streaming", "chunk": narration})
-        writer({"node": "narrate", "status": "end"})
-
-    log = _append_log(
-        state,
-        [
-            {
-                "event": "narration",
-                "text": narration,
-                "round": state.get("current_round"),
-            }
-        ],
-    )
-    return {"combat_log": log}
-
-
-def _name_of(combatants: dict[str, Combatant], cid: str | None) -> str:
-    """取参战者名字，找不到时退化为 id 或「某人」。"""
-    c = combatants.get(cid or "")
-    return c.name if c else (cid or "某人")
-
-
-def _narrate_event(e: dict, combatants: dict[str, Combatant]) -> str:
-    """把一条结构化事件渲染成一句中文叙述。"""
-    name = lambda cid: _name_of(combatants, cid)  # noqa: E731
-    event_type = e.get("event")
-    if event_type == "attack":
-        if not e.get("hit"):
-            return f"{name(e.get('actor'))}的{e.get('attack_name')}落空了。"
-        crit = "重击！" if e.get("crit") else ""
-        down = "，将其击倒！" if e.get("target_alive") is False else "。"
-        return f"{crit}{name(e.get('actor'))}的{e.get('attack_name')}命中{name(e.get('target'))}，造成{e.get('damage', 0)}点伤害{down}"
-    if event_type == "skill":
-        if "heal" in e:
-            return f"{name(e.get('actor'))}施展技能，恢复了{e.get('heal')}点生命。"
-        return f"{name(e.get('actor'))}施展了一项技能。"
-    if event_type == "item":
-        if "heal" in e:
-            return f"{name(e.get('actor'))}使用道具，为{name(e.get('target'))}恢复{e.get('heal')}点生命。"
-        return f"{name(e.get('actor'))}使用了一件道具。"
-    if event_type == "improvise":
-        return f"{name(e.get('actor'))}尝试{e.get('description') or '一个临场动作'}，{'成功' if e.get('success') else '失败'}了。"
-    if event_type == "move":
-        return f"{name(e.get('actor'))}移动到了{e.get('to')}。"
-    if event_type == "damage_over_time":
-        return f"{name(e.get('actor'))}受到持续伤害{e.get('damage')}点。"
-    if event_type == "skip":
-        reason_text = {"surprised": "被突袭", "stunned": "眩晕"}.get(
-            e.get("reason"), e.get("reason")
-        )
-        return f"{name(e.get('actor'))}因{reason_text}无法行动。"
-    if event_type == "pass":
-        return f"{name(e.get('actor'))}选择按兵不动。"
-    return ""
+    return {"combat_log": state.get("combat_log", [])}
 
 
 # ---------------------------------------------------------------------------

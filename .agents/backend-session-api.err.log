@@ -3,3 +3,9 @@ INFO:     Started server process [25808]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://0.0.0.0:32388 (Press CTRL+C to quit)
+2026-07-02 00:34:11,266 | INFO | src.story.loader | [canon] 已加载 \xabwhispers_bell_tower\xbb ← whispers_bell_tower.json（5 拍）
+2026-07-02 00:34:11,267 | INFO | src.app | [canon] 注册表加载完成 | count=1
+2026-07-02 00:34:11,318 | INFO | src.session.dm_subgraph | [dm_decide] 意图=reply 世界写入=无
+2026-07-02 00:34:11,324 | INFO | src.session.story_nodes | [evaluate_advancement] 未推进，留在 \xabtavern_quest\xbb（idle=1，本回合世界写入=0）
+2026-07-02 00:34:11,326 | INFO | src.session.engine | [session] 房间=http_smoke_after_fix 回合结束，等待玩家输入
+2026-07-02 00:34:11,327 | INFO | src.app | [session.start] 开局完成 | room_id=http_smoke_after_fix | status=awaiting_input | elapsed_ms=62.14

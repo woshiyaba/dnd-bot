@@ -9,11 +9,12 @@ from src.model.dm_state import DMState
 
 
 def llm_enabled(state: DMState) -> bool:
-    """本局是否启用 LLM 版 DM：由会话主图在 scene 里写入的 ``dm_mode`` 决定。
+    """本局是否启用 LLM 版 DM。
 
-    放在会话层判断（主图启动时已校验过 API Key）；这里只读开关，缺省启发式。
+    项目约定：DM 决策与叙述必须由真实 LLM 完成，不允许离线启发式模拟。
+    ``state`` 参数保留给调用方统一签名；无论 scene 中写什么模式，都强制启用 LLM。
     """
-    return (state.get("scene") or {}).get("dm_mode") == "llm"
+    return True
 
 
 def log_event(state: DMState, event: dict) -> list[dict]:

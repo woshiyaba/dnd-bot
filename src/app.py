@@ -121,7 +121,7 @@ class SessionStartRequest(BaseModel):
     campaign_id: str = Field(
         default="whispers_bell_tower", description="剧情圣经 ID"
     )
-    dm_mode: str = Field(default="heuristic", description="DM 模式：heuristic 或 llm")
+    dm_mode: str = Field(default="llm", description="DM 模式：固定为 llm")
     opening: str = Field(
         default="我推开破钟酒馆的门，走向村长。",
         description="开局玩家输入",
@@ -229,7 +229,7 @@ def _build_default_scene_context(request: SessionStartRequest) -> dict:
     """构造演示切片的默认场景上下文。"""
     return {
         "campaign_id": request.campaign_id,
-        "dm_mode": request.dm_mode,
+        "dm_mode": "llm",
         "random_seed": request.random_seed,
         "user_id": request.user_id,
         "party": [

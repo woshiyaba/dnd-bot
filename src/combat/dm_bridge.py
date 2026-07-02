@@ -3,17 +3,16 @@
 职责（把"combat 怎么用 DM"集中在一处，让 nodes.py 保持精简）：
 - 从 ``CombatState`` 的模型对象构造**最小上下文**文本，喂给 DM 智能体；
 - 调用 ``src.dm.agent`` 的决策/叙述接口，并把结果**校验**回引擎可用的结构；
-- 提供 ``dm_mode`` 开关判断，并在装配时把引擎骰子注入 DM 骰子工具。
+- 在装配时把引擎骰子注入 DM 骰子工具。
 
 依赖方向合规：本模块属于 ``src.combat``，向 ``src.dm`` 注入引擎骰子，``src.dm`` 不反向依赖。
-失败一律返回 None / 抛错由调用方捕获，使战斗能回落到确定性占位逻辑。
+DM 决策与叙述必须由真实 LLM 完成；失败直接抛错，不允许回落确定性占位。
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import os
 
 from src.combat.dice import current_engine_dice
 from src.combat.rules import in_reach
@@ -26,19 +25,6 @@ logger = logging.getLogger(__name__)
 
 # 把 DM 骰子工具接到引擎当前可复现骰子上（combat → dm 注入，方向合规）
 set_dice_provider(current_engine_dice)
-
-
-def dm_enabled(scene: dict | None) -> bool:
-    """是否启用 LLM 版 DM：需 ``scene_context["dm_mode"] == "llm"`` 且配置了 API Key。
-
-    缺 Key 时记一条 warning 并返回 False，让战斗回落到确定性占位（仍可独立运行）。
-    """
-    if (scene or {}).get("dm_mode") != "llm":
-        return False
-    if not os.getenv("DASHSCOPE_API_KEY"):
-        logger.warning("[dm] dm_mode=llm 但未配置 DASHSCOPE_API_KEY，回落启发式 DM")
-        return False
-    return True
 
 
 # ---------------------------------------------------------------------------
@@ -76,8 +62,8 @@ def _dump(obj) -> str:
 # ---------------------------------------------------------------------------
 async def judge_surprise_llm(
     combatants: dict[str, Combatant], scene: dict
-) -> list[str] | None:
-    """让 DM 判定哪些参战者被突袭，返回被突袭者 id 列表；无法判定返回 None。
+) -> list[str]:
+    """让 DM 判定哪些参战者被突袭，返回被突袭者 id 列表。
 
     DM 可用骰子做"潜行 vs 被动察觉"对抗、可查 passive_check 规则。结果只取
     确实存在于本场的 id。``scene_context["surprise_context"]`` 可给 DM 额外背景。
@@ -96,10 +82,10 @@ async def judge_surprise_llm(
     )
     data = await dm_complete_json(task)
     if not isinstance(data, dict) or "surprised" not in data:
-        return None
+        raise RuntimeError("[combat.dm] 突袭判定未返回合法 JSON")
     ids = data.get("surprised") or []
     if not isinstance(ids, list):
-        return None
+        raise ValueError("[combat.dm] surprised 必须是数组")
     return [str(cid) for cid in ids if str(cid) in combatants]
 
 
@@ -108,11 +94,11 @@ async def judge_surprise_llm(
 # ---------------------------------------------------------------------------
 async def decide_action_llm(
     actor: Combatant, combatants: dict[str, Combatant]
-) -> dict | None:
-    """让 DM 替怪物/NPC 决定本回合动作，返回规范化的 action 字典；无法采纳返回 None。
+) -> dict:
+    """让 DM 替怪物/NPC 决定本回合动作，返回规范化的 action 字典。
 
     仅允许从"行动者已有的攻击 + 存活敌人"中选择；攻击需目标存活且够得着，
-    否则视为无效、返回 None 让引擎回落到启发式。
+    否则视为无效并抛错。
     """
     enemies = [
         c for c in combatants.values() if c.faction != actor.faction and c.is_alive
@@ -139,7 +125,7 @@ async def decide_action_llm(
     )
     data = await dm_complete_json(task)
     if not isinstance(data, dict):
-        return None
+        raise RuntimeError("[combat.dm] 行动决策未返回合法 JSON")
 
     action_type = data.get("action_type")
     if action_type == ActionType.ATTACK.value:
@@ -151,7 +137,7 @@ async def decide_action_llm(
                 "attack_name": attack_name,
                 "target_id": target_id,
             }
-        return None  # 非法攻击 → 回落启发式
+        raise ValueError("[combat.dm] DM 返回了非法攻击目标")
     if action_type == ActionType.MOVE.value and data.get("target_zone"):
         return {
             "action_type": ActionType.MOVE.value,
@@ -159,7 +145,7 @@ async def decide_action_llm(
         }
     if action_type == ActionType.PASS.value:
         return {"action_type": ActionType.PASS.value}
-    return None
+    raise ValueError(f"[combat.dm] 未知行动类型：{action_type!r}")
 
 
 # ---------------------------------------------------------------------------

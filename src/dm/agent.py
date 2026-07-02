@@ -72,7 +72,7 @@ async def dm_complete_json(task: str) -> dict | None:
     """跑一轮 DM 决策（可掷骰/查规则），要求输出 JSON 并解析为字典。
 
     参数 task 为本次决策的完整任务描述（含情境与"请输出 JSON"的格式要求）。
-    解析失败返回 None，由调用方回落到启发式。
+    解析失败返回 None；调用方必须显式失败，不允许回落到模拟 DM。
     """
     agent = await get_dm_agent()
     result = await agent.ainvoke({"messages": [{"role": "user", "content": task}]})

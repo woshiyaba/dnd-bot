@@ -79,7 +79,7 @@ def _build_combat_input(state: DMState) -> tuple[dict, dict]:
         "random_seed": request.get("random_seed", scene.get("random_seed")),
         "surprised": request.get("surprised", []),
         "loot_table": request.get("loot_table", scene.get("loot_table", [])),
-        "dm_mode": scene.get("dm_mode", "heuristic"),
+        "dm_mode": "llm",
     }
     return combatants, scene_context
 
