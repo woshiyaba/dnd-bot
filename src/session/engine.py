@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from langgraph.types import Command
@@ -26,6 +27,8 @@ from src.session.graph import build_session_graph, reset_session_dice
 from src.story.loader import get_registry
 
 logger = logging.getLogger(__name__)
+
+SessionStreamSink = Callable[[dict[str, Any]], Awaitable[None]]
 
 
 def room_thread_id(room_id: str) -> str:
@@ -59,6 +62,73 @@ class SessionEngine:
         给定 ``campaign_id`` 且注册表中存在该 canon 时，按起始拍 ``entry_state`` 初始化故事进度与场景；
         否则退化为旧的「纯对话」开局（无故事主轴）。
         """
+        init_state = self._build_initial_state(room_id, scene_context, opening)
+        config = {"configurable": {"thread_id": room_thread_id(room_id)}}
+        result = await self._graph.ainvoke(init_state, config=config)
+        return self._interpret(room_id, result)
+
+    async def start_session_stream(
+        self,
+        room_id: str,
+        scene_context: dict,
+        *,
+        opening: str = "",
+        event_sink: SessionStreamSink | None = None,
+    ) -> dict:
+        """开局并消费图的 custom 流事件；最终仍返回统一会话负载。"""
+        init_state = self._build_initial_state(room_id, scene_context, opening)
+        return await self._astream_interpret(room_id, init_state, event_sink)
+
+    async def message(self, room_id: str, user_input: str) -> dict:
+        """玩家说一句话/做一件事，推进一个 DM 回合（沿用已存档的世界状态）。"""
+        config = {"configurable": {"thread_id": room_thread_id(room_id)}}
+        result = await self._graph.ainvoke({"user_input": user_input}, config=config)
+        return self._interpret(room_id, result)
+
+    async def message_stream(
+        self,
+        room_id: str,
+        user_input: str,
+        *,
+        event_sink: SessionStreamSink | None = None,
+    ) -> dict:
+        """玩家推进一回合，并把图内 custom 流事件交给上层转发。"""
+        return await self._astream_interpret(
+            room_id,
+            {"user_input": user_input},
+            event_sink,
+        )
+
+    async def submit(self, room_id: str, resume_value: Any) -> dict:
+        """玩家报骰/选择后恢复（DM 明检定，或战斗内的攻击/先攻/豁免骰）。"""
+        config = {"configurable": {"thread_id": room_thread_id(room_id)}}
+        result = await self._graph.ainvoke(Command(resume=resume_value), config=config)
+        return self._interpret(room_id, result)
+
+    async def submit_stream(
+        self,
+        room_id: str,
+        resume_value: Any,
+        *,
+        event_sink: SessionStreamSink | None = None,
+    ) -> dict:
+        """恢复中断并把图内 custom 流事件交给上层转发。"""
+        return await self._astream_interpret(
+            room_id,
+            Command(resume=resume_value),
+            event_sink,
+        )
+
+    async def current_state(self, room_id: str) -> dict | None:
+        """读取某房间当前 DMState 快照（断线重连/旁观用）。"""
+        config = {"configurable": {"thread_id": room_thread_id(room_id)}}
+        snapshot = await self._graph.aget_state(config)
+        return snapshot.values if snapshot else None
+
+    def _build_initial_state(
+        self, room_id: str, scene_context: dict, opening: str
+    ) -> dict:
+        """构造会话初始状态；同步与流式开局共用，避免分叉。"""
         reset_session_dice(scene_context)
         dm_mode = "llm"
         campaign_id = scene_context.get("campaign_id")
@@ -85,7 +155,7 @@ class SessionEngine:
                 scene.setdefault("loot_table", scene_context["loot_table"])
             story = {}
 
-        init_state = {
+        return {
             "messages": [],
             "user_input": opening,
             "user_id": scene_context.get("user_id"),
@@ -98,29 +168,32 @@ class SessionEngine:
             "story": story,
             "story_status": "ongoing",
         }
+
+    async def _astream_interpret(
+        self,
+        room_id: str,
+        graph_input: Any,
+        event_sink: SessionStreamSink | None,
+    ) -> dict:
+        """以流式方式运行会话图，转交 custom 事件并返回最终解释结果。"""
         config = {"configurable": {"thread_id": room_thread_id(room_id)}}
-        result = await self._graph.ainvoke(init_state, config=config)
+        result: dict | None = None
+        async for mode, chunk in self._graph.astream(
+            graph_input,
+            config=config,
+            stream_mode=["custom", "values"],
+        ):
+            if mode == "custom":
+                if event_sink is not None:
+                    await event_sink(chunk)
+            elif mode == "values":
+                result = chunk
+
+        if result is None:
+            raise RuntimeError("[session] 会话图流式执行未返回最终状态")
         return self._interpret(room_id, result)
 
-    async def message(self, room_id: str, user_input: str) -> dict:
-        """玩家说一句话/做一件事，推进一个 DM 回合（沿用已存档的世界状态）。"""
-        config = {"configurable": {"thread_id": room_thread_id(room_id)}}
-        result = await self._graph.ainvoke({"user_input": user_input}, config=config)
-        return self._interpret(room_id, result)
-
-    async def submit(self, room_id: str, resume_value: Any) -> dict:
-        """玩家报骰/选择后恢复（DM 明检定，或战斗内的攻击/先攻/豁免骰）。"""
-        config = {"configurable": {"thread_id": room_thread_id(room_id)}}
-        result = await self._graph.ainvoke(Command(resume=resume_value), config=config)
-        return self._interpret(room_id, result)
-
-    async def current_state(self, room_id: str) -> dict | None:
-        """读取某房间当前 DMState 快照（断线重连/旁观用）。"""
-        config = {"configurable": {"thread_id": room_thread_id(room_id)}}
-        snapshot = await self._graph.aget_state(config)
-        return snapshot.values if snapshot else None
-
-    # ---- 内部：把 ainvoke 结果归一成统一负载 ----
+    # ---- 内部：把图执行结果归一成统一负载 ----
     def _interpret(self, room_id: str, result: dict) -> dict:
         interrupts = result.get("__interrupt__")
         if interrupts:

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import d20Icon from './assets/dice/d20.svg'
 import './App.css'
@@ -9,6 +9,7 @@ const DEFAULT_USER_ID = 'user_aria'
 type TimelineMessage = {
   role?: string
   content?: string
+  streaming?: boolean
 }
 
 type Combatant = {
@@ -108,6 +109,19 @@ type SessionPayload = {
   state?: SessionState
 }
 
+type StreamMessage = {
+  type?: string
+  room_id?: string
+  node?: string
+  content?: string
+  payload?: SessionPayload
+}
+
+type StreamState = {
+  completed: TimelineMessage[]
+  active: string
+}
+
 async function postJson<T>(path: string, body: unknown): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: 'POST',
@@ -129,6 +143,12 @@ function rollD20() {
   return Math.floor(Math.random() * 20) + 1
 }
 
+function wsUrl(userId: string) {
+  const baseUrl = new URL(API_BASE_URL, window.location.origin)
+  baseUrl.protocol = baseUrl.protocol === 'https:' ? 'wss:' : 'ws:'
+  return new URL(`/ws/${userId}`, baseUrl).toString()
+}
+
 function App() {
   const [roomId, setRoomId] = useState(() => localStorage.getItem('roomId') ?? newRoomId())
   const [payload, setPayload] = useState<SessionPayload | null>(null)
@@ -136,21 +156,92 @@ function App() {
   const [manualD20, setManualD20] = useState('18')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
+  const [streamState, setStreamState] = useState<StreamState>({
+    completed: [],
+    active: '',
+  })
 
   const state = payload?.state
   const scene = state?.scene
   const messages = state?.messages ?? []
+  const visibleMessages = useMemo(() => {
+    if (!streamState.completed.length && !streamState.active) {
+      return messages
+    }
+    return [
+      ...messages,
+      ...streamState.completed,
+      ...(streamState.active
+        ? [{ role: 'dm', content: streamState.active, streaming: true }]
+        : []),
+    ]
+  }, [messages, streamState])
   const party = useMemo(() => Object.values(state?.party ?? {}), [state?.party])
   const enemies = useMemo(() => hostileActors(scene), [scene])
   const interrupt = payload?.interrupt
   const isFinished = payload?.status === 'finished'
 
+  useEffect(() => {
+    const socket = new WebSocket(wsUrl(DEFAULT_USER_ID))
+    socket.onmessage = (event) => {
+      let message: StreamMessage
+      try {
+        message = JSON.parse(event.data) as StreamMessage
+      } catch {
+        return
+      }
+      if (message.type === 'node_start') {
+        setStreamState((current) => {
+          if (!current.active) {
+            return current
+          }
+          return {
+            completed: [...current.completed, { role: 'dm', content: current.active }],
+            active: '',
+          }
+        })
+        return
+      }
+      if (message.type === 'stream') {
+        setStreamState((current) => ({
+          ...current,
+          active: `${current.active}${message.content ?? ''}`,
+        }))
+        return
+      }
+      if (message.type === 'node_end') {
+        setStreamState((current) => {
+          if (!current.active) {
+            return current
+          }
+          return {
+            completed: [...current.completed, { role: 'dm', content: current.active }],
+            active: '',
+          }
+        })
+        return
+      }
+      if (
+        (message.type === 'session_start' || message.type === 'session_update') &&
+        message.payload
+      ) {
+        setPayload(message.payload)
+        setStreamState({ completed: [], active: '' })
+      }
+    }
+    return () => {
+      socket.close()
+    }
+  }, [])
+
   async function runRequest(request: () => Promise<SessionPayload>) {
     setIsLoading(true)
     setError('')
+    setStreamState({ completed: [], active: '' })
     try {
       const nextPayload = await request()
       setPayload(nextPayload)
+      setStreamState({ completed: [], active: '' })
     } catch (err) {
       setError(err instanceof Error ? err.message : '请求失败')
     } finally {
@@ -242,18 +333,20 @@ function App() {
         <section className="timeline-panel" aria-label="冒险时间线">
           <div className="panel-heading">
             <h2>冒险记录</h2>
-            <span>{messages.length} 条</span>
+            <span>{visibleMessages.length} 条</span>
           </div>
           <div className="timeline">
-            {messages.length === 0 ? (
+            {visibleMessages.length === 0 ? (
               <div className="empty-state">
                 <strong>破钟酒馆的炉火尚未亮起</strong>
                 <p>雨声落在窗外，村长还在角落里等候。</p>
               </div>
             ) : (
-              messages.map((message, index) => (
+              visibleMessages.map((message, index) => (
                 <article
-                  className={`message message-${message.role ?? 'system'}`}
+                  className={`message message-${message.role ?? 'system'} ${
+                    message.streaming ? 'message-streaming' : ''
+                  }`}
                   key={`${message.role}-${index}`}
                 >
                   <span>{roleText(message.role)}</span>

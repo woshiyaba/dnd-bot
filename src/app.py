@@ -149,10 +149,11 @@ async def start_session(request: SessionStartRequest):
     start_time = time.perf_counter()
     engine = _get_session_engine()
     scene_context = _build_default_scene_context(request)
-    payload = await engine.start_session(
+    payload = await engine.start_session_stream(
         request.room_id,
         scene_context,
         opening=request.opening,
+        event_sink=_build_session_stream_sink(request.user_id, request.room_id),
     )
     safe_payload = _public_payload(payload)
     await _push_session_event(request.user_id, "session_start", safe_payload)
@@ -169,7 +170,11 @@ async def start_session(request: SessionStartRequest):
 async def send_session_message(room_id: str, request: SessionMessageRequest):
     """提交玩家自然语言行动，推进一个 DM 回合。"""
     start_time = time.perf_counter()
-    payload = await _get_session_engine().message(room_id, request.user_input)
+    payload = await _get_session_engine().message_stream(
+        room_id,
+        request.user_input,
+        event_sink=_build_session_stream_sink(request.user_id, room_id),
+    )
     safe_payload = _public_payload(payload)
     await _push_session_event(request.user_id, "session_update", safe_payload)
     logger.info(
@@ -185,7 +190,11 @@ async def send_session_message(room_id: str, request: SessionMessageRequest):
 async def submit_session_interrupt(room_id: str, request: SessionSubmitRequest):
     """提交掷骰或行动选择，恢复当前中断。"""
     start_time = time.perf_counter()
-    payload = await _get_session_engine().submit(room_id, request.resume_value)
+    payload = await _get_session_engine().submit_stream(
+        room_id,
+        request.resume_value,
+        event_sink=_build_session_stream_sink(request.user_id, room_id),
+    )
     safe_payload = _public_payload(payload)
     await _push_session_event(request.user_id, "session_update", safe_payload)
     logger.info(
@@ -301,6 +310,46 @@ async def _push_session_event(user_id: str, event_type: str, payload: dict) -> N
             "payload": payload,
         },
     )
+
+
+def _build_session_stream_sink(user_id: str, room_id: str):
+    """构造会话流式事件转发器，把 LangGraph custom 事件映射为前端协议。"""
+
+    async def sink(event: dict[str, Any]) -> None:
+        if not user_id:
+            return
+        status = event.get("status", "streaming")
+        node = event.get("node", "")
+        if status == "start":
+            await ws_manager.send_json(
+                user_id,
+                {
+                    "type": "node_start",
+                    "room_id": room_id,
+                    "node": node,
+                },
+            )
+        elif status == "end":
+            await ws_manager.send_json(
+                user_id,
+                {
+                    "type": "node_end",
+                    "room_id": room_id,
+                    "node": node,
+                },
+            )
+        else:
+            await ws_manager.send_json(
+                user_id,
+                {
+                    "type": "stream",
+                    "room_id": room_id,
+                    "node": node,
+                    "content": event.get("chunk", ""),
+                },
+            )
+
+    return sink
 
 
 async def create_app() -> FastAPI:

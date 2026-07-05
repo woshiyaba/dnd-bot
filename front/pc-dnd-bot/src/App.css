@@ -216,6 +216,26 @@ button:disabled {
   color: var(--text-strong);
 }
 
+.message-streaming p::after {
+  content: "|";
+  display: inline-block;
+  margin-left: 2px;
+  color: var(--muted);
+  animation: cursor-blink 1s steps(2, start) infinite;
+}
+
+@keyframes cursor-blink {
+  0%,
+  45% {
+    opacity: 1;
+  }
+
+  46%,
+  100% {
+    opacity: 0;
+  }
+}
+
 .interrupt-panel {
   margin: 0 16px 16px;
   border: 1px solid var(--amber-border);
