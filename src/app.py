@@ -118,9 +118,7 @@ class SessionStartRequest(BaseModel):
 
     room_id: str = Field(default="demo_room", description="房间 ID")
     user_id: str = Field(default="user_aria", description="玩家用户 ID")
-    campaign_id: str = Field(
-        default="whispers_bell_tower", description="剧情圣经 ID"
-    )
+    campaign_id: str = Field(default="whispers_bell_tower", description="剧情圣经 ID")
     dm_mode: str = Field(default="llm", description="DM 模式：固定为 llm")
     opening: str = Field(
         default="我推开破钟酒馆的门，走向村长。",
@@ -270,9 +268,7 @@ def _build_default_scene_context(request: SessionStartRequest) -> dict:
                             "range": "melee",
                         }
                     ],
-                    "inventory": [
-                        {"item_id": "item_healing_potion", "quantity": 1}
-                    ],
+                    "inventory": [{"item_id": "item_healing_potion", "quantity": 1}],
                 },
             }
         ],
@@ -317,6 +313,14 @@ def _build_session_stream_sink(user_id: str, room_id: str):
 
     async def sink(event: dict[str, Any]) -> None:
         if not user_id:
+            return
+        if event.get("type") == "debug_node":
+            await ws_manager.send_json(user_id, event)
+            return
+        if event.get("status") == "debug":
+            debug_event = event.get("debug")
+            if isinstance(debug_event, dict):
+                await ws_manager.send_json(user_id, debug_event)
             return
         status = event.get("status", "streaming")
         node = event.get("node", "")

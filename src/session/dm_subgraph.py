@@ -2,10 +2,10 @@
 
 落实 docs/DM/01-中央DM主图方案.md §3：
 
-    START → perceive → dm_decide ─┬─(reply)──────────────────────────► END(next=wait)
+    START → perceive → dm_decide ─┬─(reply)→ prepare_reply ─────────► END(next=wait)
                                   ├─(check)→ await_roll(中断)
                                   │           → resolve_check(引擎)
-                                  │           → narrate_result(DM) ──► END(next=wait)
+                                  │           → prepare_check_result ─► END(next=wait)
                                   └─(combat)─────────────────────────► END(next=combat)
 
 设计要点（与三个验证探针一致，见方案 §二）：
@@ -13,6 +13,7 @@
   这样玩家报骰恢复时，langgraph 从中断节点续跑，dm_decide 不会重跑（不重复调用 LLM）。
 - 玩家明检定的 d20 只能由玩家经 ``interrupt()`` 报，**加值与成败一律引擎算**（resolve_check），
   守住「规则归引擎」。DM 只产出检定规格（属性/DC），不裁定成败。
+- 玩家可见叙述由会话主图末尾的 final_narrate_turn 统一生成，避免一次输入出现多段 DM 回复。
 
 本模块属 ``session`` 层，可同时依赖 ``combat``（规则/中断）与 ``dm``（世界桥接）。
 编译为**可嵌入子图**（不挂 checkpointer），由会话主图统一持有 checkpointer。
@@ -57,6 +58,9 @@ def perceive(state: DMState) -> dict:
         # 清空上一回合的工作区，避免脏读
         "intent": "",
         "say": "",
+        "reply_brief": "",
+        "previous_scene": None,
+        "story_transition": None,
         "pending_check": None,
         "last_check": None,
         "combat_request": None,
@@ -73,9 +77,16 @@ async def dm_decide(state: DMState) -> dict:
 
     昂贵且非确定（可能调 LLM）——必须独立成节点，以便恢复时不重跑（见模块文档）。
     """
+    user_input = state.get("user_input", "") or ""
+    scene = state.get("scene", {}) or {}
+    logger.info(
+        "[dm_decide] 调用 DM | location=%s | user_input=%s",
+        scene.get("location") or "未知",
+        user_input[:200],
+    )
     decision = await world_bridge.decide_turn(
-        state.get("user_input", ""),
-        state.get("scene", {}),
+        user_input,
+        scene,
         state.get("party", {}),
         messages=state.get("messages", []),
         use_llm=llm_enabled(state),
@@ -105,7 +116,7 @@ async def dm_decide(state: DMState) -> dict:
     # reply
     return {
         "intent": intent,
-        "say": decision.get("say", ""),
+        "reply_brief": decision.get("reply_brief", ""),
         "world_writes": writes,
         "next": "wait",
     }
@@ -122,19 +133,11 @@ def route_after_decide(state: DMState) -> str:
 
 
 # ---------------------------------------------------------------------------
-# 3a. reply 分支：直接把 DM 的话推给玩家
+# 3a. reply 分支：准备最终叙述所需的 reply 素材
 # ---------------------------------------------------------------------------
-def narrate_reply(state: DMState) -> dict:
-    """把 ``intent=reply`` 时 DM 已生成的话推给前端，并记一条对话。"""
-    say = state.get("say", "") or ""
-    world_bridge.narrate_reply(say)
-    messages = list(state.get("messages", []))
-    if say:
-        messages.append({"role": "dm", "content": say})
-    return {
-        "messages": messages,
-        "campaign_log": log_event(state, {"event": "narration", "text": say}),
-    }
+async def narrate_reply(state: DMState) -> dict:
+    """保留 reply_brief，玩家可见叙述交给主图末尾的 final_narrate_turn。"""
+    return {}
 
 
 # ---------------------------------------------------------------------------
@@ -218,26 +221,11 @@ def resolve_check(state: DMState) -> dict:
 
 
 async def narrate_result(state: DMState) -> dict:
-    """叙述检定结果（成功→是,然后…；失败→不,但是…）。"""
+    """保留检定结果，玩家可见叙述交给主图末尾的 final_narrate_turn。"""
     result = state.get("last_check") or {}
     if not result or "success" not in result:
         return {}
-    # 把「玩家尝试做的事 + 当前场景 + 对话上文」一并交给 DM，叙述才会紧扣动作、贴合场景并承接上文
-    check = state.get("pending_check") or {}
-    action = check.get("prompt") or check.get("reason")
-    text = await world_bridge.narrate_result(
-        result,
-        use_llm=llm_enabled(state),
-        action=action,
-        scene=state.get("scene"),
-        messages=state.get("messages"),
-    )
-    messages = list(state.get("messages", []))
-    messages.append({"role": "dm", "content": text})
-    return {
-        "messages": messages,
-        "campaign_log": log_event(state, {"event": "narration", "text": text}),
-    }
+    return {}
 
 
 # ---------------------------------------------------------------------------

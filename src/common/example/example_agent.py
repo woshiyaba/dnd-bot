@@ -2,6 +2,7 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
+from src.common.debug import register_system_prompt
 from src.common.prompts.prompt_repository import get_system_prompt
 from src.common.utils.llm_util import ReadOnlyFilesystemBackend, create_app_deep_agent
 from src.common.utils.writer import astream_agent_collect
@@ -36,6 +37,7 @@ async def create_skills_find_agent() -> Any:
         if _cached_agent is not None and _cached_system_prompt == system_prompt:
             return _cached_agent
 
+        register_system_prompt(PROMPT_KEY, system_prompt, aliases=("process",))
         _cached_agent = _build_skills_find_agent(system_prompt)
         _cached_system_prompt = system_prompt
         return _cached_agent

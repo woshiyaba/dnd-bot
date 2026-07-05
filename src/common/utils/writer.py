@@ -4,6 +4,8 @@ from typing import Any
 
 from langgraph.config import get_stream_writer
 
+from src.common.debug import is_debug_enabled, normalize_debug_event
+
 
 class StreamCollector:
     """流式输出收集器，管理节点生命周期并推送状态事件。
@@ -50,6 +52,11 @@ class StreamCollector:
         if self._writer:
             self._writer({"node": self._node_name, "status": "end"})
 
+    def push_debug(self, event: dict[str, Any]):
+        """推送调试事件；仅在节点内有 stream_writer 时生效。"""
+        if self._writer:
+            self._writer({"status": "debug", "debug": event})
+
     def set_result(self, content: str):
         """记录 updates 中提取的最终 AI 输出，每次覆盖写入以保留最新一轮。"""
         self._result = content
@@ -89,12 +96,15 @@ def stream_agent_collect(
     node_name 非空时同时推送 start/streaming/end 状态事件。
     """
     sc = StreamCollector(node_name)
+    stream_modes = ["messages", "updates"]
+    if is_debug_enabled():
+        stream_modes.append("debug")
     sc.start()
     try:
         for chunk in agent.stream(
             {"messages": [{"role": "user", "content": content}]},
             config={"configurable": {"thread_id": thread_id}},
-            stream_mode=["messages", "updates"],
+            stream_mode=stream_modes,
             subgraphs=True,
             version="v2",
         ):
@@ -105,6 +115,12 @@ def stream_agent_collect(
                 final = _extract_final_content(chunk)
                 if final:
                     sc.set_result(final)
+            elif chunk["type"] == "debug":
+                debug_event = normalize_debug_event(
+                    chunk["data"], namespace=tuple(chunk.get("ns") or ())
+                )
+                if debug_event is not None:
+                    sc.push_debug(debug_event)
     finally:
         sc.finish()
     return sc.result
@@ -122,12 +138,15 @@ async def astream_agent_collect(
     node_name 非空时同时推送 start/streaming/end 状态事件。
     """
     sc = StreamCollector(node_name)
+    stream_modes = ["messages", "updates"]
+    if is_debug_enabled():
+        stream_modes.append("debug")
     sc.start()
     try:
         async for chunk in agent.astream(
             {"messages": [{"role": "user", "content": content}]},
             config={"configurable": {"thread_id": thread_id}},
-            stream_mode=["messages", "updates"],
+            stream_mode=stream_modes,
             subgraphs=True,
             version="v2",
         ):
@@ -138,6 +157,12 @@ async def astream_agent_collect(
                 final = _extract_final_content(chunk)
                 if final:
                     sc.set_result(final)
+            elif chunk["type"] == "debug":
+                debug_event = normalize_debug_event(
+                    chunk["data"], namespace=tuple(chunk.get("ns") or ())
+                )
+                if debug_event is not None:
+                    sc.push_debug(debug_event)
     finally:
         sc.finish()
     return sc.result
@@ -159,12 +184,15 @@ async def agent_collect(
         config={"configurable": {"thread_id": thread_id}},
     )
     sc = StreamCollector(node_name)
+    stream_modes = ["messages", "updates"]
+    if is_debug_enabled():
+        stream_modes.append("debug")
     sc.start()
     try:
         async for chunk in agent.astream(
             {"messages": [{"role": "user", "content": content}]},
             config={"configurable": {"thread_id": thread_id}},
-            stream_mode=["messages", "updates"],
+            stream_mode=stream_modes,
             subgraphs=True,
             version="v2",
         ):
@@ -175,6 +203,12 @@ async def agent_collect(
                 final = _extract_final_content(chunk)
                 if final:
                     sc.set_result(final)
+            elif chunk["type"] == "debug":
+                debug_event = normalize_debug_event(
+                    chunk["data"], namespace=tuple(chunk.get("ns") or ())
+                )
+                if debug_event is not None:
+                    sc.push_debug(debug_event)
     finally:
         sc.finish()
     return sc.result

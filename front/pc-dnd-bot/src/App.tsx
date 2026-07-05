@@ -115,11 +115,39 @@ type StreamMessage = {
   node?: string
   content?: string
   payload?: SessionPayload
+  event?: 'input' | 'output'
+  path?: string
+  namespace?: string[]
+  task_id?: string
+  step?: number
+  timestamp?: string
+  system_prompt?: string | null
+  input?: unknown
+  output?: unknown
+  error?: unknown
+  interrupts?: unknown
+  triggers?: unknown
 }
 
 type StreamState = {
   completed: TimelineMessage[]
   active: string
+}
+
+type DebugNodeRecord = {
+  id: string
+  node?: string
+  path?: string
+  namespace?: string[]
+  step?: number
+  timestamp?: string
+  status: 'running' | 'done' | 'error'
+  systemPrompt?: string | null
+  input?: unknown
+  output?: unknown
+  error?: unknown
+  interrupts?: unknown
+  triggers?: unknown
 }
 
 async function postJson<T>(path: string, body: unknown): Promise<T> {
@@ -160,6 +188,7 @@ function App() {
     completed: [],
     active: '',
   })
+  const [debugRecords, setDebugRecords] = useState<DebugNodeRecord[]>([])
 
   const state = payload?.state
   const scene = state?.scene
@@ -188,6 +217,10 @@ function App() {
       try {
         message = JSON.parse(event.data) as StreamMessage
       } catch {
+        return
+      }
+      if (message.type === 'debug_node') {
+        setDebugRecords((current) => mergeDebugRecord(current, message))
         return
       }
       if (message.type === 'node_start') {
@@ -238,6 +271,7 @@ function App() {
     setIsLoading(true)
     setError('')
     setStreamState({ completed: [], active: '' })
+    setDebugRecords([])
     try {
       const nextPayload = await request()
       setPayload(nextPayload)
@@ -411,6 +445,14 @@ function App() {
               check={payload?.last_check ?? state?.last_check}
               combat={payload?.last_combat ?? state?.last_combat}
             />
+          </section>
+
+          <section className="state-section debug-section">
+            <div className="debug-heading">
+              <h2>调试</h2>
+              <span>{debugRecords.length} 节点</span>
+            </div>
+            <DebugPanel records={debugRecords} />
           </section>
         </aside>
       </section>
@@ -600,6 +642,100 @@ function RecentResult({
       ) : null}
     </div>
   )
+}
+
+function DebugPanel({ records }: { records: DebugNodeRecord[] }) {
+  if (records.length === 0) {
+    return <p className="muted">使用 --debug 启动后显示节点输入、输出和系统提示词。</p>
+  }
+  return (
+    <div className="debug-list">
+      {records.map((record) => (
+        <details className={`debug-item debug-${record.status}`} key={record.id}>
+          <summary>
+            <span>{record.path ?? record.node ?? 'unknown'}</span>
+            <small>{debugStatusText(record.status)}</small>
+          </summary>
+          <DebugBlock title="输入" value={record.input} />
+          <DebugBlock title="输出" value={record.output} />
+          {record.systemPrompt ? (
+            <DebugBlock title="系统提示词" value={record.systemPrompt} />
+          ) : null}
+          {record.error ? <DebugBlock title="错误" value={record.error} /> : null}
+          {record.interrupts ? <DebugBlock title="中断" value={record.interrupts} /> : null}
+        </details>
+      ))}
+    </div>
+  )
+}
+
+function DebugBlock({ title, value }: { title: string; value: unknown }) {
+  if (value === undefined || value === null || value === '') {
+    return null
+  }
+  return (
+    <details className="debug-block">
+      <summary>{title}</summary>
+      <pre>{formatDebugValue(value)}</pre>
+    </details>
+  )
+}
+
+function mergeDebugRecord(
+  records: DebugNodeRecord[],
+  message: StreamMessage,
+): DebugNodeRecord[] {
+  const id = message.task_id || `${message.path ?? message.node}-${message.step ?? records.length}`
+  const nextRecord: DebugNodeRecord = {
+    id,
+    node: message.node,
+    path: message.path,
+    namespace: message.namespace,
+    step: message.step,
+    timestamp: message.timestamp,
+    status: message.event === 'output' ? (message.error ? 'error' : 'done') : 'running',
+    systemPrompt: message.system_prompt,
+    input: message.input,
+    output: message.output,
+    error: message.error,
+    interrupts: message.interrupts,
+    triggers: message.triggers,
+  }
+  const index = records.findIndex((record) => record.id === id)
+  if (index === -1) {
+    return [...records, nextRecord]
+  }
+  return records.map((record, currentIndex) =>
+    currentIndex === index
+      ? {
+          ...record,
+          ...nextRecord,
+          systemPrompt: nextRecord.systemPrompt ?? record.systemPrompt,
+          input: nextRecord.input ?? record.input,
+          output: nextRecord.output ?? record.output,
+          error: nextRecord.error ?? record.error,
+          interrupts: nextRecord.interrupts ?? record.interrupts,
+          triggers: nextRecord.triggers ?? record.triggers,
+        }
+      : record,
+  )
+}
+
+function formatDebugValue(value: unknown) {
+  if (typeof value === 'string') {
+    return value
+  }
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
+function debugStatusText(status: DebugNodeRecord['status']) {
+  if (status === 'running') return '运行中'
+  if (status === 'error') return '错误'
+  return '完成'
 }
 
 function hostileActors(scene?: SceneState): Combatant[] {

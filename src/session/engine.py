@@ -17,18 +17,16 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Callable
 from typing import Any
 
 from langgraph.types import Command
 
+from src.common.utils.graph_stream import GraphStreamSink, astream_graph_values
 from src.model.dm_state import init_story, load_party
 from src.session.graph import build_session_graph, reset_session_dice
 from src.story.loader import get_registry
 
 logger = logging.getLogger(__name__)
-
-SessionStreamSink = Callable[[dict[str, Any]], Awaitable[None]]
 
 
 def room_thread_id(room_id: str) -> str:
@@ -73,7 +71,7 @@ class SessionEngine:
         scene_context: dict,
         *,
         opening: str = "",
-        event_sink: SessionStreamSink | None = None,
+        event_sink: GraphStreamSink | None = None,
     ) -> dict:
         """开局并消费图的 custom 流事件；最终仍返回统一会话负载。"""
         init_state = self._build_initial_state(room_id, scene_context, opening)
@@ -90,7 +88,7 @@ class SessionEngine:
         room_id: str,
         user_input: str,
         *,
-        event_sink: SessionStreamSink | None = None,
+        event_sink: GraphStreamSink | None = None,
     ) -> dict:
         """玩家推进一回合，并把图内 custom 流事件交给上层转发。"""
         return await self._astream_interpret(
@@ -110,7 +108,7 @@ class SessionEngine:
         room_id: str,
         resume_value: Any,
         *,
-        event_sink: SessionStreamSink | None = None,
+        event_sink: GraphStreamSink | None = None,
     ) -> dict:
         """恢复中断并把图内 custom 流事件交给上层转发。"""
         return await self._astream_interpret(
@@ -173,24 +171,16 @@ class SessionEngine:
         self,
         room_id: str,
         graph_input: Any,
-        event_sink: SessionStreamSink | None,
+        event_sink: GraphStreamSink | None,
     ) -> dict:
         """以流式方式运行会话图，转交 custom 事件并返回最终解释结果。"""
         config = {"configurable": {"thread_id": room_thread_id(room_id)}}
-        result: dict | None = None
-        async for mode, chunk in self._graph.astream(
+        result = await astream_graph_values(
+            self._graph,
             graph_input,
             config=config,
-            stream_mode=["custom", "values"],
-        ):
-            if mode == "custom":
-                if event_sink is not None:
-                    await event_sink(chunk)
-            elif mode == "values":
-                result = chunk
-
-        if result is None:
-            raise RuntimeError("[session] 会话图流式执行未返回最终状态")
+            event_sink=event_sink,
+        )
         return self._interpret(room_id, result)
 
     # ---- 内部：把图执行结果归一成统一负载 ----

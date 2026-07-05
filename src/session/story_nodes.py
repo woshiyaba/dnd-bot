@@ -7,7 +7,7 @@
 节点：
 - :func:`evaluate_advancement` —— 先消费 DM 声明的世界写入，再按推进条件判定（确定性优先，semantic 问 DM）。
 - :func:`enter_beat` —— 用下一拍的 entry_state 搭好新场景。
-- :func:`narrate_beat` —— DM 叙述「进入新珠子」的过场。
+- :func:`final_narrate_turn` —— 汇总本回合裁定、结算、切拍结果，生成唯一玩家可见叙述。
 - :func:`epilogue` —— 结局拍叙述完，置整局 finished。
 
 本模块属 ``session`` 层，可同时依赖 ``dm``（世界桥接）、``story``（canon 注册表）与 ``model``。
@@ -91,6 +91,7 @@ async def evaluate_advancement(state: DMState) -> dict:
         return {
             "next_story": "stay",
             "world_writes": None,
+            "story_transition": {"type": "stay"},
         }  # 无剧本：退化为纯对话，不推进
 
     story["turn_index"] = story.get("turn_index", 0) + 1
@@ -104,6 +105,7 @@ async def evaluate_advancement(state: DMState) -> dict:
     messages = state.get("messages", [])
 
     target_beat_id: str | None = None
+    transition_reason = ""
 
     # 2) 全局胜负条件优先（达成即进对应结局拍）
     if canon.lose_condition is not None and await _condition_met(
@@ -127,6 +129,7 @@ async def evaluate_advancement(state: DMState) -> dict:
                 ex = beat.exit_for(trig.id)
                 if ex is not None:
                     target_beat_id = ex.next_beat_id
+                    transition_reason = trig.description or trig.id
                     logger.info(
                         "[evaluate_advancement] 命中触发器 «%s» → 切拍 «%s»",
                         trig.id,
@@ -144,6 +147,12 @@ async def evaluate_advancement(state: DMState) -> dict:
             "story": story,
             "next_story": "advance",
             "world_writes": None,
+            "story_transition": {
+                "type": "advance",
+                "from_beat_id": story.get("current_beat_id"),
+                "to_beat_id": target_beat_id,
+                "reason": transition_reason,
+            },
             "campaign_log": log_event(
                 {"campaign_log": campaign_log},
                 {"event": "advance", "next_beat_id": target_beat_id},
@@ -166,6 +175,7 @@ async def evaluate_advancement(state: DMState) -> dict:
         "story": story,
         "next_story": "stay",
         "world_writes": None,
+        "story_transition": {"type": "stay"},
         "campaign_log": campaign_log,
     }
 
@@ -263,12 +273,14 @@ def enter_beat(state: DMState) -> dict:
     """切到 ``pending_next_beat_id`` 指向的下一拍：搭新 scene、更新进度、重置空转。"""
     canon = current_canon(state)
     story = dict(state.get("story") or {})
+    previous_scene = state.get("scene")
+    transition = dict(state.get("story_transition") or {"type": "advance"})
     next_id = story.get("pending_next_beat_id")
     beat = canon.beat(next_id) if canon else None
     if beat is None:  # 兜底：目标拍不存在 → 不切，留在原地
         logger.warning("[enter_beat] 目标拍 «%s» 不存在，放弃切拍", next_id)
         story["pending_next_beat_id"] = None
-        return {"story": story}
+        return {"story": story, "story_transition": {"type": "stay"}}
 
     scene = build_beat_scene(canon, beat)
     scene["dm_mode"] = (state.get("scene") or {}).get("dm_mode")  # 沿用本局 DM 模式
@@ -296,17 +308,63 @@ def enter_beat(state: DMState) -> dict:
         }
     )
     logger.info("[enter_beat] 进入新拍 «%s»（%s）", beat.id, beat.title)
+    transition.update(
+        {
+            "type": "advance",
+            "to_beat_id": beat.id,
+            "to_beat_title": beat.title,
+            "to_location": scene.get("location"),
+        }
+    )
     return {
+        "previous_scene": previous_scene,
         "scene": scene,
         "story": story,
+        "story_transition": transition,
         "campaign_log": log_event(
             state, {"event": "enter_beat", "beat_id": beat.id, "title": beat.title}
         ),
     }
 
 
+async def final_narrate_turn(state: DMState) -> dict:
+    """统一生成本回合唯一玩家可见 DM 叙述。"""
+    last_combat = (
+        state.get("last_combat") if _current_turn_has_event(state, "combat") else None
+    )
+    text = await world_bridge.narrate_turn_final(
+        user_input=state.get("user_input"),
+        reply_brief=state.get("reply_brief"),
+        last_check=state.get("last_check"),
+        last_combat=last_combat,
+        previous_scene=state.get("previous_scene"),
+        scene=state.get("scene") or {},
+        story_transition=state.get("story_transition"),
+        messages=state.get("messages"),
+        use_llm=llm_enabled(state),
+    )
+    messages = list(state.get("messages", []))
+    messages.append({"role": "dm", "content": text})
+    return {
+        "messages": messages,
+        "campaign_log": log_event(state, {"event": "narration", "text": text}),
+        "previous_scene": None,
+        "story_transition": None,
+    }
+
+
+def _current_turn_has_event(state: DMState, event_type: str) -> bool:
+    """检查上一条 narration 之后，本回合是否发生过指定结构事件。"""
+    for event in reversed(state.get("campaign_log", []) or []):
+        if event.get("event") == "narration":
+            return False
+        if event.get("event") == event_type:
+            return True
+    return False
+
+
 # ---------------------------------------------------------------------------
-# 3) narrate_beat：DM 叙述「进入新珠子」的过场
+# 3) narrate_beat：旧的独立切拍过场叙述 helper（主图当前不再直接使用）
 # ---------------------------------------------------------------------------
 async def narrate_beat(state: DMState) -> dict:
     """DM 叙述进入新一拍的过场（结局拍则叙述结局场景）。"""
@@ -351,7 +409,7 @@ def route_advancement(state: DMState) -> str:
 
 
 def route_ending(state: DMState) -> str:
-    """enter_beat/narrate_beat 后：新拍是结局拍则收尾，否则把控制权交回玩家。"""
+    """final_narrate_turn 后：新拍是结局拍则收尾，否则把控制权交回玩家。"""
     canon = current_canon(state)
     story = state.get("story") or {}
     beat = canon.beat(story.get("current_beat_id", "")) if canon else None

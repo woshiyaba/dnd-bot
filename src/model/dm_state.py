@@ -37,6 +37,9 @@ class DMState(TypedDict, total=False):
     # —— DM 决策工作区（每回合刷新）——
     intent: str  # dm_decide 产出的意图：reply | player_check | start_combat
     say: str  # reply 文本：DM 面向玩家要说的话
+    reply_brief: str  # reply 分支的叙述计划，由 DM 决策产生，玩家不可见
+    previous_scene: dict | None  # 本回合切拍前的场景，仅供最终叙述承接
+    story_transition: dict | None  # 本回合故事推进摘要，仅供最终叙述使用
     pending_check: (
         dict | None
     )  # player_check 规格：{actor_id, ability, dc, kind, proficient, prompt, reason}

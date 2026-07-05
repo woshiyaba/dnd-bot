@@ -28,6 +28,7 @@
 .eyebrow,
 .label,
 .panel-heading span,
+.debug-heading span,
 .interrupt-title span,
 .combatant-row span,
 .combatant-row small,
@@ -43,6 +44,7 @@
 
 .topbar h1,
 .panel-heading h2,
+.debug-heading h2,
 .state-section h2 {
   margin: 0;
   color: var(--text-strong);
@@ -139,7 +141,7 @@ button:disabled {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
+  grid-template-columns: minmax(420px, 0.82fr) minmax(520px, 1.18fr);
   gap: 16px;
 }
 
@@ -165,6 +167,7 @@ button:disabled {
 }
 
 .panel-heading h2,
+.debug-heading h2,
 .state-section h2 {
   font-size: 16px;
 }
@@ -389,6 +392,104 @@ button:disabled {
 
 .result-stack p {
   margin: 0;
+}
+
+.debug-section {
+  min-height: 520px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.debug-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.debug-list {
+  flex: 1;
+  min-height: 0;
+  max-height: calc(100svh - 330px);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+  padding-right: 4px;
+}
+
+.debug-item {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  overflow: visible;
+}
+
+.debug-item > summary {
+  min-height: 38px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  cursor: pointer;
+}
+
+.debug-item > summary span {
+  color: var(--text-strong);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.debug-item > summary small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.debug-error > summary small {
+  color: var(--red);
+}
+
+.debug-running > summary small {
+  color: var(--amber);
+}
+
+.debug-block {
+  border-top: 1px solid var(--border);
+}
+
+.debug-block > summary {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.debug-block[open] {
+  background: var(--surface);
+}
+
+.debug-block > pre {
+  height: min(620px, 58svh);
+  max-height: none;
+  margin: 0 10px 10px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: auto;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 900px) {

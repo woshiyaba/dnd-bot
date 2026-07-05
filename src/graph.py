@@ -17,8 +17,9 @@ import asyncio
 import logging
 import time
 from pathlib import Path
-from typing import TypedDict
+from typing import Any, TypedDict
 
+from src.common.debug import is_debug_enabled, normalize_debug_event
 from src.common.utils.log_util import ensure_logging_config, get_elapsed_ms
 from src.common.utils.writer import astream_agent_collect
 from src.common.ws.ws_manager import manager as ws_manager
@@ -115,7 +116,11 @@ async def invoke(
     user_id: str | None = None,
 ) -> dict:
     graph = await create_graph()
-    async for mode, chunk in graph.astream(
+    stream_modes = ["custom", "values"]
+    if is_debug_enabled():
+        stream_modes.append("debug")
+
+    async for item in graph.astream(
         {
             "user_input": "你有什么技能呢",
             "thread_id": "str",
@@ -123,39 +128,57 @@ async def invoke(
             "result": "str",
         },
         config={"configurable": {"thread_id": "thread_123"}},
-        stream_mode=["custom", "values"],
+        stream_mode=stream_modes,
+        subgraphs=is_debug_enabled(),
     ):
+        namespace: tuple[str, ...] = ()
+        if is_debug_enabled() and len(item) == 3:
+            namespace, mode, chunk = item
+        else:
+            mode, chunk = item
+
         if mode == "custom":
-            status = chunk.get("status", "streaming")
-            node = chunk.get("node", "")
             if user_id:
-                if status == "start":
-                    await ws_manager.send_json(
-                        user_id, {"type": "node_start", "node": node}
-                    )
-                elif status == "end":
-                    await ws_manager.send_json(
-                        user_id, {"type": "node_end", "node": node}
-                    )
-                else:
-                    await ws_manager.send_json(
-                        user_id,
-                        {
-                            "type": "stream",
-                            "node": node,
-                            "content": chunk.get("chunk", ""),
-                        },
-                    )
+                await _send_custom_event(user_id, chunk)
             logger.debug(
                 "[实时流] node=%s, status=%s, len=%d",
-                node,
-                status,
+                chunk.get("node", ""),
+                chunk.get("status", "streaming"),
                 len(chunk.get("chunk", "")),
             )
         elif mode == "values":
             result = chunk
+        elif mode == "debug" and user_id:
+            debug_event = normalize_debug_event(chunk, namespace=namespace)
+            if debug_event is not None:
+                await ws_manager.send_json(user_id, debug_event)
     logger.info("[结果] %s", result)
     return result
+
+
+async def _send_custom_event(user_id: str, event: dict[str, Any]) -> None:
+    """把图内 custom 事件转成 WebSocket 前端协议。"""
+    if event.get("status") == "debug":
+        debug_event = event.get("debug")
+        if isinstance(debug_event, dict):
+            await ws_manager.send_json(user_id, debug_event)
+        return
+
+    status = event.get("status", "streaming")
+    node = event.get("node", "")
+    if status == "start":
+        await ws_manager.send_json(user_id, {"type": "node_start", "node": node})
+    elif status == "end":
+        await ws_manager.send_json(user_id, {"type": "node_end", "node": node})
+    else:
+        await ws_manager.send_json(
+            user_id,
+            {
+                "type": "stream",
+                "node": node,
+                "content": event.get("chunk", ""),
+            },
+        )
 
 
 if __name__ == "__main__":

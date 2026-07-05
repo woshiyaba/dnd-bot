@@ -15,11 +15,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from typing import Any
 
 from langchain.agents import create_agent
 
+from src.common.debug import register_system_prompt
 from src.common.utils.json_parser import extract_json_object
 from src.common.utils.llm_util import create_chat_model
 from src.common.utils.writer import StreamCollector
@@ -31,6 +33,8 @@ logger = logging.getLogger(__name__)
 _agent_lock = asyncio.Lock()
 _cached_agent: Any | None = None
 _cached_prompt: str | None = None
+_KB_TOOL_NAMES = {"kb_search", "kb_read"}
+_KNOWLEDGE_LOG_LIMIT = 12000
 
 
 async def get_dm_agent() -> Any:
@@ -38,6 +42,7 @@ async def get_dm_agent() -> Any:
     global _cached_agent, _cached_prompt
 
     system_prompt = build_dm_system_prompt()
+    _register_dm_prompt(system_prompt)
     if _cached_agent is not None and _cached_prompt == system_prompt:
         return _cached_agent
 
@@ -51,6 +56,22 @@ async def get_dm_agent() -> Any:
         )
         _cached_prompt = system_prompt
         return _cached_agent
+
+
+def _register_dm_prompt(system_prompt: str) -> None:
+    """登记所有会走 DM 智能体的图节点系统提示词。"""
+    register_system_prompt(
+        "dm",
+        system_prompt,
+        aliases=(
+            "dm_decide",
+            "evaluate_advancement",
+            "final_narrate_turn",
+            "judge_surprise",
+            "declare_action",
+            "narrate",
+        ),
+    )
 
 
 def _last_text(result: dict) -> str:
@@ -68,6 +89,77 @@ def _last_text(result: dict) -> str:
     return "".join(parts)
 
 
+def _log_text(value: Any) -> str:
+    """把工具结果压成适合日志的一段文本，超长时截断避免刷屏。"""
+    if isinstance(value, str):
+        text = value
+    else:
+        try:
+            text = json.dumps(value, ensure_ascii=False)
+        except (TypeError, ValueError):
+            text = str(value)
+    if len(text) > _KNOWLEDGE_LOG_LIMIT:
+        return f"{text[:_KNOWLEDGE_LOG_LIMIT]}...（已截断，总长度 {len(text)}）"
+    return text
+
+
+def _tool_call_name_by_id(messages: list[Any]) -> dict[str, str]:
+    """从 AI 消息的 tool_calls 中建立 tool_call_id 到工具名的映射。"""
+    names: dict[str, str] = {}
+    for message in messages:
+        for call in getattr(message, "tool_calls", []) or []:
+            if not isinstance(call, dict):
+                continue
+            call_id = call.get("id")
+            name = call.get("name")
+            if call_id and name:
+                names[str(call_id)] = str(name)
+    return names
+
+
+def _log_knowledge_hits(result: dict, *, source: str) -> None:
+    """打印 DM agent 本轮命中的 knowledge 工具结果。"""
+    messages = result.get("messages") if isinstance(result, dict) else None
+    if not messages:
+        return
+
+    names_by_id = _tool_call_name_by_id(messages)
+    hit_count = 0
+    for message in messages:
+        message_type = getattr(message, "type", "")
+        if message_type != "tool":
+            continue
+        tool_call_id = str(getattr(message, "tool_call_id", "") or "")
+        tool_name = (
+            getattr(message, "name", None) or names_by_id.get(tool_call_id) or ""
+        )
+        if tool_name not in _KB_TOOL_NAMES:
+            continue
+        hit_count += 1
+        logger.info(
+            "[dm_agent] knowledge 命中 #%d | source=%s | tool=%s | content=%s",
+            hit_count,
+            source,
+            tool_name,
+            _log_text(getattr(message, "content", "")),
+        )
+
+
+def _log_knowledge_stream_token(token: Any, *, source: str) -> None:
+    """流式模式下打印单条 knowledge 工具结果（若当前分片就是工具消息）。"""
+    if getattr(token, "type", "") != "tool":
+        return
+    tool_name = getattr(token, "name", "") or ""
+    if tool_name not in _KB_TOOL_NAMES:
+        return
+    logger.info(
+        "[dm_agent] knowledge 命中 | source=%s | tool=%s | content=%s",
+        source,
+        tool_name,
+        _log_text(getattr(token, "content", "")),
+    )
+
+
 async def dm_complete_json(task: str) -> dict | None:
     """跑一轮 DM 决策（可掷骰/查规则），要求输出 JSON 并解析为字典。
 
@@ -76,6 +168,7 @@ async def dm_complete_json(task: str) -> dict | None:
     """
     agent = await get_dm_agent()
     result = await agent.ainvoke({"messages": [{"role": "user", "content": task}]})
+    _log_knowledge_hits(result, source="complete_json")
     return extract_json_object(_last_text(result))
 
 
@@ -94,6 +187,9 @@ async def dm_narrate(task: str, *, node_name: str = "narrate") -> str:
             {"messages": [{"role": "user", "content": task}]},
             stream_mode="messages",
         ):
+            _log_knowledge_stream_token(token, source=node_name)
+            if getattr(token, "type", "") == "tool":
+                continue
             content = getattr(token, "content", "")
             # 只推送模型的文本输出；工具调用分片的 content 为空，自动跳过
             if isinstance(content, str) and content:

@@ -2,9 +2,11 @@
 
 落实 docs/DM/01-中央DM主图方案.md §2（选项 A：战斗作为子图嵌入）：
 
-    START → dm_turn(DM 子图) → route_session ─┬─(wait)──► END（等玩家下一条消息）
+    START → dm_turn(DM 子图) → route_session ─┬─(wait)──► evaluate_advancement
                                               └─(combat)► run_combat(战斗子图·包装节点)
-                                                          → narrate_aftermath(DM) → END
+                                                          → evaluate_advancement
+             evaluate_advancement ─┬─(stay)────► final_narrate_turn → END
+                                    └─(advance)► enter_beat → final_narrate_turn → END
 
 子图嵌入方式（已在方案 §二经探针验证）：
 - **DM 子图**与会话主图同为 ``DMState`` schema，直接 ``add_node(编译子图)``，中断（玩家明检定）
@@ -26,12 +28,11 @@ from langgraph.graph import END, START, StateGraph
 
 from src.combat.dice import current_engine_dice, reset_engine_dice
 from src.combat.graph import build_combat_graph, build_serde
-from src.dm import world_bridge
 from src.dm.tools import set_dice_provider
 from src.model.combat_state import load_combatant
 from src.model.dm_state import DMState, fold_combat_writeback
 from src.session import story_nodes
-from src.session.dm_subgraph import build_dm_subgraph, llm_enabled, log_event
+from src.session.dm_subgraph import build_dm_subgraph, log_event
 
 logger = logging.getLogger(__name__)
 
@@ -134,24 +135,6 @@ async def run_combat(state: DMState) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# narrate_aftermath：把故事交回 DM
-# ---------------------------------------------------------------------------
-async def narrate_aftermath(state: DMState) -> dict:
-    """战斗结束后，DM 叙述战后世界并邀请玩家继续。"""
-    text = await world_bridge.narrate_aftermath(
-        state.get("last_combat") or {},
-        state.get("scene") or {},
-        use_llm=llm_enabled(state),
-    )
-    messages = list(state.get("messages", []))
-    messages.append({"role": "dm", "content": text})
-    return {
-        "messages": messages,
-        "campaign_log": log_event(state, {"event": "narration", "text": text}),
-    }
-
-
-# ---------------------------------------------------------------------------
 # 装配
 # ---------------------------------------------------------------------------
 def build_session_graph(checkpointer: Any | None = None):
@@ -163,11 +146,10 @@ def build_session_graph(checkpointer: Any | None = None):
 
     g.add_node("dm_turn", build_dm_subgraph())  # DM 子图（同 schema，直接嵌入）
     g.add_node("run_combat", run_combat)  # 战斗子图（包装节点映射 schema）
-    g.add_node("narrate_aftermath", narrate_aftermath)
     # 故事推进段（糖葫芦串珠：触发推进 / 否则探索）
     g.add_node("evaluate_advancement", story_nodes.evaluate_advancement)
     g.add_node("enter_beat", story_nodes.enter_beat)
-    g.add_node("narrate_beat", story_nodes.narrate_beat)
+    g.add_node("final_narrate_turn", story_nodes.final_narrate_turn)
     g.add_node("epilogue", story_nodes.epilogue)
 
     g.add_edge(START, "dm_turn")
@@ -180,21 +162,20 @@ def build_session_graph(checkpointer: Any | None = None):
             "combat": "run_combat",
         },
     )
-    g.add_edge("run_combat", "narrate_aftermath")
-    g.add_edge("narrate_aftermath", "evaluate_advancement")
+    g.add_edge("run_combat", "evaluate_advancement")
     # 推进判定：命中切拍，否则把控制权交回玩家（END，等下一条消息）
     g.add_conditional_edges(
         "evaluate_advancement",
         story_nodes.route_advancement,
         {
             "advance": "enter_beat",
-            "stay": END,
+            "stay": "final_narrate_turn",
         },
     )
-    g.add_edge("enter_beat", "narrate_beat")
-    # 过场叙述后：新拍是结局拍则收尾，否则交回玩家
+    g.add_edge("enter_beat", "final_narrate_turn")
+    # 最终统一叙述后：新拍是结局拍则收尾，否则交回玩家
     g.add_conditional_edges(
-        "narrate_beat",
+        "final_narrate_turn",
         story_nodes.route_ending,
         {
             "ending": "epilogue",

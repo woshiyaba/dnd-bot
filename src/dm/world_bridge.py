@@ -5,10 +5,10 @@
 ``src.session`` 处理）：
 
 - :func:`decide_turn` —— DM 读「场景 + 对话 + 玩家输入」，决定本回合意图：
-  ``reply``（直接叙述，可自掷暗骰）/ ``player_check``（要玩家明骰）/ ``start_combat``（开战）。
+  ``reply``（普通回应计划，可自掷暗骰）/ ``player_check``（要玩家明骰）/ ``start_combat``（开战）。
   必须走 :func:`dm_complete_json`；无模型或解析失败时直接报错，不允许离线模拟 DM。
-- :func:`narrate_reply` / :func:`narrate_result` / :func:`narrate_aftermath` ——
-  把要对玩家说的话流式推前端（复用 custom 通道）。
+- :func:`narrate_turn_final` ——
+  汇总一个会话回合的裁定、结算与切拍结果，流式生成唯一玩家可见叙述（复用 custom 通道）。
 
 决策只产出「规格」（如检定的 ability/dc/kind、遭遇的 monster_ids），**不计算加值、不判成败、
 不组装战斗参战者**——那是引擎的事，放在 ``src.session``，以守住「规则归引擎」。
@@ -19,7 +19,6 @@ from __future__ import annotations
 import json
 import logging
 
-from src.common.utils.writer import StreamCollector
 from src.dm.agent import dm_complete_json, dm_narrate
 from src.model.dm_state import hostile_actors
 from src.model.enums import Ability
@@ -32,16 +31,6 @@ _ABILITY_VALUES = {a.value for a in Ability}
 _CHECK_KINDS = {"ability_check", "saving_throw"}
 _INTENTS = {"reply", "player_check", "start_combat"}
 _DECISION_ATTEMPTS = 3
-_ACTION_HOOK_MARKERS = (
-    "你可以",
-    "可以选择",
-    "接下来",
-    "现在你",
-    "你要",
-    "你想",
-    "选择",
-    "先",
-)
 
 
 # ---------------------------------------------------------------------------
@@ -110,7 +99,7 @@ async def decide_turn(
 
     返回形如::
 
-        {"intent": "reply", "say": "……"}
+        {"intent": "reply", "reply_brief": "本次回应计划/叙述要点"}
         {"intent": "player_check",
          "check": {"actor_id","ability","dc","kind","proficient","prompt","reason"}}
         {"intent": "start_combat",
@@ -182,12 +171,11 @@ async def _decide_llm(
         f"{correction_line}"
         f"玩家这一步说/做：{user_input}\n\n"
         "叙述要自然朝当前拍目标推进但不硬拽玩家；你无权跳拍或改写骨架，推进由引擎判定。\n"
-        "若输出 reply，say 必须简洁：通常 2-4 句，少铺陈；最后一句必须直接引导玩家行动，"
-        "优先使用「你可以……，也可以……」列出 2-3 个可选方向（例如：询问某人、检查某物、前往某处），"
-        "但不要替玩家行动。\n"
+        "若输出 reply，不要生成玩家可见正文，只输出 reply_brief：一句话说明本次回应要点，"
+        "可包含应传达的事实、NPC 态度、线索提示和建议的行动方向；玩家可见叙述会由后续流式叙述节点生成。\n"
         "判断本步属于以下哪一类（判据见你的系统提示）：\n"
         "1) 纯叙事/社交/信息，或该掷暗骰（陷阱、对抗、环境）——你可调骰子工具自己掷，"
-        '把结果编进叙述，输出 {"intent":"reply","say":"给玩家看的叙述"}。\n'
+        '把既定结果和回应要点写入 reply_brief，输出 {"intent":"reply","reply_brief":"一句话回应计划"}。\n'
         "2) 玩家主动做一件结果不确定且成败都有意义的事（撬锁/说服/跳跃/豁免…）——交玩家明骰，"
         '输出 {"intent":"player_check","check":{"actor_id":"哪个玩家角色id","ability":"strength|dexterity|constitution|intelligence|wisdom|charisma",'
         '"dc":数字,"kind":"ability_check|saving_throw","proficient":true/false,"prompt":"提示玩家掷什么","reason":"为什么要检定"}}。\n'
@@ -218,7 +206,7 @@ def _decision_correction_hint(error: str, scene: dict, party_ids: list[str]) -> 
         f"当前场景合法敌意 actor_id：{_dump(hostiles)}。"
         "如果要 start_combat，monster_ids 必须只使用上面敌意 actor_id；"
         "如果没有合法敌人或局势还不到战斗，请改为 reply，引导玩家继续调查、交谈、靠近或明确攻击。"
-        "如果错误是 reply 缺少行动引导，请保留必要叙事并重写最后一句，使用「你可以……，也可以……」给出 2-3 个选择。"
+        "如果错误是 reply_brief 缺失，请补上一句不可见回应计划，说明该传达什么和应引导玩家做什么。"
         "不要编造不存在的 actor_id。只输出修正后的 JSON。"
     )
 
@@ -253,14 +241,12 @@ def _normalize_decision(data: dict, scene: dict, party_ids: list[str]) -> dict:
         raise ValueError(f"[dm] 非法 DM 意图：{intent!r}")
 
     if intent == "reply":
-        say = str(data.get("say") or "").strip()
-        if not say:
-            raise ValueError("[dm] reply 未给出叙述 say")
-        if not _has_action_hook(say):
-            raise ValueError("[dm] reply 结尾缺少玩家行动引导")
+        reply_brief = str(data.get("reply_brief") or "").strip()
+        if not reply_brief:
+            raise ValueError("[dm] reply 未给出 reply_brief")
         return {
             "intent": "reply",
-            "say": say,
+            "reply_brief": reply_brief,
             "world_writes": writes,
         }
 
@@ -315,28 +301,107 @@ def _safe_int(value, default: int) -> int:
         return default
 
 
-def _has_action_hook(text: str) -> bool:
-    """粗校验 DM 叙述是否把选择权交回玩家。"""
-    tail = text[-90:]
-    return any(marker in tail for marker in _ACTION_HOOK_MARKERS)
-
-
 # ---------------------------------------------------------------------------
 # 叙述：把要对玩家说的话推给前端
 # ---------------------------------------------------------------------------
-def narrate_reply(text: str, *, node_name: str = "dm") -> str:
-    """把 DM 的一段话推给前端（custom 通道，整段一次推）。返回原文。
+async def narrate_reply_llm(
+    reply_brief: str,
+    scene: dict,
+    *,
+    user_input: str | None = None,
+    messages: list[dict] | None = None,
+    beat_brief: dict | None = None,
+    stuck_hint: str | None = None,
+    use_llm: bool,
+    node_name: str = "dm",
+) -> str:
+    """根据 reply 决策计划流式生成玩家可见叙述。
 
-    用于 ``intent=reply``：决策时 DM 已生成好这段话，这里只负责推流，避免再调一次模型。
+    reply_brief 是上一阶段 DM 决策产出的不可见计划；本函数负责把它扩写为真正给玩家看的文本。
+    ``use_llm`` 参数保留给调用签名一致性；DM 叙述始终强制使用真实 LLM。
     """
-    collector = StreamCollector(node_name)
-    collector.start()
-    try:
-        if text:
-            collector.push(text)
-    finally:
-        collector.finish()
-    return collector.result
+    action_line = f"玩家最新这步言行：{user_input}\n" if user_input else ""
+    beat_line = (
+        f"当前剧情拍骨架（只供把控方向，勿照搬）：{_dump(beat_brief)}\n"
+        if beat_brief
+        else ""
+    )
+    stuck_line = f"推进提示：{stuck_hint}\n" if stuck_hint else ""
+    task = (
+        "你在主持一场有预定剧本的 D&D 冒险。上一阶段已经完成意图裁定，"
+        "现在请把 reply 计划写成玩家可见叙述。\n"
+        f"reply 计划：{reply_brief}\n"
+        f"当前场景：{_dump(_scene_brief(scene))}\n"
+        f"最近对话：{_dump(_history_brief(messages or []))}\n"
+        f"{action_line}"
+        f"{beat_line}"
+        f"{stuck_line}"
+        "要求：用 2-4 句自然中文回应玩家，少铺陈，不替玩家行动；"
+        "必须承接玩家这一步和当前场景，可传达 reply 计划里的线索或 NPC 态度。"
+        "最后一句必须以「你可以」开头，给 2-3 个自然后续方向。"
+        "只输出玩家可见叙述，不要输出 JSON，不要罗列字段。"
+    )
+    return await dm_narrate(task, node_name=node_name)
+
+
+async def narrate_turn_final(
+    *,
+    user_input: str | None,
+    reply_brief: str | None,
+    last_check: dict | None,
+    last_combat: dict | None,
+    previous_scene: dict | None,
+    scene: dict,
+    story_transition: dict | None,
+    messages: list[dict] | None,
+    use_llm: bool,
+    node_name: str = "dm",
+) -> str:
+    """统一叙述一个玩家回合的最终结果，确保本回合只产生一条玩家可见 DM 消息。
+
+    参数里的事实均由上游节点裁定或结算完成；本函数只负责把它们讲成玩家可见叙述。
+    ``use_llm`` 参数保留给调用签名一致性；DM 叙述始终强制使用真实 LLM。
+    """
+    transition = story_transition or {"type": "stay"}
+    transition_type = transition.get("type")
+    previous_line = (
+        f"切换前场景：{_dump(_scene_brief(previous_scene))}\n"
+        if previous_scene
+        else ""
+    )
+    check_line = f"本回合检定结果：{_dump(last_check)}\n" if last_check else ""
+    combat_line = f"最近战斗结果：{_dump(last_combat)}\n" if last_combat else ""
+    reply_line = f"DM 回应计划：{reply_brief}\n" if reply_brief else ""
+    action_line = f"玩家最新这步言行：{user_input}\n" if user_input else ""
+
+    if transition_type == "advance":
+        instruction = (
+            "本回合已经触发剧情推进并切换到了新场景。请先承接玩家动作或结算结果，"
+            "再自然描述从旧场景到新场景的过渡，最后把镜头落在当前新场景的可见要素和可行动方向上。"
+        )
+    else:
+        instruction = (
+            "本回合没有切换剧情拍。请基于当前场景、玩家动作、回应计划和已有结算，"
+            "描述当前场景内发生的结果，并把选择权交还给玩家。"
+        )
+
+    task = (
+        "你在主持一场有预定剧本的 D&D 冒险。下面是本回合已经由引擎和 DM 决策节点确定的事实，"
+        "请统一生成本回合唯一一段玩家可见叙述。\n"
+        f"{action_line}"
+        f"{reply_line}"
+        f"{check_line}"
+        f"{combat_line}"
+        f"{previous_line}"
+        f"当前场景：{_dump(_scene_brief(scene))}\n"
+        f"故事推进摘要：{_dump(transition)}\n"
+        f"最近对话：{_dump(_history_brief(messages or []))}\n"
+        f"叙述策略：{instruction}\n"
+        "要求：用 2-4 句自然中文，少铺陈，不替玩家行动；只描述既定事实，不新增规则数字，"
+        "不改写检定、战斗或剧情推进结果。最后一句必须以「你可以」开头，给 2-3 个自然后续方向。"
+        "只输出玩家可见叙述，不要输出 JSON，不要罗列字段。"
+    )
+    return await dm_narrate(task, node_name=node_name)
 
 
 async def narrate_result(
