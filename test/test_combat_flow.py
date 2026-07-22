@@ -18,8 +18,8 @@
     uv run python test/test_combat_flow.py        # 直接看全程轨迹
     uv run python -m pytest test/test_combat_flow.py   # 当冒烟用例跑（无需 pytest-asyncio）
 
-战斗子图自带 MemorySaver，无需 MySQL / DashScope，可独立运行。
-DM 默认走确定性占位（启发式），所以同一 `random_seed` 下结果可复现。
+战斗子图自带 MemorySaver，但 DM 判定与叙述仍需要真实模型配置。
+`random_seed` 只保证怪物与环境规则骰可复现，不替代真实 DM。
 """
 
 from __future__ import annotations

@@ -1,0 +1,137 @@
+.campaign-page {
+  min-height: 100vh;
+  background: #f5f7f4;
+}
+
+.cover {
+  position: relative;
+  height: 530rpx;
+  overflow: hidden;
+  background: linear-gradient(165deg, #1d3431, #2f4e48 52%, #3d3c56);
+  color: #fff;
+}
+
+.cover::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, transparent 30%, rgba(10, 17, 16, 0.88));
+}
+
+.mist {
+  position: absolute;
+  width: 600rpx;
+  height: 180rpx;
+  border-radius: 50%;
+  background: rgba(217, 229, 226, 0.11);
+  filter: blur(18rpx);
+}
+
+.mist-a { right: -180rpx; top: 90rpx; transform: rotate(-12deg); }
+.mist-b { left: -220rpx; top: 250rpx; transform: rotate(8deg); }
+
+.bell {
+  position: absolute;
+  top: 70rpx;
+  right: 74rpx;
+  color: rgba(235, 204, 145, 0.65);
+  font-size: 210rpx;
+}
+
+.cover-copy {
+  position: absolute;
+  z-index: 1;
+  left: 36rpx;
+  right: 36rpx;
+  bottom: 42rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 14rpx;
+}
+
+.cover-kicker {
+  color: #e8c98d;
+  font-size: 23rpx;
+  font-weight: 700;
+  letter-spacing: 4rpx;
+}
+
+.cover-title {
+  font-size: 52rpx;
+  font-weight: 800;
+}
+
+.cover-subtitle {
+  max-width: 620rpx;
+  font-size: 27rpx;
+  line-height: 1.6;
+  opacity: 0.86;
+}
+
+.content {
+  padding: 0 34rpx;
+}
+
+.facts {
+  display: flex;
+  justify-content: space-around;
+  margin-top: -2rpx;
+  padding: 28rpx 0;
+  border-bottom: 2rpx solid #d8deda;
+  background: #fff;
+}
+
+.facts view {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4rpx;
+  color: #66716e;
+  font-size: 21rpx;
+}
+
+.fact-value {
+  color: #17201e;
+  font-size: 29rpx;
+  font-weight: 700;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 20rpx;
+  padding-top: 42rpx;
+}
+
+.body {
+  color: #4d5a56;
+  font-size: 29rpx;
+  line-height: 1.75;
+}
+
+.feature {
+  display: flex;
+  align-items: flex-start;
+  gap: 18rpx;
+  color: #4d5a56;
+  font-size: 27rpx;
+  line-height: 1.55;
+}
+
+.feature-icon {
+  width: 42rpx;
+  color: #5867a8;
+  font-size: 30rpx;
+}
+
+.start {
+  margin-top: 44rpx;
+}
+
+.error {
+  display: block;
+  margin-top: 28rpx;
+  color: #a13f47;
+  font-size: 25rpx;
+  text-align: center;
+}

@@ -1,0 +1,65 @@
+<view class="sheet" wx:if="{{interrupt}}">
+  <block wx:if="{{interrupt.interrupt_type === 'declare_action'}}">
+    <view class="sheet-title">
+      <view>
+        <text class="kicker">你的回合</text>
+        <text class="title">选择行动</text>
+      </view>
+      <text class="actor">{{interrupt.directed_to.combatant_id}}</text>
+    </view>
+    <text class="prompt">{{interrupt.prompt}}</text>
+    <view class="action-list">
+      <block wx:for="{{interrupt.options.attack}}" wx:for-item="weapon" wx:key="attack_name">
+        <button
+          wx:for="{{weapon.targets}}"
+          wx:for-item="target"
+          wx:key="id"
+          class="action-button action-primary"
+          data-attack-name="{{weapon.attack_name}}"
+          data-target-id="{{target.id}}"
+          bindtap="attack"
+          disabled="{{disabled}}"
+        >
+          <text>攻击 {{target.name}}</text>
+          <text class="action-detail">{{weapon.attack_name}} · {{target.zone}}</text>
+        </button>
+      </block>
+      <button
+        wx:for="{{interrupt.options.move}}"
+        wx:key="target_zone"
+        class="action-button"
+        data-zone="{{item.target_zone}}"
+        bindtap="move"
+        disabled="{{disabled}}"
+      >移动到 {{item.target_zone}}</button>
+      <button class="action-button action-muted" bindtap="pass" disabled="{{disabled}}">放弃行动</button>
+    </view>
+  </block>
+
+  <block wx:else>
+    <view class="sheet-title">
+      <view>
+        <text class="kicker">需要你的骰子</text>
+        <text class="title">{{interrupt.interrupt_type === 'damage_roll' ? '伤害掷骰' : 'd20 检定'}}</text>
+      </view>
+      <text class="dice-label">{{interrupt.required_dice || 'd20'}}</text>
+    </view>
+    <text class="prompt">{{interrupt.prompt}}</text>
+    <view class="roll-result {{rollFormula ? 'roll-result-visible' : ''}}">
+      <view class="dice-shape"><text>{{rollFormula ? rollResult.total : '？'}}</text></view>
+      <view class="formula">
+        <text wx:if="{{rollFormula}}">{{rollFormula}}</text>
+        <text wx:else>尚未掷骰</text>
+        <text class="bonus" wx:if="{{interrupt.interrupt_type !== 'damage_roll'}}">固定加值 {{interrupt.bonus >= 0 ? '+' : ''}}{{interrupt.bonus || 0}}</text>
+      </view>
+    </view>
+    <view class="roll-actions">
+      <button class="virtual-button" bindtap="roll" disabled="{{disabled}}">掷虚拟骰</button>
+      <button class="manual-button" bindtap="toggleManual" disabled="{{disabled}}">录入实体骰</button>
+    </view>
+    <view class="manual-row" wx:if="{{manualOpen}}">
+      <input type="number" value="{{manualValue}}" bindinput="manualInput" />
+      <button bindtap="submitManual" disabled="{{disabled}}">提交原始值</button>
+    </view>
+  </block>
+</view>

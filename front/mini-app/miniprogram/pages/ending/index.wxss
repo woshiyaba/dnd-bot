@@ -1,0 +1,124 @@
+.ending-page {
+  min-height: 100vh;
+  background: #f5f7f4;
+}
+
+.ending-art {
+  position: relative;
+  height: 480rpx;
+  overflow: hidden;
+  background: linear-gradient(180deg, #7785ae 0%, #d7a96d 62%, #39483f 63%, #1d2925 100%);
+}
+
+.sunrise {
+  position: absolute;
+  left: 90rpx;
+  top: 150rpx;
+  width: 110rpx;
+  height: 110rpx;
+  border-radius: 50%;
+  background: #f8dfac;
+  box-shadow: 0 0 90rpx rgba(248, 223, 172, 0.6);
+}
+
+.ending-tower {
+  position: absolute;
+  right: 130rpx;
+  bottom: 0;
+  width: 130rpx;
+  height: 310rpx;
+  background: #1c2724;
+  box-shadow: -230rpx 185rpx 0 65rpx #202e29, 180rpx 170rpx 0 80rpx #202e29;
+}
+
+.ending-tower::before {
+  content: "";
+  position: absolute;
+  left: 36rpx;
+  top: 56rpx;
+  width: 58rpx;
+  height: 76rpx;
+  border-radius: 30rpx 30rpx 0 0;
+  background: #c39257;
+}
+
+.ending-title {
+  position: absolute;
+  z-index: 2;
+  left: 34rpx;
+  bottom: 32rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+  color: #fff;
+  font-size: 43rpx;
+  font-weight: 800;
+}
+
+.ending-title .eyebrow {
+  color: #f1d59d;
+}
+
+.ending-content {
+  padding: 38rpx 34rpx;
+}
+
+.narration {
+  display: block;
+  font-size: 31rpx;
+  line-height: 1.75;
+}
+
+.summary {
+  display: flex;
+  justify-content: space-around;
+  margin: 40rpx 0;
+  padding: 28rpx 0;
+  border-top: 2rpx solid #d8deda;
+  border-bottom: 2rpx solid #d8deda;
+}
+
+.summary view {
+  display: flex;
+  align-items: center;
+  gap: 5rpx;
+  color: #66716e;
+  font-size: 22rpx;
+  flex-direction: column;
+}
+
+.summary-value {
+  color: #17201e;
+  font-size: 36rpx;
+  font-weight: 750;
+}
+
+.outcome {
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+  margin-bottom: 38rpx;
+}
+
+.outcome-label,
+.ending-beat {
+  color: #66716e;
+  font-size: 23rpx;
+}
+
+.outcome-value {
+  font-size: 32rpx;
+  font-weight: 700;
+}
+
+.secondary-button {
+  margin-top: 18rpx;
+}
+
+.home-button {
+  min-height: 72rpx;
+  margin-top: 12rpx;
+  background: transparent;
+  color: #66716e;
+  font-size: 25rpx;
+}

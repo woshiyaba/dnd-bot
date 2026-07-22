@@ -1,0 +1,7 @@
+<view class="banner banner-error" wx:if="{{error}}">
+  <text>{{error}}</text>
+  <button bindtap="retry">重试</button>
+</view>
+<view class="banner" wx:elif="{{connection !== 'online' || uiStatus === 'reconnecting'}}">
+  <text>{{uiStatus === 'reconnecting' ? '连接中断，正在同步冒险进度…' : '正在连接冒险服务…'}}</text>
+</view>

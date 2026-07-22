@@ -15,6 +15,9 @@ cd front/pc-dnd-bot
 npm run dev
 ```
 
+微信小程序位于 `front/mini-app`，用微信开发者工具直接导入该目录；后端地址在
+`front/mini-app/miniprogram/config/env.ts` 中配置。
+
 一个面向 D&D 跑团的后端原型项目。当前代码里同时存在两条线：
 
 1. **业务主线**：`SessionEngine` 驱动一整局冒险，中央 DM 子图负责对话、检定、剧情推进，战斗子图负责回合制战斗结算。
@@ -28,13 +31,13 @@ npm run dev
 - 已有独立的 D&D 战斗状态机，可中断、可恢复、可复现。
 - 已有会话主图，把中央 DM 子图、战斗子图、剧情推进节点串成一局冒险。
 - 已有 canon 剧情圣经加载机制，`canon/*.json` 启动时可加载到内存注册表。
-- 当前 HTTP 路由尚未暴露 `SessionEngine`，真实会话主要通过测试/驱动脚本调用。
+- 已通过 HTTP/WebSocket 暴露 `SessionEngine`，PC 和微信小程序可直接完成开局、行动、中断与恢复。
 
 ## 项目结构
 
 ```text
 src/
-  app.py                  # FastAPI 应用，目前暴露 /invoke 和 /ws/{user_id}
+  app.py                  # FastAPI 应用，暴露示例图与 D&D 会话接口
   graph.py                # deepagents 示例 LangGraph，当前不是 D&D 主流程
   session/                # 一整局冒险的主状态机
     engine.py             # SessionEngine，对外门面
@@ -54,6 +57,7 @@ src/
   story/                  # canon 剧情圣经加载与注册表
 
 front/pc-dnd-bot/         # Vite/React 前端
+front/mini-app/           # 原生 TypeScript 微信小程序
 canon/                    # 剧情圣经 JSON
 docs/                     # 设计文档与领域规则
 knowledge/                # 知识库内容
@@ -173,17 +177,18 @@ uv run python main.py
 0.0.0.0:32388
 ```
 
-当前暴露：
+当前主要接口：
 
 - `GET /ws/{user_id}`：建立 WebSocket，接收流式事件。
 - `POST /invoke`：调用 `src/graph.py` 的 deepagents 示例图，返回最终结果，并通过 WebSocket 推送 `flow_start`、节点流式事件和 `flow_end`。
-
-注意：`/invoke` 目前没有使用请求里的 `user_input` 驱动 D&D 会话，也没有调用 `SessionEngine`。后续如果要做真正产品闭环，应新增或替换为 session 相关接口，例如：
-
 - `POST /session/start`
 - `POST /session/{room_id}/message`
 - `POST /session/{room_id}/submit`
+- `POST /session/{room_id}/roll`：由服务端生成当前玩家虚拟骰并恢复中断。
 - `GET /session/{room_id}/state`
+
+`GET /session/{room_id}/state` 返回统一会话负载，包含当前 `status`、公开状态投影和待处理
+`interrupt`，可用于小程序切后台或断线后的恢复。
 
 ## 环境配置
 
@@ -262,6 +267,14 @@ cd front/pc-dnd-bot
 npm run build
 ```
 
+检查微信小程序类型：
+
+```bash
+cd front/mini-app
+npm install
+npm run type-check
+```
+
 ## 测试注意事项
 
 当前还没有完整测试套件，`test/` 更接近流程驱动：
@@ -283,9 +296,7 @@ npm run build
 
 ## 下一步建议
 
-当前最值得优先推进的是把真实业务主线接到服务入口：
-
-1. 为 `SessionEngine` 增加 HTTP/WebSocket API。
-2. 将前端从 `/invoke` 模板入口切到 session start/message/submit/state 流程。
-3. 给 `rules.py`、`dice.py`、`interrupts.py`、`CombatEngine` 和 `SessionEngine` 补更细的确定性测试。
+1. 将会话检查点从 `MemorySaver` 替换为持久化存储，使后端重启后仍可恢复房间。
+2. 接入微信登录与服务端会话鉴权，替换首版固定演示用户。
+3. 增加历史分页、规则日志与剧本列表公开 API。
 4. 清理 `src/app.py`、`src/graph.py` 中过时的模板文案，避免误导后续开发。

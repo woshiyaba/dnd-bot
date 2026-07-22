@@ -1,0 +1,14 @@
+<view class="composer safe-area">
+  <button class="icon-button" aria-label="语音输入" bindtap="voiceHint">＋</button>
+  <textarea
+    class="composer-input"
+    value="{{value}}"
+    placeholder="{{placeholder}}"
+    disabled="{{disabled}}"
+    auto-height
+    maxlength="500"
+    bindinput="input"
+    confirm-type="send"
+  ></textarea>
+  <button class="send-button" disabled="{{disabled || !hasValue}}" bindtap="send">发送</button>
+</view>

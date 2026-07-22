@@ -9,7 +9,7 @@
 - start_session / message → {status: awaiting_input | interrupted}
 - submit(resume)          → 下一个中断点 / 回合结束
 
-可离线跑：DM 默认走**启发式**（不需 DASHSCOPE），同 ``random_seed`` 下结果可复现。
+需要真实模型配置：DM 决策与叙述不提供离线启发式回退；``random_seed`` 只控制规则骰。
 
 运行方式（仓库根目录）::
 
@@ -42,7 +42,7 @@ from src.model.enums import InterruptType  # noqa: E402
 def build_scene() -> dict:
     """构造一局冒险的初始上下文（启发式 DM，可离线复现）。"""
     return {
-        "dm_mode": "llm",  # 离线跑；接入 LLM 时改 "llm"
+        "dm_mode": "llm",  # DM 决策与叙述固定使用真实 LLM
         "random_seed": 20260626,
         "user_id": "user_aria",
         "scene": {

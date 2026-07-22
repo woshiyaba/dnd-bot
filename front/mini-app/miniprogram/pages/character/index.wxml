@@ -1,0 +1,45 @@
+<view class="page-shell character-page safe-bottom" wx:if="{{character}}">
+  <view class="identity">
+    <view class="portrait">艾</view>
+    <view class="identity-copy">
+      <text class="eyebrow">玩家角色</text>
+      <text class="name">{{character.name}}</text>
+      <text class="muted">{{character.class_line}}</text>
+    </view>
+  </view>
+  <view class="vitals">
+    <view class="hp-heading"><text>生命值</text><text>{{character.current_hp}} / {{character.max_hp}}</text></view>
+    <view class="hp-track"><view class="hp-fill" style="width: {{character.hp_percent}}%;"></view></view>
+    <view class="stat-row">
+      <view><text class="stat-value">{{character.ac}}</text><text>护甲等级</text></view>
+      <view><text class="stat-value">+{{character.proficiency_bonus}}</text><text>熟练加值</text></view>
+      <view><text class="stat-value">{{character.level}}</text><text>等级</text></view>
+    </view>
+  </view>
+  <view class="section">
+    <text class="section-title">基础属性</text>
+    <view class="ability-grid">
+      <view wx:for="{{abilities}}" wx:key="key" class="ability">
+        <text class="ability-label">{{item.label}}</text>
+        <text class="ability-modifier">{{item.modifier}}</text>
+        <text class="ability-score">{{item.score}}</text>
+      </view>
+    </view>
+  </view>
+  <view class="section">
+    <text class="section-title">攻击</text>
+    <view wx:for="{{character.attacks}}" wx:key="name" class="table-row">
+      <view><text class="row-title">{{item.name}}</text><text class="muted">{{item.range === 'melee' ? '近战' : '远程'}} · {{item.damage_type}}</text></view>
+      <view class="row-value"><text>命中 +{{item.attack_bonus}}</text><text>伤害 {{item.damage_dice}}</text></view>
+    </view>
+  </view>
+  <view class="section">
+    <text class="section-title">背包</text>
+    <view wx:for="{{character.inventory}}" wx:key="item_id" class="table-row">
+      <text class="row-title">{{item.item_id === 'item_healing_potion' ? '治疗药水' : item.item_id}}</text>
+      <text class="row-value">× {{item.quantity}}</text>
+    </view>
+    <text class="muted empty-row" wx:if="{{!character.inventory.length}}">背包是空的</text>
+  </view>
+</view>
+<view class="page-shell empty-character" wx:else>尚未载入角色，请先开始冒险。</view>

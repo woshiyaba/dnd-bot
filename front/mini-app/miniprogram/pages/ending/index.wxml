@@ -1,0 +1,22 @@
+<view class="ending-page safe-bottom">
+  <view class="ending-art">
+    <view class="sunrise"></view>
+    <view class="ending-tower"></view>
+    <view class="ending-title"><text class="eyebrow">终章</text><text>钟声终于停了</text></view>
+  </view>
+  <view class="ending-content">
+    <text class="narration">{{narration || '灰岩村上空重新归于寂静。无论结果如何，这段旅程已经留下了属于你的痕迹。'}}</text>
+    <view class="summary">
+      <view><text class="summary-value">{{visitedCount}}</text><text>段剧情</text></view>
+      <view><text class="summary-value">{{checkCount}}</text><text>次检定</text></view>
+      <view><text class="summary-value">{{clueCount}}</text><text>条线索</text></view>
+    </view>
+    <view class="outcome">
+      <text class="outcome-label">本局结果</text>
+      <text class="outcome-value">{{outcome}}</text>
+    </view>
+    <button class="primary-button" bindtap="restart">再次开始</button>
+    <button class="secondary-button" bindtap="backToAdventure">回看最后一幕</button>
+    <button class="home-button" bindtap="backHome">返回首页</button>
+  </view>
+</view>

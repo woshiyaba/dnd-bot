@@ -1,0 +1,19 @@
+<view class="timeline">
+  <view class="empty" wx:if="{{!messages.length && !streamText}}">
+    <text class="empty-title">炉火尚未亮起</text>
+    <text>村长坐在酒馆深处，窗外雨声正紧。</text>
+  </view>
+  <view wx:for="{{messages}}" wx:key="index" class="message message-{{item.role || 'system'}}">
+    <text class="speaker">{{item.role === 'dm' ? 'DM' : item.role === 'user' ? '玩家' : '记录'}}</text>
+    <text class="message-text">{{item.content}}</text>
+  </view>
+  <view class="message message-dm message-streaming" wx:if="{{streamText}}">
+    <text class="speaker">DM 正在回应</text>
+    <text class="message-text">{{streamText}}<text class="caret">▍</text></text>
+  </view>
+  <view class="thinking" wx:elif="{{uiStatus === 'sending' || uiStatus === 'resolving'}}">
+    <text class="thinking-dot">●</text>
+    <text>命运正在转动…</text>
+  </view>
+  <view id="timeline-end"></view>
+</view>

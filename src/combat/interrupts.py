@@ -134,3 +134,45 @@ def extract_damage(resume_value: Any) -> int | None:
             except (TypeError, ValueError):
                 return None
     return None
+
+
+def extract_roll_source(resume_value: Any, *, default: str = "manual") -> str:
+    """读取骰子来源，仅接受公开协议中的 ``manual`` / ``virtual``。"""
+    if not isinstance(resume_value, dict):
+        return default
+    source = resume_value.get("source", default)
+    return source if source in {"manual", "virtual"} else default
+
+
+def build_combat_view(state: dict, *, actor_id: str | None = None) -> dict[str, Any]:
+    """从战斗状态构造可公开给玩家的紧凑战况摘要。"""
+    combatants = state.get("combatants", {}) or {}
+    order = list(state.get("initiative_order", []) or [])
+    current_index = int(state.get("current_index", -1))
+    current_actor_id = actor_id
+    if 0 <= current_index < len(order):
+        current_actor_id = order[current_index]
+
+    return {
+        "round": int(state.get("current_round", 0)),
+        "current_actor_id": current_actor_id,
+        "initiative_order": order,
+        "recent_events": list(state.get("combat_log", []) or [])[-6:],
+        "combatants": [
+            {
+                "id": combatant.id,
+                "name": combatant.name,
+                "faction": str(combatant.faction.value),
+                "current_hp": combatant.current_hp,
+                "max_hp": combatant.max_hp,
+                "ac": combatant.ac,
+                "life_state": str(combatant.life_state.value),
+                "current_zone": combatant.current_zone,
+                "initiative": combatant.initiative,
+                "conditions": [
+                    str(condition.kind.value) for condition in combatant.conditions
+                ],
+            }
+            for combatant in combatants.values()
+        ],
+    }

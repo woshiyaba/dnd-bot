@@ -1,0 +1,32 @@
+<view class="campaign-page safe-bottom">
+  <view class="cover">
+    <view class="mist mist-a"></view><view class="mist mist-b"></view>
+    <view class="bell">◊</view>
+    <view class="cover-copy">
+      <text class="cover-kicker">短篇悬疑冒险</text>
+      <text class="cover-title">钟楼下的低语</text>
+      <text class="cover-subtitle">当锈死的古钟再次响起，谁在夜色里呼唤失踪孩子的名字？</text>
+    </view>
+  </view>
+  <view class="content">
+    <view class="facts">
+      <view><text class="fact-value">15–25</text><text>分钟</text></view>
+      <view><text class="fact-value">1</text><text>名玩家</text></view>
+      <view><text class="fact-value">入门</text><text>规则难度</text></view>
+    </view>
+    <view class="section">
+      <text class="section-title">你的委托</text>
+      <text class="body">北境灰岩村连月来夜夜响起本该锈死的钟声。每次钟声过后，都有孩子失踪。你将循着低语前往废弃钟楼，查明古钟之灵的真相。</text>
+    </view>
+    <view class="section">
+      <text class="section-title">这一局会遇到</text>
+      <view class="feature"><text class="feature-icon">✦</text><text>与村民交谈，在矛盾的证词中寻找线索</text></view>
+      <view class="feature"><text class="feature-icon">⚄</text><text>亲手完成检定，让骰子决定危险行动的结果</text></view>
+      <view class="feature"><text class="feature-icon">⚔</text><text>在钟楼迎战未知敌人，作出自己的选择</text></view>
+    </view>
+    <text class="error" wx:if="{{error}}">{{error}}</text>
+    <button class="primary-button start" bindtap="startAdventure" loading="{{starting}}" disabled="{{starting}}">
+      {{starting ? 'DM 正在准备冒险…' : '开始冒险'}}
+    </button>
+  </view>
+</view>

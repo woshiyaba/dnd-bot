@@ -1,0 +1,10 @@
+<view class="resolution" wx:if="{{check || combat}}">
+  <view wx:if="{{check}}" class="resolution-row {{check.success ? 'success' : 'failure'}}">
+    <text class="result-label">检定{{check.success ? '成功' : '失败'}}</text>
+    <text class="formula">{{check.d20}} {{check.bonus >= 0 ? '+' : '-'}} {{check.bonus >= 0 ? check.bonus : -check.bonus}} = {{check.total}} / DC {{check.dc}}</text>
+  </view>
+  <view wx:if="{{combat}}" class="resolution-row">
+    <text class="result-label">战斗结束</text>
+    <text>{{combat.outcome === 'players_win' ? '冒险者获胜' : combat.outcome === 'players_lose' ? '冒险者败北' : combat.outcome}}</text>
+  </view>
+</view>

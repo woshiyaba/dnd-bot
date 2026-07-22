@@ -138,6 +138,7 @@ def fold_combat_writeback(
         "outcome": _outcome_value(combat_state.get("outcome")),
         "granted_loot": scene_ctx.get("granted_loot"),
         "casualties": casualties,
+        "recent_events": list(combat_state.get("combat_log", []) or [])[-12:],
     }
 
 

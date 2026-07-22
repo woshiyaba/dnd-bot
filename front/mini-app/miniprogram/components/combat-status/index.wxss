@@ -1,0 +1,81 @@
+.combat {
+  padding: 22rpx 28rpx 18rpx;
+  border-bottom: 2rpx solid #d8deda;
+  background: #fff;
+}
+
+.combat-heading {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 16rpx;
+  color: #66716e;
+  font-size: 24rpx;
+  font-weight: 600;
+}
+
+.turn {
+  color: #a13f47;
+}
+
+.roster {
+  width: 100%;
+  white-space: nowrap;
+}
+
+.roster-inner {
+  display: flex;
+  gap: 16rpx;
+}
+
+.fighter {
+  width: 270rpx;
+  flex: 0 0 270rpx;
+  padding: 16rpx;
+  box-sizing: border-box;
+  border: 2rpx solid #e2e7e4;
+  border-radius: 14rpx;
+}
+
+.fighter-active {
+  border-color: #b67820;
+  background: #fffaf0;
+}
+
+.fighter-line {
+  display: flex;
+  justify-content: space-between;
+  color: #66716e;
+  font-size: 21rpx;
+}
+
+.fighter-name {
+  max-width: 170rpx;
+  overflow: hidden;
+  color: #17201e;
+  font-size: 25rpx;
+  font-weight: 700;
+  text-overflow: ellipsis;
+}
+
+.hp-track {
+  height: 10rpx;
+  margin: 14rpx 0 8rpx;
+  overflow: hidden;
+  border-radius: 10rpx;
+  background: #e3e8e5;
+}
+
+.hp-fill {
+  height: 100%;
+  background: #226a5a;
+}
+
+.faction-enemy {
+  background: #a13f47;
+}
+
+.hp-value {
+  color: #66716e;
+  font-size: 20rpx;
+  font-variant-numeric: tabular-nums;
+}

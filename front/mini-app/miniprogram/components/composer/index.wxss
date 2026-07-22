@@ -1,0 +1,47 @@
+.composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 14rpx;
+  padding: 18rpx 24rpx calc(18rpx + env(safe-area-inset-bottom));
+  border-top: 2rpx solid #d8deda;
+  background: #fff;
+}
+
+.icon-button {
+  width: 72rpx;
+  min-width: 72rpx;
+  height: 72rpx;
+  padding: 0;
+  border-radius: 50%;
+  background: #edf1ef;
+  color: #226a5a;
+  font-size: 38rpx;
+}
+
+.composer-input {
+  min-height: 72rpx;
+  max-height: 180rpx;
+  flex: 1;
+  padding: 16rpx 20rpx;
+  box-sizing: border-box;
+  border-radius: 14rpx;
+  background: #f1f4f2;
+  color: #17201e;
+  font-size: 28rpx;
+  line-height: 1.45;
+}
+
+.send-button {
+  min-width: 112rpx;
+  min-height: 72rpx;
+  padding: 16rpx 22rpx;
+  background: #226a5a;
+  color: #fff;
+  font-size: 27rpx;
+  font-weight: 600;
+}
+
+.send-button[disabled] {
+  background: #c7d0cc;
+  color: #fff;
+}

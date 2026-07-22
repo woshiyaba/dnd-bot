@@ -1,0 +1,154 @@
+.identity {
+  display: flex;
+  align-items: center;
+  gap: 24rpx;
+  padding: 24rpx 0 38rpx;
+}
+
+.portrait {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 128rpx;
+  height: 128rpx;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #cfe3dc, #8db5a9);
+  color: #164d41;
+  font-size: 46rpx;
+  font-weight: 800;
+}
+
+.identity-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 7rpx;
+}
+
+.name {
+  font-size: 42rpx;
+  font-weight: 800;
+}
+
+.vitals {
+  padding: 26rpx;
+  border-radius: 16rpx;
+  background: #fff;
+}
+
+.hp-heading {
+  display: flex;
+  justify-content: space-between;
+  font-size: 27rpx;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.hp-track {
+  height: 18rpx;
+  margin: 16rpx 0 28rpx;
+  overflow: hidden;
+  border-radius: 20rpx;
+  background: #e3e8e5;
+}
+
+.hp-fill {
+  height: 100%;
+  background: #226a5a;
+}
+
+.stat-row {
+  display: flex;
+  justify-content: space-around;
+}
+
+.stat-row view {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5rpx;
+  color: #66716e;
+  font-size: 21rpx;
+}
+
+.stat-value {
+  color: #17201e;
+  font-size: 32rpx;
+  font-weight: 750;
+}
+
+.section {
+  margin-top: 42rpx;
+}
+
+.ability-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2rpx;
+  margin-top: 20rpx;
+  overflow: hidden;
+  border: 2rpx solid #d8deda;
+  border-radius: 14rpx;
+  background: #d8deda;
+}
+
+.ability {
+  display: flex;
+  align-items: center;
+  padding: 20rpx 10rpx;
+  background: #fff;
+  flex-direction: column;
+}
+
+.ability-label {
+  color: #66716e;
+  font-size: 21rpx;
+}
+
+.ability-modifier {
+  margin-top: 6rpx;
+  font-size: 34rpx;
+  font-weight: 750;
+}
+
+.ability-score {
+  color: #8b9692;
+  font-size: 20rpx;
+}
+
+.table-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 96rpx;
+  border-bottom: 2rpx solid #d8deda;
+}
+
+.table-row > view {
+  display: flex;
+  flex-direction: column;
+  gap: 5rpx;
+}
+
+.row-title {
+  font-size: 28rpx;
+  font-weight: 650;
+}
+
+.table-row .muted,
+.row-value {
+  color: #66716e;
+  font-size: 22rpx;
+}
+
+.row-value {
+  display: flex;
+  align-items: flex-end;
+  flex-direction: column;
+}
+
+.empty-row,
+.empty-character {
+  display: block;
+  padding-top: 50rpx;
+  text-align: center;
+}

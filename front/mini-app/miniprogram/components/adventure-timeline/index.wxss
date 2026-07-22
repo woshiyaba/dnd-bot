@@ -1,0 +1,94 @@
+.timeline {
+  padding: 36rpx 32rpx 40rpx;
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12rpx;
+  padding: 90rpx 36rpx;
+  color: #66716e;
+  text-align: center;
+  line-height: 1.6;
+}
+
+.empty-title {
+  color: #17201e;
+  font-size: 32rpx;
+  font-weight: 700;
+}
+
+.message {
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+  margin-bottom: 40rpx;
+}
+
+.message-user {
+  align-items: flex-end;
+  padding-left: 72rpx;
+  text-align: right;
+}
+
+.speaker {
+  color: #5867a8;
+  font-size: 22rpx;
+  font-weight: 700;
+  letter-spacing: 2rpx;
+}
+
+.message-user .speaker {
+  color: #226a5a;
+}
+
+.message-text {
+  color: #17201e;
+  font-size: 31rpx;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.message-user .message-text {
+  padding: 18rpx 24rpx;
+  border-radius: 16rpx 4rpx 16rpx 16rpx;
+  background: #e4efeb;
+  font-size: 29rpx;
+  line-height: 1.55;
+}
+
+.message-system .message-text {
+  color: #66716e;
+  font-size: 26rpx;
+}
+
+.message-streaming {
+  min-height: 90rpx;
+}
+
+.caret {
+  color: #5867a8;
+  animation: blink 0.9s steps(1) infinite;
+}
+
+.thinking {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  color: #66716e;
+  font-size: 25rpx;
+}
+
+.thinking-dot {
+  color: #5867a8;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+@keyframes pulse {
+  50% { opacity: 0.28; }
+}

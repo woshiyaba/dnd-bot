@@ -24,8 +24,10 @@ from langgraph.types import interrupt
 from src.combat.dice import current_engine_dice, reset_engine_dice
 from src.combat.interrupts import (
     build_action_options,
+    build_combat_view,
     build_interrupt_request,
     extract_damage,
+    extract_roll_source,
     validate_d20,
 )
 from src.combat.rules import (
@@ -136,6 +138,7 @@ def roll_initiative(state: CombatState) -> dict:
     多个玩家时按字典顺序逐个中断收集（同一时刻只挂起一个）。
     """
     combatants = state["combatants"]
+    roll_sources: dict[str, str] = {}
 
     for c in combatants.values():
         if c.is_player_controlled:
@@ -147,11 +150,14 @@ def roll_initiative(state: CombatState) -> dict:
                     prompt=prompt,
                     required_dice="d20",
                     bonus=c.effective_initiative_bonus,
+                    extra={"combat": build_combat_view(state, actor_id=c.id)},
                 )
             )
             d20 = validate_d20(resume_value)
+            roll_sources[c.id] = extract_roll_source(resume_value)
         else:
             d20 = current_engine_dice().d20()
+            roll_sources[c.id] = "engine"
         c.initiative = d20 + c.effective_initiative_bonus
 
     # 降序排序；平手用敏捷调整值，再用引擎随机数打破
@@ -170,7 +176,13 @@ def roll_initiative(state: CombatState) -> dict:
         {
             "event": "roll_initiative",
             "initiative_order": [
-                {"id": c.id, "name": c.name, "initiative": c.initiative} for c in order
+                {
+                    "id": c.id,
+                    "name": c.name,
+                    "initiative": c.initiative,
+                    "source": roll_sources[c.id],
+                }
+                for c in order
             ],
         }
     ]
@@ -295,6 +307,7 @@ async def declare_action(state: CombatState) -> dict:
                 actor=actor,
                 prompt=f"轮到 {actor.name}，声明你的行动",
                 options=options,
+                extra={"combat": build_combat_view(state, actor_id=actor.id)},
             )
         )
         current_action = _normalize_action(resume_value, actor, combatants)
@@ -329,13 +342,13 @@ def resolve_action(state: CombatState) -> dict:
     action_type = action.get("action_type")
 
     if action_type == ActionType.ATTACK.value:
-        events = _resolve_attack(actor, action, combatants)
+        events = _resolve_attack(state, actor, action, combatants)
     elif action_type == ActionType.SKILL.value:
         events = _resolve_skill(actor, action, combatants)
     elif action_type == ActionType.ITEM.value:
         events = _resolve_item(actor, action, combatants)
     elif action_type == ActionType.IMPROVISE.value:
-        events = _resolve_improvise(actor, action, combatants)
+        events = _resolve_improvise(state, actor, action, combatants)
     elif action_type == ActionType.MOVE.value:
         events = _resolve_move(actor, action)
     else:
@@ -353,7 +366,10 @@ def resolve_action(state: CombatState) -> dict:
 
 
 def _resolve_attack(
-    actor: Combatant, action: dict, combatants: dict[str, Combatant]
+    state: CombatState,
+    actor: Combatant,
+    action: dict,
+    combatants: dict[str, Combatant],
 ) -> list[dict]:
     """攻击结算：掷命中 → 判定 → 掷伤害 → 扣 HP，必要时置倒下。"""
     weapon = next(
@@ -383,6 +399,8 @@ def _resolve_attack(
 
     # —— 命中骰：玩家中断（可一并报伤害）；怪物引擎掷 ——
     player_damage: int | None = None
+    attack_source = "engine"
+    damage_source = "engine"
     if actor.is_player_controlled:
         resume_value = interrupt(
             build_interrupt_request(
@@ -391,11 +409,17 @@ def _resolve_attack(
                 prompt=f"{actor.name} 用「{weapon.name}」攻击 {target.name}：掷 d20 + {weapon.attack_bonus}",
                 required_dice="d20",
                 bonus=weapon.attack_bonus,
-                extra={"damage_dice": weapon.damage_dice},
+                extra={
+                    "damage_dice": weapon.damage_dice,
+                    "combat": build_combat_view(state, actor_id=actor.id),
+                },
             )
         )
         d20 = validate_d20(resume_value)
+        attack_source = extract_roll_source(resume_value)
         player_damage = extract_damage(resume_value)
+        if player_damage is not None:
+            damage_source = attack_source
     else:
         d20 = current_engine_dice().d20()
 
@@ -406,6 +430,7 @@ def _resolve_attack(
         "target": target.id,
         "attack_name": weapon.name,
         "d20": d20,
+        "source": attack_source,
         "hit": result.hit,
         "crit": result.crit,
     }
@@ -423,12 +448,17 @@ def _resolve_attack(
                     actor=actor,
                     prompt=f"重击！把 {weapon.damage_dice} 的骰子数翻倍掷，报伤害总和",
                     required_dice=weapon.damage_dice,
+                    extra={
+                        "crit": True,
+                        "combat": build_combat_view(state, actor_id=actor.id),
+                    },
                 )
             )
-            damage = (
-                extract_damage(resume_value)
-                or current_engine_dice().roll(weapon.damage_dice, crit=True).total
-            )
+            damage = extract_damage(resume_value)
+            damage_source = extract_roll_source(resume_value)
+            if damage is None:
+                damage = current_engine_dice().roll(weapon.damage_dice, crit=True).total
+                damage_source = "engine"
         else:
             damage = current_engine_dice().roll(weapon.damage_dice, crit=True).total
     else:
@@ -438,6 +468,8 @@ def _resolve_attack(
                 if player_damage is not None
                 else current_engine_dice().roll(weapon.damage_dice).total
             )
+            if player_damage is None:
+                damage_source = "engine"
         else:
             damage = current_engine_dice().roll(weapon.damage_dice).total
 
@@ -445,6 +477,7 @@ def _resolve_attack(
     event.update(
         {
             "damage": dealt,
+            "damage_source": damage_source,
             "damage_type": str(weapon.damage_type.value),
             "target_hp": target.current_hp,
             "target_alive": target.is_alive,
@@ -511,7 +544,10 @@ def _resolve_item(
 
 
 def _resolve_improvise(
-    actor: Combatant, action: dict, combatants: dict[str, Combatant]
+    state: CombatState,
+    actor: Combatant,
+    action: dict,
+    combatants: dict[str, Combatant],
 ) -> list[dict]:
     """创意动作（v0）：DM 给 DC（默认 12），行动者掷敏捷检定；引擎只判成败，效果交 DM 叙述。"""
     dc = int(action.get("dc", 12))
@@ -526,11 +562,14 @@ def _resolve_improvise(
                 prompt=f"创意动作「{action.get('description', '')}」：掷 {ability.value}检定 d20 + {bonus}，对抗 DC {dc}",
                 required_dice="d20",
                 bonus=bonus,
+                extra={"combat": build_combat_view(state, actor_id=actor.id)},
             )
         )
         d20 = validate_d20(resume_value)
+        roll_source = extract_roll_source(resume_value)
     else:
         d20 = current_engine_dice().d20()
+        roll_source = "engine"
 
     success = check_success(d20, bonus, dc)
     return [
@@ -539,6 +578,7 @@ def _resolve_improvise(
             "actor": actor.id,
             "description": action.get("description", ""),
             "d20": d20,
+            "source": roll_source,
             "dc": dc,
             "success": success,
         }

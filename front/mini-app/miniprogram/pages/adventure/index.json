@@ -1,0 +1,13 @@
+{
+  "navigationBarTitleText": "冒险",
+  "disableScroll": true,
+  "usingComponents": {
+    "scene-header": "/components/scene-header/index",
+    "connection-banner": "/components/connection-banner/index",
+    "adventure-timeline": "/components/adventure-timeline/index",
+    "combat-status": "/components/combat-status/index",
+    "composer-box": "/components/composer/index",
+    "interaction-sheet": "/components/interaction-sheet/index",
+    "resolution-inline": "/components/resolution-inline/index"
+  }
+}

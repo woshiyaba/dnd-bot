@@ -1,0 +1,13 @@
+<view class="scene">
+  <view class="scene-glow scene-glow-a"></view>
+  <view class="scene-glow scene-glow-b"></view>
+  <view class="scene-content">
+    <text class="scene-kicker">{{title}}</text>
+    <text class="scene-title">{{scene.location || '冒险尚未开始'}}</text>
+    <text class="scene-description">{{scene.description || '雨夜中的钟声正等待第一位冒险者。'}}</text>
+    <view class="scene-meta" wx:if="{{scene.threat}}">
+      <text class="threat-dot"></text>
+      <text>{{scene.threat}}</text>
+    </view>
+  </view>
+</view>

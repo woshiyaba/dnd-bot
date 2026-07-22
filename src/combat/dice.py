@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import random
 import re
+import secrets
 from dataclasses import dataclass
 
 # NdM(+/-K)：N 可省略（默认 1），修正值可省略
@@ -112,3 +113,32 @@ def parse_dice(expression: str) -> tuple[int, int, int]:
         raise ValueError(f"无法解析的骰子表达式：{expression!r}")
     modifier = int((match.group(3) or "0").replace(" ", "")) if match.group(3) else 0
     return int(match.group(1) or 1), int(match.group(2)), modifier
+
+
+def roll_virtual_dice(expression: str, *, crit: bool = False) -> RollResult:
+    """为玩家虚拟骰生成不可由前端预测的服务端结果。
+
+    玩家虚拟骰不复用怪物/环境的可复现随机序列，避免不同房间或玩家操作
+    改变引擎骰序列。表达式来自当前中断而非客户端自由输入。
+    """
+    count, faces, modifier = parse_dice(expression)
+    if count == 0:
+        return RollResult(
+            expression=expression,
+            count=0,
+            rolls=[],
+            modifier=modifier,
+            total=modifier,
+        )
+    if count < 1 or count > 100 or faces < 2 or faces > 1000:
+        raise ValueError(f"不支持的虚拟骰表达式：{expression!r}")
+    if crit:
+        count *= 2
+    rolls = [secrets.randbelow(faces) + 1 for _ in range(count)]
+    return RollResult(
+        expression=expression,
+        count=count,
+        rolls=rolls,
+        modifier=modifier,
+        total=sum(rolls) + modifier,
+    )

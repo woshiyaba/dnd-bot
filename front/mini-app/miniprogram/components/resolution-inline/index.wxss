@@ -1,0 +1,33 @@
+.resolution {
+  margin: 0 32rpx 26rpx;
+  border: 2rpx solid #d8deda;
+  border-radius: 14rpx;
+  background: #fff;
+}
+
+.resolution-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20rpx;
+  padding: 20rpx 24rpx;
+  color: #4d5a56;
+  font-size: 24rpx;
+}
+
+.result-label {
+  color: #5867a8;
+  font-weight: 700;
+}
+
+.success .result-label {
+  color: #226a5a;
+}
+
+.failure .result-label {
+  color: #a13f47;
+}
+
+.formula {
+  font-variant-numeric: tabular-nums;
+}

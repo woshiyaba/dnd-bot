@@ -1,0 +1,67 @@
+.adventure {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+  flex-direction: column;
+  background: #f5f7f4;
+}
+
+.scene-wrap {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.character-entry {
+  position: absolute;
+  z-index: 2;
+  top: 22rpx;
+  right: 24rpx;
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  min-height: 64rpx;
+  padding: 8rpx 14rpx 8rpx 8rpx;
+  border: 2rpx solid rgba(255, 255, 255, 0.3);
+  border-radius: 36rpx;
+  background: rgba(16, 31, 27, 0.66);
+  color: #fff;
+  font-size: 22rpx;
+  font-variant-numeric: tabular-nums;
+}
+
+.avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48rpx;
+  height: 48rpx;
+  border-radius: 50%;
+  background: #e4efeb;
+  color: #226a5a;
+  font-size: 23rpx;
+  font-weight: 700;
+}
+
+.story-scroll {
+  min-height: 0;
+  flex: 1;
+}
+
+.ending-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 20rpx;
+  margin: 8rpx 32rpx 40rpx;
+  padding: 28rpx;
+  border-radius: 16rpx;
+  background: #e8ecf8;
+  color: #414d80;
+  font-size: 27rpx;
+}
+
+.ending-entry button {
+  min-height: 78rpx;
+  background: #5867a8;
+  color: #fff;
+  font-size: 27rpx;
+}

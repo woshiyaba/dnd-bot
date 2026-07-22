@@ -121,7 +121,18 @@ class SessionEngine:
         """读取某房间当前 DMState 快照（断线重连/旁观用）。"""
         config = {"configurable": {"thread_id": room_thread_id(room_id)}}
         snapshot = await self._graph.aget_state(config)
-        return snapshot.values if snapshot else None
+        return snapshot.values if snapshot and snapshot.values else None
+
+    async def current_payload(self, room_id: str) -> dict | None:
+        """读取可恢复的统一会话负载，并保留当前 LangGraph 中断请求。"""
+        config = {"configurable": {"thread_id": room_thread_id(room_id)}}
+        snapshot = await self._graph.aget_state(config)
+        if snapshot is None or not snapshot.values:
+            return None
+        result = dict(snapshot.values)
+        if snapshot.interrupts:
+            result["__interrupt__"] = snapshot.interrupts
+        return self._interpret(room_id, result)
 
     def _build_initial_state(
         self, room_id: str, scene_context: dict, opening: str

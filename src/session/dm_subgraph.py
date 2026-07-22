@@ -27,6 +27,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
 from src.combat.interrupts import build_interrupt_request, validate_d20
+from src.combat.interrupts import extract_roll_source
 from src.combat.rules import ability_check_bonus, check_success, saving_throw_bonus
 from src.dm import world_bridge
 from src.model.combatant import Combatant
@@ -201,6 +202,7 @@ def resolve_check(state: DMState) -> dict:
         "kind": check.get("kind"),
         "dc": check["dc"],
         "d20": d20,
+        "source": extract_roll_source(raw),
         "bonus": bonus,
         "total": total,
         "success": success,

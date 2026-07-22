@@ -1,0 +1,83 @@
+.scene {
+  position: relative;
+  height: 286rpx;
+  overflow: hidden;
+  background: linear-gradient(135deg, #193a34 0%, #285b50 54%, #443e58 100%);
+  color: #fff;
+}
+
+.scene::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(9, 20, 18, 0.05), rgba(9, 20, 18, 0.76));
+}
+
+.scene-glow {
+  position: absolute;
+  border-radius: 50%;
+  opacity: 0.28;
+}
+
+.scene-glow-a {
+  width: 360rpx;
+  height: 360rpx;
+  right: -100rpx;
+  top: -190rpx;
+  background: #e9ad54;
+}
+
+.scene-glow-b {
+  width: 260rpx;
+  height: 260rpx;
+  left: -90rpx;
+  bottom: -170rpx;
+  background: #8899d7;
+}
+
+.scene-content {
+  position: absolute;
+  z-index: 1;
+  left: 32rpx;
+  right: 32rpx;
+  bottom: 28rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+
+.scene-kicker {
+  font-size: 22rpx;
+  letter-spacing: 3rpx;
+  opacity: 0.78;
+}
+
+.scene-title {
+  font-size: 40rpx;
+  font-weight: 700;
+}
+
+.scene-description {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 25rpx;
+  line-height: 1.5;
+  opacity: 0.88;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.scene-meta {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  font-size: 22rpx;
+  color: #ffe2a7;
+}
+
+.threat-dot {
+  width: 12rpx;
+  height: 12rpx;
+  border-radius: 50%;
+  background: #e8a63c;
+}

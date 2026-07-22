@@ -1,0 +1,36 @@
+<view class="adventure">
+  <view class="scene-wrap">
+    <scene-header title="钟楼下的低语" scene="{{scene}}"></scene-header>
+    <button class="character-entry" aria-label="查看角色" bindtap="openCharacter">
+      <text class="avatar">艾</text>
+      <text wx:if="{{leadCharacter}}">{{leadCharacter.current_hp}}/{{leadCharacter.max_hp}}</text>
+    </button>
+  </view>
+  <connection-banner connection="{{connection}}" ui-status="{{uiStatus}}" error="{{error}}" bind:retry="retry"></connection-banner>
+  <combat-status wx:if="{{combat}}" combat="{{combat}}"></combat-status>
+  <scroll-view class="story-scroll" scroll-y enhanced show-scrollbar="{{false}}" scroll-top="{{scrollTop}}" scroll-with-animation>
+    <adventure-timeline messages="{{messages}}" stream-text="{{streamText}}" ui-status="{{uiStatus}}"></adventure-timeline>
+    <resolution-inline wx:if="{{lastCheck || lastCombat}}" check="{{lastCheck}}" combat="{{lastCombat}}"></resolution-inline>
+    <view class="ending-entry" wx:if="{{finished}}">
+      <text>钟声停下了，故事正等待你回望。</text>
+      <button bindtap="openEnding">查看结局与回顾</button>
+    </view>
+  </scroll-view>
+  <interaction-sheet
+    wx:if="{{interrupt}}"
+    interrupt="{{interrupt}}"
+    disabled="{{uiStatus !== 'awaiting_interaction'}}"
+    roll-result="{{rollResult}}"
+    bind:roll="roll"
+    bind:manual="submitManual"
+    bind:action="submitAction"
+  ></interaction-sheet>
+  <composer-box
+    wx:else
+    value="{{draft}}"
+    disabled="{{composerDisabled}}"
+    placeholder="{{composerPlaceholder}}"
+    bind:change="draftChange"
+    bind:send="send"
+  ></composer-box>
+</view>

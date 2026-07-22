@@ -1,0 +1,26 @@
+.banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16rpx;
+  min-height: 58rpx;
+  padding: 8rpx 24rpx;
+  box-sizing: border-box;
+  background: #fff4d9;
+  color: #805817;
+  font-size: 24rpx;
+}
+
+.banner-error {
+  justify-content: space-between;
+  background: #fbeaec;
+  color: #87313a;
+}
+
+.banner button {
+  min-height: 48rpx;
+  padding: 8rpx 20rpx;
+  background: #fff;
+  color: inherit;
+  font-size: 23rpx;
+}

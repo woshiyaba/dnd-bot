@@ -1,0 +1,18 @@
+<view class="combat" wx:if="{{combat && combat.combatants.length}}">
+  <view class="combat-heading">
+    <text>第 {{combat.round || 1}} 轮</text>
+    <text class="turn">轮到：{{combat.current_actor_name || '等待先攻'}}</text>
+  </view>
+  <scroll-view class="roster" scroll-x enhanced show-scrollbar="{{false}}">
+    <view class="roster-inner">
+      <view wx:for="{{combat.combatants}}" wx:key="id" class="fighter {{item.id === combat.current_actor_id ? 'fighter-active' : ''}}">
+        <view class="fighter-line">
+          <text class="fighter-name">{{item.name}}</text>
+          <text>AC {{item.ac}}</text>
+        </view>
+        <view class="hp-track"><view class="hp-fill faction-{{item.faction}}" style="width: {{item.hp_percent}}%;"></view></view>
+        <text class="hp-value">HP {{item.current_hp}}/{{item.max_hp}} · {{item.current_zone}}</text>
+      </view>
+    </view>
+  </scroll-view>
+</view>

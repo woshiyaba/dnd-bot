@@ -1,0 +1,43 @@
+<view class="page-shell home safe-bottom">
+  <view class="brand-row">
+    <view>
+      <text class="eyebrow">D&D · AI DM</text>
+      <text class="brand-title">低语冒险</text>
+    </view>
+    <view class="avatar">艾</view>
+  </view>
+
+  <view class="recent-section" wx:if="{{recent}}">
+    <text class="section-label">继续最近一局</text>
+    <view class="hero-card" bindtap="continueAdventure">
+      <view class="hero-art"><view class="moon"></view><view class="tower"></view></view>
+      <view class="hero-content">
+        <view class="hero-topline"><text>{{recentStatus}}</text><text>{{recentTime}}</text></view>
+        <text class="hero-title">{{recent.title}}</text>
+        <text class="hero-location">你停在 · {{recent.location}}</text>
+        <button class="continue-button">{{recent.status === 'finished' ? '查看结局' : '继续冒险'}}</button>
+      </view>
+    </view>
+  </view>
+
+  <view class="intro" wx:else>
+    <text class="intro-title">你的第一段冒险，已在雨夜中等候。</text>
+    <text class="intro-copy">阅读 DM 的叙述，说出你想做的事，让骰子决定未知的结果。</text>
+  </view>
+
+  <view class="campaign-section">
+    <view class="section-heading">
+      <text class="section-title">短冒险</text>
+      <text class="muted">适合一人游玩</text>
+    </view>
+    <view class="campaign-row" bindtap="openCampaign">
+      <view class="campaign-mark">钟</view>
+      <view class="campaign-info">
+        <text class="campaign-title">钟楼下的低语</text>
+        <text class="campaign-copy">追随午夜钟声，寻找灰岩村失踪的孩子。</text>
+        <view class="tag-row"><text>约 20 分钟</text><text>单人</text><text>入门规则</text></view>
+      </view>
+      <text class="arrow">›</text>
+    </view>
+  </view>
+</view>

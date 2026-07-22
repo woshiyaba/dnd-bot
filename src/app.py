@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import Any
@@ -14,6 +15,8 @@ from pydantic import BaseModel, Field
 
 from src.common.utils.log_util import ensure_logging_config, get_elapsed_ms
 from src.common.ws.ws_manager import manager as ws_manager
+from src.combat.dice import parse_dice, roll_virtual_dice
+from src.model.enums import InterruptType
 from src.graph import invoke as graph_invoke
 from src.session.engine import SessionEngine
 from src.story.loader import get_registry
@@ -37,6 +40,7 @@ app.add_middleware(
 
 _session_engine: SessionEngine | None = None
 _canon_loaded = False
+_session_locks: dict[str, asyncio.Lock] = {}
 
 
 @app.websocket("/ws/{user_id}")
@@ -141,18 +145,25 @@ class SessionSubmitRequest(BaseModel):
     resume_value: dict[str, Any] = Field(..., description="恢复值，如 {'d20': 18}")
 
 
+class SessionRollRequest(BaseModel):
+    """服务端虚拟骰请求模型。"""
+
+    user_id: str = Field(default="user_aria", description="玩家用户 ID")
+
+
 @app.post("/session/start")
 async def start_session(request: SessionStartRequest):
     """开启一局可玩的 D&D 冒险会话。"""
     start_time = time.perf_counter()
     engine = _get_session_engine()
     scene_context = _build_default_scene_context(request)
-    payload = await engine.start_session_stream(
-        request.room_id,
-        scene_context,
-        opening=request.opening,
-        event_sink=_build_session_stream_sink(request.user_id, request.room_id),
-    )
+    async with _get_session_lock(request.room_id):
+        payload = await engine.start_session_stream(
+            request.room_id,
+            scene_context,
+            opening=request.opening,
+            event_sink=_build_session_stream_sink(request.user_id, request.room_id),
+        )
     safe_payload = _public_payload(payload)
     await _push_session_event(request.user_id, "session_start", safe_payload)
     logger.info(
@@ -168,11 +179,16 @@ async def start_session(request: SessionStartRequest):
 async def send_session_message(room_id: str, request: SessionMessageRequest):
     """提交玩家自然语言行动，推进一个 DM 回合。"""
     start_time = time.perf_counter()
-    payload = await _get_session_engine().message_stream(
-        room_id,
-        request.user_input,
-        event_sink=_build_session_stream_sink(request.user_id, room_id),
-    )
+    async with _get_session_lock(room_id):
+        current = await _require_session_payload(room_id)
+        _require_session_user(current, request.user_id)
+        if current.get("status") != "awaiting_input":
+            raise HTTPException(status_code=409, detail="当前会话不接受自由输入")
+        payload = await _get_session_engine().message_stream(
+            room_id,
+            request.user_input,
+            event_sink=_build_session_stream_sink(request.user_id, room_id),
+        )
     safe_payload = _public_payload(payload)
     await _push_session_event(request.user_id, "session_update", safe_payload)
     logger.info(
@@ -188,11 +204,15 @@ async def send_session_message(room_id: str, request: SessionMessageRequest):
 async def submit_session_interrupt(room_id: str, request: SessionSubmitRequest):
     """提交掷骰或行动选择，恢复当前中断。"""
     start_time = time.perf_counter()
-    payload = await _get_session_engine().submit_stream(
-        room_id,
-        request.resume_value,
-        event_sink=_build_session_stream_sink(request.user_id, room_id),
-    )
+    async with _get_session_lock(room_id):
+        current = await _require_session_payload(room_id)
+        interrupt_request = _require_pending_interrupt(current, request.user_id)
+        resume_value = _validate_manual_resume(interrupt_request, request.resume_value)
+        payload = await _get_session_engine().submit_stream(
+            room_id,
+            resume_value,
+            event_sink=_build_session_stream_sink(request.user_id, room_id),
+        )
     safe_payload = _public_payload(payload)
     await _push_session_event(request.user_id, "session_update", safe_payload)
     logger.info(
@@ -204,13 +224,80 @@ async def submit_session_interrupt(room_id: str, request: SessionSubmitRequest):
     return JSONResponse(safe_payload)
 
 
+@app.post("/session/{room_id}/roll")
+async def roll_session_interrupt(room_id: str, request: SessionRollRequest):
+    """由服务端生成当前中断要求的虚拟骰，并用可信结果恢复会话。"""
+    start_time = time.perf_counter()
+    async with _get_session_lock(room_id):
+        current = await _require_session_payload(room_id)
+        interrupt_request = _require_pending_interrupt(current, request.user_id)
+        kind = interrupt_request.get("interrupt_type")
+        if kind == InterruptType.DECLARE_ACTION.value:
+            raise HTTPException(
+                status_code=409, detail="当前中断需要选择行动，不能掷骰"
+            )
+
+        d20_kinds = {
+            InterruptType.ROLL_INITIATIVE.value,
+            InterruptType.ATTACK_ROLL.value,
+            InterruptType.SAVING_THROW.value,
+            InterruptType.ABILITY_CHECK.value,
+        }
+        if kind not in d20_kinds | {InterruptType.DAMAGE_ROLL.value}:
+            raise HTTPException(status_code=409, detail="当前中断不支持虚拟骰")
+
+        expression = str(interrupt_request.get("required_dice") or "").strip()
+        if not expression:
+            raise HTTPException(status_code=409, detail="当前中断没有可掷的骰子")
+        extra = interrupt_request.get("extra") or {}
+        try:
+            if kind in d20_kinds and parse_dice(expression) != (1, 20, 0):
+                raise ValueError("d20 中断必须要求一颗无修正 d20")
+            roll = roll_virtual_dice(expression, crit=bool(extra.get("crit")))
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        roll_event = {
+            "room_id": room_id,
+            "interrupt_type": kind,
+            "expression": expression,
+            "rolls": roll.rolls,
+            "modifier": roll.modifier,
+            "total": roll.total,
+            "source": "virtual",
+        }
+        await _push_session_event(request.user_id, "roll_result", roll_event)
+
+        if kind == InterruptType.DAMAGE_ROLL.value:
+            resume_value = {"result": roll.total, "source": "virtual"}
+        else:
+            resume_value = {"d20": roll.total, "source": "virtual"}
+        payload = await _get_session_engine().submit_stream(
+            room_id,
+            resume_value,
+            event_sink=_build_session_stream_sink(request.user_id, room_id),
+        )
+
+    safe_payload = _public_payload(payload)
+    safe_payload["roll_result"] = roll_event
+    await _push_session_event(request.user_id, "session_update", safe_payload)
+    logger.info(
+        "[session.roll] 虚拟骰完成 | room_id=%s | expression=%s | total=%s | elapsed_ms=%.2f",
+        room_id,
+        expression,
+        roll.total,
+        get_elapsed_ms(start_time),
+    )
+    return JSONResponse(safe_payload)
+
+
 @app.get("/session/{room_id}/state")
 async def get_session_state(room_id: str):
     """读取某个房间的当前会话状态，用于刷新恢复。"""
-    state = await _get_session_engine().current_state(room_id)
-    if state is None:
+    payload = await _get_session_engine().current_payload(room_id)
+    if payload is None:
         raise HTTPException(status_code=404, detail="会话不存在")
-    return JSONResponse(_json_safe(_strip_private_state(state)))
+    return JSONResponse(_public_payload(payload))
 
 
 def _get_session_engine() -> SessionEngine:
@@ -220,6 +307,128 @@ def _get_session_engine() -> SessionEngine:
     if _session_engine is None:
         _session_engine = SessionEngine()
     return _session_engine
+
+
+def _get_session_lock(room_id: str) -> asyncio.Lock:
+    """获取房间级异步锁，避免同一个 LangGraph 中断被并发恢复。"""
+    return _session_locks.setdefault(room_id, asyncio.Lock())
+
+
+async def _require_session_payload(room_id: str) -> dict:
+    """读取统一会话负载；会话不存在时转为公开 HTTP 错误。"""
+    payload = await _get_session_engine().current_payload(room_id)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    return payload
+
+
+def _require_session_user(payload: dict, user_id: str) -> None:
+    """校验单人会话归属，防止其他用户推进房间。"""
+    owner = (payload.get("state") or {}).get("user_id")
+    if owner and owner != user_id:
+        raise HTTPException(status_code=403, detail="当前用户无权操作该会话")
+
+
+def _require_pending_interrupt(payload: dict, user_id: str) -> dict:
+    """返回当前待处理中断，并校验请求玩家正是目标操作者。"""
+    _require_session_user(payload, user_id)
+    interrupt_request = payload.get("interrupt")
+    if payload.get("status") != "interrupted" or not isinstance(
+        interrupt_request, dict
+    ):
+        raise HTTPException(status_code=409, detail="当前会话没有待处理交互")
+    directed_user = (interrupt_request.get("directed_to") or {}).get("user_id")
+    if directed_user and directed_user != user_id:
+        raise HTTPException(status_code=403, detail="当前交互不属于该用户")
+    return interrupt_request
+
+
+def _strict_int(value: Any, *, field_name: str) -> int:
+    """按 HTTP 信任边界读取整数，拒绝布尔值和非整数字符串。"""
+    if isinstance(value, bool):
+        raise HTTPException(status_code=422, detail=f"{field_name} 必须是整数")
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=f"{field_name} 必须是整数") from exc
+    if isinstance(value, float) and not value.is_integer():
+        raise HTTPException(status_code=422, detail=f"{field_name} 必须是整数")
+    if isinstance(value, str) and value.strip() != str(parsed):
+        raise HTTPException(status_code=422, detail=f"{field_name} 必须是整数")
+    return parsed
+
+
+def _validate_manual_resume(interrupt_request: dict, resume_value: dict) -> dict:
+    """校验实体骰或行动选择，并只保留当前中断允许的公开字段。"""
+    kind = interrupt_request.get("interrupt_type")
+    d20_kinds = {
+        InterruptType.ROLL_INITIATIVE.value,
+        InterruptType.ATTACK_ROLL.value,
+        InterruptType.SAVING_THROW.value,
+        InterruptType.ABILITY_CHECK.value,
+    }
+    if kind in d20_kinds:
+        d20 = _strict_int(resume_value.get("d20"), field_name="d20")
+        if not 1 <= d20 <= 20:
+            raise HTTPException(status_code=422, detail="d20 必须在 1 到 20 之间")
+        normalized: dict[str, Any] = {"d20": d20, "source": "manual"}
+        if "damage_result" in resume_value:
+            damage = _strict_int(
+                resume_value["damage_result"], field_name="damage_result"
+            )
+            if damage < 0:
+                raise HTTPException(status_code=422, detail="damage_result 不能小于 0")
+            normalized["damage_result"] = damage
+        return normalized
+
+    if kind == InterruptType.DAMAGE_ROLL.value:
+        if "result" not in resume_value:
+            return {"source": "virtual"}
+        result = _strict_int(resume_value["result"], field_name="result")
+        if result < 0:
+            raise HTTPException(status_code=422, detail="result 不能小于 0")
+        return {"result": result, "source": "manual"}
+
+    if kind != InterruptType.DECLARE_ACTION.value:
+        raise HTTPException(status_code=409, detail="不支持的中断类型")
+    return _validate_action_resume(interrupt_request.get("options") or {}, resume_value)
+
+
+def _validate_action_resume(options: dict, resume_value: dict) -> dict:
+    """校验声明行动必须来自引擎给出的合法选项。"""
+    action_type = resume_value.get("action_type")
+    if action_type == "pass":
+        return {"action_type": "pass"}
+    if action_type == "move":
+        zone = resume_value.get("target_zone")
+        allowed = {item.get("target_zone") for item in options.get("move", [])}
+        if zone in allowed:
+            return {"action_type": "move", "target_zone": zone}
+    if action_type == "attack":
+        attack_name = resume_value.get("attack_name")
+        target_id = resume_value.get("target_id")
+        for attack in options.get("attack", []):
+            targets = {target.get("id") for target in attack.get("targets", [])}
+            if attack.get("attack_name") == attack_name and target_id in targets:
+                return {
+                    "action_type": "attack",
+                    "attack_name": attack_name,
+                    "target_id": target_id,
+                }
+    if action_type in {"skill", "item"}:
+        key = "skill_id" if action_type == "skill" else "item_id"
+        value = resume_value.get(key)
+        allowed = {item.get(key) for item in options.get(action_type, [])}
+        if value in allowed:
+            normalized = {"action_type": action_type, key: value}
+            if resume_value.get("target_id"):
+                normalized["target_id"] = resume_value["target_id"]
+            return normalized
+    if action_type == "improvise" and options.get("improvise"):
+        description = str(resume_value.get("description") or "").strip()
+        if description:
+            return {"action_type": "improvise", "description": description}
+    raise HTTPException(status_code=422, detail="行动不在当前合法选项中")
 
 
 def _ensure_canon_loaded() -> None:
@@ -278,15 +487,44 @@ def _build_default_scene_context(request: SessionStartRequest) -> dict:
 def _public_payload(payload: dict) -> dict:
     """把引擎负载转成可直接返回前端的 JSON 安全结构。"""
     public = dict(payload)
+    public.pop("ending_beat_id", None)
     if isinstance(public.get("state"), dict):
         public["state"] = _strip_private_state(public["state"])
     return _json_safe(public)
 
 
 def _strip_private_state(state: dict) -> dict:
-    """移除 LangGraph 内部中断对象，避免响应序列化泄漏运行时对象。"""
-    public = dict(state)
-    public.pop("__interrupt__", None)
+    """把内部 DMState 收窄为玩家可见状态，避免泄漏裁定工作区。"""
+    public_keys = {
+        "user_id",
+        "room_id",
+        "messages",
+        "scene",
+        "party",
+        "campaign_id",
+        "story_status",
+        "last_check",
+        "last_combat",
+        "campaign_log",
+    }
+    public = {key: value for key, value in state.items() if key in public_keys}
+
+    scene = dict(public.get("scene") or {})
+    for key in ("beat_id", "dm_mode", "random_seed", "loot_table", "encounter_id"):
+        scene.pop(key, None)
+    public["scene"] = scene
+
+    story = state.get("story") or {}
+    public["story"] = {
+        "visited_count": len(story.get("visited_beats", []) or []),
+        "clue_count": len(story.get("delivered_clues", []) or []),
+    }
+    public["campaign_log"] = [
+        event
+        for event in (public.get("campaign_log") or [])
+        if event.get("event")
+        in {"narration", "ability_check", "combat", "enter_beat", "story_end"}
+    ]
     return public
 
 
