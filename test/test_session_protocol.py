@@ -1,8 +1,7 @@
-"""小程序公开会话协议的无模型单元测试。"""
+"""多人房间公开会话协议的无模型单元测试。"""
 
 from __future__ import annotations
 
-import json
 import sys
 import unittest
 from pathlib import Path
@@ -14,12 +13,11 @@ if str(_REPO_ROOT) not in sys.path:
 
 from fastapi import HTTPException
 
-import src.app as app_module
-from src.app import _public_payload, _require_pending_interrupt, _validate_manual_resume
-from src.app import SessionRollRequest, roll_session_interrupt
 from src.combat.dice import roll_virtual_dice
 from src.combat.interrupts import build_combat_view
 from src.model.combatant import Monster, PlayerCharacter
+from src.services.room_service import GameRoom, RoomMember
+from src.services.session_service import session_service
 from src.session.engine import SessionEngine
 
 
@@ -46,111 +44,113 @@ class _FakeSessionEngine:
             "room_id": room_id,
             "say": "骰子落定。",
             "state": {
-                "user_id": "user_aria",
                 "messages": [{"role": "dm", "content": "骰子落定。"}],
                 "scene": {},
-                "story": {},
-                "campaign_log": [],
+                "party": {},
             },
         }
 
 
+def _member(user_id: str = "user_aria") -> RoomMember:
+    return RoomMember(
+        user_id=user_id,
+        display_name="阿丽娅",
+        character_id="pc_aldous",
+        access_token="token",
+        is_host=True,
+    )
+
+
+def _room(member: RoomMember | None = None) -> GameRoom:
+    player = member or _member()
+    return GameRoom(
+        room_code="ROOM01",
+        campaign_id="whispers_bell_tower",
+        status="playing",
+        members={player.user_id: player},
+    )
+
+
 class SessionPayloadTests(unittest.IsolatedAsyncioTestCase):
-    """验证刷新负载会恢复 LangGraph 当前中断。"""
+    """验证刷新负载与服务器骰中断协议。"""
 
     async def test_current_payload_contains_interrupt(self):
         request = {
             "interrupt_type": "ability_check",
-            "directed_to": {"combatant_id": "pc_aria", "user_id": "user_aria"},
+            "directed_to": {
+                "combatant_id": "pc_aldous",
+                "user_id": "user_aria",
+            },
+            "prompt": "请掷感知检定",
             "required_dice": "d20",
         }
         snapshot = SimpleNamespace(
             values={
-                "user_id": "user_aria",
                 "messages": [],
                 "story_status": "ongoing",
                 "reply_brief": "只供 DM 使用的计划",
                 "scene": {"location": "破钟酒馆", "random_seed": 123},
-                "story": {"visited_beats": ["start"], "delivered_clues": []},
+                "party": {},
             },
             interrupts=(SimpleNamespace(value=request),),
         )
         engine = SessionEngine.__new__(SessionEngine)
         engine._graph = _FakeGraph(snapshot)
 
-        payload = _public_payload(await engine.current_payload("room_one"))
+        payload = await engine.current_payload("ROOM01")
+        view = session_service.session_view(_room(), _member(), payload)
 
-        self.assertIsNotNone(payload)
         self.assertEqual(payload["status"], "interrupted")
         self.assertEqual(payload["interrupt"], request)
-        self.assertNotIn("__interrupt__", payload["state"])
-        self.assertNotIn("reply_brief", payload["state"])
-        self.assertNotIn("random_seed", payload["state"]["scene"])
-        self.assertEqual(payload["state"]["story"]["visited_count"], 1)
+        self.assertTrue(view.pending_interaction.is_yours)
+        self.assertEqual(view.pending_interaction.required_dice, "d20")
+        self.assertFalse(hasattr(view, "state"))
 
-    async def test_roll_endpoint_generates_and_submits_server_d20(self):
+    async def test_interaction_roll_generates_and_submits_server_d20(self):
+        member = _member()
+        room = _room(member)
         current = {
             "status": "interrupted",
-            "room_id": "room_one",
-            "state": {"user_id": "user_aria"},
+            "room_id": room.room_code,
+            "state": {"messages": [], "scene": {}, "party": {}},
             "interrupt": {
                 "interrupt_type": "ability_check",
-                "directed_to": {"user_id": "user_aria"},
+                "directed_to": {"user_id": member.user_id},
                 "required_dice": "d20",
             },
         }
         fake_engine = _FakeSessionEngine(current)
-        previous_engine = app_module._session_engine
-        previous_loaded = app_module._canon_loaded
-        app_module._session_engine = fake_engine
-        app_module._canon_loaded = True
-        app_module._session_locks.clear()
+        previous_engine = session_service._engine
+        previous_loaded = session_service._canon_loaded
+        session_service._engine = fake_engine
+        session_service._canon_loaded = True
         try:
-            response = await roll_session_interrupt(
-                "room_one", SessionRollRequest(user_id="user_aria")
-            )
+            payload, roll = await session_service.roll_interaction(room, member)
         finally:
-            app_module._session_engine = previous_engine
-            app_module._canon_loaded = previous_loaded
-            app_module._session_locks.clear()
+            session_service._engine = previous_engine
+            session_service._canon_loaded = previous_loaded
+            session_service._room_locks.clear()
 
-        body = json.loads(response.body)
-        self.assertEqual(body["status"], "awaiting_input")
+        self.assertEqual(payload["status"], "awaiting_input")
         self.assertEqual(fake_engine.resume_value["source"], "virtual")
-        self.assertGreaterEqual(fake_engine.resume_value["d20"], 1)
-        self.assertLessEqual(fake_engine.resume_value["d20"], 20)
+        self.assertGreaterEqual(roll.total, 1)
+        self.assertLessEqual(roll.total, 20)
 
 
 class ResumeValidationTests(unittest.TestCase):
-    """验证实体骰和行动选择的 HTTP 信任边界。"""
-
-    def test_manual_d20_is_normalized_and_marked(self):
-        interrupt_request = {
-            "interrupt_type": "attack_roll",
-            "directed_to": {"user_id": "user_aria"},
-        }
-        result = _validate_manual_resume(interrupt_request, {"d20": 17})
-        self.assertEqual(result, {"d20": 17, "source": "manual"})
-
-    def test_manual_d20_out_of_range_is_rejected(self):
-        with self.assertRaises(HTTPException) as raised:
-            _validate_manual_resume({"interrupt_type": "ability_check"}, {"d20": 21})
-        self.assertEqual(raised.exception.status_code, 422)
+    """验证行动选择和目标用户边界。"""
 
     def test_action_must_be_present_in_options(self):
-        interrupt_request = {
-            "interrupt_type": "declare_action",
-            "options": {
-                "attack": [
-                    {
-                        "attack_name": "长剑",
-                        "targets": [{"id": "goblin", "name": "哥布林"}],
-                    }
-                ]
-            },
+        options = {
+            "attack": [
+                {
+                    "attack_name": "长剑",
+                    "targets": [{"id": "goblin", "name": "哥布林"}],
+                }
+            ]
         }
-        accepted = _validate_manual_resume(
-            interrupt_request,
+        accepted = session_service.validate_action_resume(
+            options,
             {
                 "action_type": "attack",
                 "attack_name": "长剑",
@@ -160,8 +160,8 @@ class ResumeValidationTests(unittest.TestCase):
         self.assertEqual(accepted["target_id"], "goblin")
 
         with self.assertRaises(HTTPException):
-            _validate_manual_resume(
-                interrupt_request,
+            session_service.validate_action_resume(
+                options,
                 {
                     "action_type": "attack",
                     "attack_name": "长剑",
@@ -172,16 +172,15 @@ class ResumeValidationTests(unittest.TestCase):
     def test_only_directed_user_can_resume(self):
         payload = {
             "status": "interrupted",
-            "state": {"user_id": "user_aria"},
             "interrupt": {"directed_to": {"user_id": "user_aria"}},
         }
         with self.assertRaises(HTTPException) as raised:
-            _require_pending_interrupt(payload, "user_other")
+            session_service.require_pending_interrupt(payload, _member("user_other"))
         self.assertEqual(raised.exception.status_code, 403)
 
 
 class VirtualDiceTests(unittest.TestCase):
-    """验证服务端虚拟骰表达式和公开战况摘要。"""
+    """验证服务器骰表达式和公开战况摘要。"""
 
     def test_virtual_d20_is_in_range(self):
         for _ in range(100):
@@ -198,10 +197,20 @@ class VirtualDiceTests(unittest.TestCase):
 
     def test_combat_view_only_contains_public_fields(self):
         player = PlayerCharacter.from_card(
-            {"id": "pc_aria", "name": "艾莉亚", "current_hp": 20, "max_hp": 30}
+            {
+                "id": "pc_aria",
+                "name": "艾莉亚",
+                "current_hp": 20,
+                "max_hp": 30,
+            }
         )
         enemy = Monster.from_card(
-            {"id": "goblin", "name": "哥布林", "current_hp": 7, "max_hp": 7}
+            {
+                "id": "goblin",
+                "name": "哥布林",
+                "current_hp": 7,
+                "max_hp": 7,
+            }
         )
         view = build_combat_view(
             {

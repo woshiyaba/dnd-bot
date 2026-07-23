@@ -77,10 +77,26 @@ class SessionEngine:
         init_state = self._build_initial_state(room_id, scene_context, opening)
         return await self._astream_interpret(room_id, init_state, event_sink)
 
-    async def message(self, room_id: str, user_input: str) -> dict:
-        """玩家说一句话/做一件事，推进一个 DM 回合（沿用已存档的世界状态）。"""
+    async def message(
+        self,
+        room_id: str,
+        user_input: str,
+        *,
+        user_id: str | None = None,
+        actor_id: str | None = None,
+        display_name: str | None = None,
+    ) -> dict:
+        """玩家说一句话/做一件事，并记录本回合的真实发送者。"""
         config = {"configurable": {"thread_id": room_thread_id(room_id)}}
-        result = await self._graph.ainvoke({"user_input": user_input}, config=config)
+        result = await self._graph.ainvoke(
+            self._message_input(
+                user_input,
+                user_id=user_id,
+                actor_id=actor_id,
+                display_name=display_name,
+            ),
+            config=config,
+        )
         return self._interpret(room_id, result)
 
     async def message_stream(
@@ -88,12 +104,20 @@ class SessionEngine:
         room_id: str,
         user_input: str,
         *,
+        user_id: str | None = None,
+        actor_id: str | None = None,
+        display_name: str | None = None,
         event_sink: GraphStreamSink | None = None,
     ) -> dict:
-        """玩家推进一回合，并把图内 custom 流事件交给上层转发。"""
+        """玩家推进一回合，并把发送者上下文与流事件交给上层。"""
         return await self._astream_interpret(
             room_id,
-            {"user_input": user_input},
+            self._message_input(
+                user_input,
+                user_id=user_id,
+                actor_id=actor_id,
+                display_name=display_name,
+            ),
             event_sink,
         )
 
@@ -168,6 +192,11 @@ class SessionEngine:
             "messages": [],
             "user_input": opening,
             "user_id": scene_context.get("user_id"),
+            "active_user_id": scene_context.get(
+                "active_user_id", scene_context.get("user_id")
+            ),
+            "active_actor_id": scene_context.get("active_actor_id"),
+            "active_display_name": scene_context.get("active_display_name"),
             "room_id": room_id,
             "scene": scene,
             "party": load_party(scene_context),
@@ -177,6 +206,24 @@ class SessionEngine:
             "story": story,
             "story_status": "ongoing",
         }
+
+    @staticmethod
+    def _message_input(
+        user_input: str,
+        *,
+        user_id: str | None,
+        actor_id: str | None,
+        display_name: str | None,
+    ) -> dict:
+        """构造多人消息图输入；缺省字段不覆盖旧单人状态。"""
+        payload: dict[str, Any] = {"user_input": user_input}
+        if user_id is not None:
+            payload["active_user_id"] = user_id
+        if actor_id is not None:
+            payload["active_actor_id"] = actor_id
+        if display_name is not None:
+            payload["active_display_name"] = display_name
+        return payload
 
     async def _astream_interpret(
         self,

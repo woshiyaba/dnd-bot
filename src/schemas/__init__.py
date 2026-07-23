@@ -1,0 +1,43 @@
+"""FastAPI 对外输入输出模型。"""
+
+from src.schemas.room import (
+    CharacterOption,
+    CreateRoomRequest,
+    DiceRollRequest,
+    DiceRollResult,
+    InteractionRollResponse,
+    JoinRoomRequest,
+    MemberView,
+    PendingInteractionView,
+    RoomActionRequest,
+    RoomAuthResponse,
+    RoomEvent,
+    RoomLobbyView,
+    RoomView,
+    SceneView,
+    SendMessageRequest,
+    SessionView,
+    StartRoomRequest,
+    TimelineEntry,
+)
+
+__all__ = [
+    "CharacterOption",
+    "CreateRoomRequest",
+    "DiceRollRequest",
+    "DiceRollResult",
+    "InteractionRollResponse",
+    "JoinRoomRequest",
+    "MemberView",
+    "PendingInteractionView",
+    "RoomActionRequest",
+    "RoomAuthResponse",
+    "RoomEvent",
+    "RoomLobbyView",
+    "RoomView",
+    "SceneView",
+    "SendMessageRequest",
+    "SessionView",
+    "StartRoomRequest",
+    "TimelineEntry",
+]

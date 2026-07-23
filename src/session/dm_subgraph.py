@@ -53,7 +53,15 @@ def perceive(state: DMState) -> dict:
     user_input = state.get("user_input", "") or ""
     messages = list(state.get("messages", []))
     if user_input:
-        messages.append({"role": "user", "content": user_input})
+        messages.append(
+            {
+                "role": "user",
+                "content": user_input,
+                "sender_user_id": state.get("active_user_id") or state.get("user_id"),
+                "sender_name": state.get("active_display_name"),
+                "character_id": state.get("active_actor_id"),
+            }
+        )
     return {
         "messages": messages,
         # 清空上一回合的工作区，避免脏读
@@ -93,6 +101,8 @@ async def dm_decide(state: DMState) -> dict:
         use_llm=llm_enabled(state),
         beat_brief=story_nodes.beat_brief_for(state),  # 当前拍骨架：让叙述长在骨架上
         stuck_hint=story_nodes.stuck_hint_for(state),  # 卡关兜底：空转太久时注入提示
+        active_actor_id=state.get("active_actor_id"),
+        active_display_name=state.get("active_display_name"),
     )
     intent = decision["intent"]
     writes = (

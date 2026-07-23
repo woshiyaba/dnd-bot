@@ -25,7 +25,10 @@ class DMState(TypedDict, total=False):
     # —— 对话 ——
     messages: list[dict]  # 对话历史：[{"role": "user"|"dm", "content": str}]
     user_input: str  # 本回合玩家输入（perceive 读取，dm_decide 据此决策）
-    user_id: str  # 当前玩家 user_id（单人；多人二期）
+    user_id: str  # 开局发起者 user_id（保留用于旧存档识别）
+    active_user_id: str  # 当前提交自然语言行动的玩家
+    active_actor_id: str  # 当前玩家控制的角色
+    active_display_name: str  # 当前玩家昵称
     room_id: str  # 房间/局 id，派生 thread_id
 
     # —— 世界 ——

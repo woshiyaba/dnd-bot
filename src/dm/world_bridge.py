@@ -94,6 +94,8 @@ async def decide_turn(
     use_llm: bool | None = True,
     beat_brief: dict | None = None,
     stuck_hint: str | None = None,
+    active_actor_id: str | None = None,
+    active_display_name: str | None = None,
 ) -> dict:
     """让 DM 决定本回合意图，返回规范化决策字典。
 
@@ -123,18 +125,28 @@ async def decide_turn(
             messages or [],
             beat_brief,
             stuck_hint,
+            active_actor_id,
+            active_display_name,
             correction_hint=correction_hint,
         )
         if data is None:
             last_error = "LLM 未返回可解析 JSON"
-            correction_hint = _decision_correction_hint(last_error, scene, party_ids)
-            logger.warning("[dm_decide] 第 %d 次决策不可解析，交回真实 LLM 重评", attempt)
+            correction_hint = _decision_correction_hint(
+                last_error, scene, party_ids, active_actor_id
+            )
+            logger.warning(
+                "[dm_decide] 第 %d 次决策不可解析，交回真实 LLM 重评", attempt
+            )
             continue
         try:
-            return _normalize_decision(data, scene, party_ids)
+            return _normalize_decision(
+                data, scene, party_ids, active_actor_id=active_actor_id
+            )
         except ValueError as exc:
             last_error = str(exc)
-            correction_hint = _decision_correction_hint(last_error, scene, party_ids)
+            correction_hint = _decision_correction_hint(
+                last_error, scene, party_ids, active_actor_id
+            )
             logger.warning(
                 "[dm_decide] 第 %d 次决策不合法，交回真实 LLM 重评 | error=%s | raw=%s",
                 attempt,
@@ -151,6 +163,8 @@ async def _decide_llm(
     messages,
     beat_brief=None,
     stuck_hint=None,
+    active_actor_id=None,
+    active_display_name=None,
     correction_hint=None,
 ) -> dict | None:
     """LLM 决策：拼最小上下文（含当前拍骨架）+ 严格 JSON 格式要求，调 DM 智能体。"""
@@ -160,7 +174,9 @@ async def _decide_llm(
         else ""
     )
     stuck_line = f"【推进提示】{stuck_hint}\n" if stuck_hint else ""
-    correction_line = f"【上次输出不合法，请重新裁定】{correction_hint}\n" if correction_hint else ""
+    correction_line = (
+        f"【上次输出不合法，请重新裁定】{correction_hint}\n" if correction_hint else ""
+    )
     task = (
         "你在主持一场有预定剧本(canon)的 D&D 冒险。请阅读当前局面，决定如何回应玩家这一步，并**只输出一个 JSON 对象**。\n"
         f"当前场景：{_dump(_scene_brief(scene))}\n"
@@ -169,6 +185,8 @@ async def _decide_llm(
         f"{beat_line}"
         f"{stuck_line}"
         f"{correction_line}"
+        f"当前发言玩家：{active_display_name or '未知'}；其角色 actor_id：{active_actor_id or '未知'}。"
+        "如果这一步需要玩家检定，actor_id 必须使用当前发言玩家的角色。\n"
         f"玩家这一步说/做：{user_input}\n\n"
         "叙述要自然朝当前拍目标推进但不硬拽玩家；你无权跳拍或改写骨架，推进由引擎判定。\n"
         "若输出 reply，不要生成玩家可见正文，只输出 reply_brief：一句话说明本次回应要点，"
@@ -189,7 +207,12 @@ async def _decide_llm(
     return await dm_complete_json(task)
 
 
-def _decision_correction_hint(error: str, scene: dict, party_ids: list[str]) -> str:
+def _decision_correction_hint(
+    error: str,
+    scene: dict,
+    party_ids: list[str],
+    active_actor_id: str | None = None,
+) -> str:
     """把非法决策反馈给真实 LLM，要求它重新产出合法 JSON。"""
     hostiles = [
         {
@@ -203,6 +226,7 @@ def _decision_correction_hint(error: str, scene: dict, party_ids: list[str]) -> 
     return (
         f"错误原因：{error}。"
         f"合法玩家 actor_id：{_dump(party_ids)}。"
+        f"当前发言角色 actor_id：{active_actor_id or '未知'}。"
         f"当前场景合法敌意 actor_id：{_dump(hostiles)}。"
         "如果要 start_combat，monster_ids 必须只使用上面敌意 actor_id；"
         "如果没有合法敌人或局势还不到战斗，请改为 reply，引导玩家继续调查、交谈、靠近或明确攻击。"
@@ -230,7 +254,13 @@ def _world_writes(data: dict) -> dict:
     return writes
 
 
-def _normalize_decision(data: dict, scene: dict, party_ids: list[str]) -> dict:
+def _normalize_decision(
+    data: dict,
+    scene: dict,
+    party_ids: list[str],
+    *,
+    active_actor_id: str | None = None,
+) -> dict:
     """校验并规范化 DM 给的决策；非法字段直接报错。
 
     任一意图都会带上 ``world_writes`` 字段（可能为空 dict），承载 DM 声明的世界变化。
@@ -258,6 +288,10 @@ def _normalize_decision(data: dict, scene: dict, party_ids: list[str]) -> dict:
         actor_id = check.get("actor_id")
         if actor_id not in party_ids:
             raise ValueError(f"[dm] 检定 actor_id 不在队伍中：{actor_id!r}")
+        if active_actor_id and actor_id != active_actor_id:
+            raise ValueError(
+                "[dm] 检定 actor_id 必须是当前发言玩家角色：" f"{active_actor_id!r}"
+            )
         kind = (
             check.get("kind") if check.get("kind") in _CHECK_KINDS else "ability_check"
         )
@@ -365,9 +399,7 @@ async def narrate_turn_final(
     transition = story_transition or {"type": "stay"}
     transition_type = transition.get("type")
     previous_line = (
-        f"切换前场景：{_dump(_scene_brief(previous_scene))}\n"
-        if previous_scene
-        else ""
+        f"切换前场景：{_dump(_scene_brief(previous_scene))}\n" if previous_scene else ""
     )
     check_line = f"本回合检定结果：{_dump(last_check)}\n" if last_check else ""
     combat_line = f"最近战斗结果：{_dump(last_combat)}\n" if last_combat else ""
