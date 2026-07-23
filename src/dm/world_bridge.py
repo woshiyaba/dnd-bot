@@ -20,6 +20,7 @@ import json
 import logging
 
 from src.dm.agent import dm_complete_json, dm_narrate
+from src.model.canon import TriggerKind
 from src.model.dm_state import hostile_actors
 from src.model.enums import Ability
 from src.model.combatant import Combatant
@@ -244,7 +245,9 @@ async def _decide_llm(
         '  "moved_to":"地点id" —— 玩家移动到的当前拍内地点；\n'
         '  "clues_delivered":["你这步已讲给玩家的关键线索id"]；\n'
         '  "discoveries":["玩家这步真正发现/取得的线索id"] —— 线索对应 flag 与物品只能用此字段触发；\n'
-        '  "transition_to_beat_id":"玩家已经完成的合法跨拍行动目标"。\n'
+        '  "transition_to_beat_id":"玩家已经完成的合法跨拍行动目标" —— 只能从 '
+        'reachable_transitions 中 trigger_kind="action" 的目标选择；semantic 等其它出口由引擎判定，'
+        "不得直接写入。\n"
         "若 player_check 成功后才发生世界变化，必须把上述字段放进 "
         '"effects":{"on_success":{...},"on_failure":{...}}，不可提前写入。\n'
         "如果一次行动在检定成功后立即开战，可在 on_success 里同时给出 "
@@ -273,6 +276,7 @@ def _decision_correction_hint(
         if actor.get("actor_id")
     ]
     reachable = (decision_context or {}).get("reachable_encounters", [])
+    action_transitions = sorted(_allowed_action_transition_ids(decision_context))
     intent_line = (
         "上次已确认玩家明确开战，本次 intent 必须保持 start_combat，只修正引用和字段；"
         if locked_intent == "start_combat"
@@ -284,11 +288,26 @@ def _decision_correction_hint(
         f"当前发言角色 actor_id：{active_actor_id or '未知'}。"
         f"当前场景合法敌意 actor_id：{_dump(hostiles)}。"
         f"可达预置遭遇：{_dump(reachable)}。"
+        f"可显式写入的 action 跨拍目标：{_dump(action_transitions)}。"
         f"{intent_line}"
         "start_combat 只能引用当前有卡面的 actor 或可达预置遭遇；"
+        "semantic 等非 action 出口必须交给引擎判定，不得写 transition_to_beat_id；"
         "如果错误是 reply_brief 缺失，请补上一句不可见回应计划，说明该传达什么和应引导玩家做什么。"
         "不要编造不存在的 actor_id。只输出修正后的 JSON。"
     )
+
+
+def _allowed_action_transition_ids(
+    decision_context: dict | None,
+) -> set[str]:
+    """提取允许 DM 显式提交的 action 跨拍目标。"""
+    context = decision_context or {}
+    return {
+        str(item["to_beat_id"])
+        for item in context.get("reachable_transitions", [])
+        if item.get("trigger_kind") == TriggerKind.ACTION.value
+        and item.get("to_beat_id")
+    }
 
 
 def _world_writes(data: dict, decision_context: dict | None = None) -> dict:
@@ -298,9 +317,7 @@ def _world_writes(data: dict, decision_context: dict | None = None) -> dict:
     discovery_managed_flags = set(context.get("discovery_managed_flags", []))
     allowed_clues = set(context.get("allowed_clue_ids", []))
     allowed_locations = {item.get("id") for item in context.get("locations", [])}
-    allowed_transitions = {
-        item.get("to_beat_id") for item in context.get("reachable_transitions", [])
-    }
+    allowed_transitions = _allowed_action_transition_ids(context)
     writes: dict = {}
     flags_set = data.get("flags_set")
     if isinstance(flags_set, dict) and flags_set:
@@ -337,9 +354,9 @@ def _world_writes(data: dict, decision_context: dict | None = None) -> dict:
         writes["discoveries"] = normalized_discoveries
     transition_to = data.get("transition_to_beat_id")
     if isinstance(transition_to, str) and transition_to:
-        if allowed_transitions and transition_to not in allowed_transitions:
+        if transition_to not in allowed_transitions:
             raise ValueError(
-                f"[dm] transition_to_beat_id 不是合法出口：{transition_to!r}"
+                f"[dm] transition_to_beat_id 不是合法 action 出口：{transition_to!r}"
             )
         writes["transition_to_beat_id"] = transition_to
     return writes
@@ -516,14 +533,12 @@ def _normalize_encounter(
         if not chosen or not set(chosen).issubset(current_actor_ids):
             raise ValueError("[dm] start_combat 未给出当前有卡面的 actor")
 
-    allowed_transitions = {
-        item.get("to_beat_id") for item in context.get("reachable_transitions", [])
-    }
+    allowed_transitions = _allowed_action_transition_ids(context)
     transition_to = before_combat.get("transition_to_beat_id")
     if candidate and candidate.get("beat_id") != context.get("beat_id"):
         transition_to = transition_to or candidate.get("beat_id")
     if transition_to and transition_to not in allowed_transitions:
-        raise ValueError(f"[dm] 开战前迁移不是合法出口：{transition_to!r}")
+        raise ValueError(f"[dm] 开战前迁移不是合法 action 出口：{transition_to!r}")
 
     participants = set(chosen) | set(party_ids)
     surprised = [

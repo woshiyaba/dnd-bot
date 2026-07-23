@@ -148,6 +148,152 @@ class CombatFreedomTests(unittest.TestCase):
             story_nodes._apply_world_writes(self.canon, story, state)
 
 
+class TransitionWriteValidationTests(unittest.IsolatedAsyncioTestCase):
+    """验证 DM 只能显式提交 action 类型的跨拍行动。"""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        registry = get_registry()
+        registry.load_all()
+        cls.canon = registry.get("whispers_bell_tower")
+
+    async def test_semantic_transition_is_rejected_and_retried(self):
+        tavern = self.canon.beat("tavern_quest")
+        brief = beat_brief(
+            self.canon,
+            {
+                "current_beat_id": tavern.id,
+                "delivered_clues": [],
+            },
+        )
+        decisions = AsyncMock(
+            side_effect=[
+                {
+                    "intent": "reply",
+                    "reply_brief": "确认玩家接受委托并准备出发。",
+                    "flags_set": {"accepted_quest": True},
+                    "transition_to_beat_id": "ruined_village",
+                },
+                {
+                    "intent": "reply",
+                    "reply_brief": "确认玩家接受委托并准备出发。",
+                    "flags_set": {"accepted_quest": True},
+                },
+            ]
+        )
+
+        with patch("src.dm.world_bridge._decide_llm", decisions):
+            result = await world_bridge.decide_turn(
+                "我接受委托，现在就出发去废村。",
+                {"location": "破钟酒馆", "actors": []},
+                {},
+                beat_brief=brief,
+            )
+
+        self.assertEqual(decisions.await_count, 2)
+        self.assertEqual(
+            result["world_writes"],
+            {"flags_set": {"accepted_quest": True}},
+        )
+
+        scene = build_beat_scene(self.canon, tavern)
+        state = {
+            "campaign_id": self.canon.campaign_id,
+            "story": {
+                "current_beat_id": tavern.id,
+                "current_location_id": scene["location_id"],
+                "visited_beats": [tavern.id],
+                "visited_locations": [scene["location_id"]],
+                "flags": {},
+                "delivered_clues": [],
+                "discovered_clues": [],
+            },
+            "scene": scene,
+            "party": {},
+            "campaign_log": [],
+            "user_input": "我接受委托，现在就出发去废村。",
+            "messages": [],
+            "world_writes": result["world_writes"],
+        }
+        with patch(
+            "src.dm.world_bridge.judge_trigger",
+            new=AsyncMock(return_value=True),
+        ):
+            advancement = await story_nodes.evaluate_advancement(state)
+
+        self.assertEqual(advancement["next_story"], "advance")
+        self.assertEqual(
+            advancement["story"]["pending_next_beat_id"],
+            "ruined_village",
+        )
+
+    async def test_action_transition_is_accepted(self):
+        ruined = self.canon.beat("ruined_village")
+        brief = beat_brief(
+            self.canon,
+            {
+                "current_beat_id": ruined.id,
+                "delivered_clues": [],
+            },
+        )
+        decisions = AsyncMock(
+            return_value={
+                "intent": "reply",
+                "reply_brief": "确认玩家已登上钟楼之巅。",
+                "transition_to_beat_id": "bell_tower_summit",
+            }
+        )
+
+        with patch("src.dm.world_bridge._decide_llm", decisions):
+            result = await world_bridge.decide_turn(
+                "我登上钟楼之巅。",
+                {"location": "废村·钟楼大厅", "actors": []},
+                {},
+                beat_brief=brief,
+            )
+
+        self.assertEqual(decisions.await_count, 1)
+        self.assertEqual(
+            result["world_writes"]["transition_to_beat_id"],
+            "bell_tower_summit",
+        )
+
+    def test_semantic_transition_is_rejected_before_combat(self):
+        context = {
+            "beat_id": "tavern_quest",
+            "reachable_transitions": [
+                {
+                    "trigger_kind": "semantic",
+                    "to_beat_id": "ruined_village",
+                }
+            ],
+            "reachable_encounters": [
+                {
+                    "encounter_id": "village_ambush",
+                    "beat_id": "ruined_village",
+                    "monster_ids": ["ambusher"],
+                }
+            ],
+        }
+
+        with self.assertRaisesRegex(ValueError, "合法 action 出口"):
+            world_bridge._normalize_decision(
+                {
+                    "intent": "start_combat",
+                    "encounter": {
+                        "encounter_id": "village_ambush",
+                        "target_actor_ids": ["ambusher"],
+                    },
+                    "before_combat": {
+                        "transition_to_beat_id": "ruined_village",
+                    },
+                },
+                {},
+                [],
+                decision_context=context,
+            )
+
+
 class LockedCombatIntentTests(unittest.IsolatedAsyncioTestCase):
     """确认 DM 一旦识别开战，修正载荷时不能偷偷降级成普通回复。"""
 
