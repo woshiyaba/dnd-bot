@@ -14,7 +14,10 @@
   "win_condition": {
     "id": "win_boss_dead",
     "kind": "combat_outcome",
-    "predicate": { "outcome": "players_win" },
+    "predicate": {
+      "encounter_id": "boss_bell_spirit",
+      "outcome": "players_win"
+    },
     "description": "古钟之灵被击败，钟声止息"
   },
   "lose_condition": {
@@ -30,7 +33,30 @@
       "role": "委托人",
       "goal": "找回失踪的孩子，让灰岩村重归安宁",
       "secret": "三十年前正是他下令熔毁古钟、惊扰了亡魂，他对此深怀愧疚却不敢明言",
-      "disposition": "friendly"
+      "disposition": "friendly",
+      "card": {
+        "id": "elder_marlon",
+        "name": "村长马伦",
+        "strength": 10,
+        "dexterity": 10,
+        "constitution": 10,
+        "intelligence": 10,
+        "wisdom": 10,
+        "charisma": 10,
+        "current_hp": 4,
+        "max_hp": 4,
+        "ac": 10,
+        "initiative_bonus": 0,
+        "attacks": [
+          {
+            "name": "木杖",
+            "attack_bonus": 2,
+            "damage_dice": "1d4",
+            "damage_type": "bludgeoning",
+            "range": "melee"
+          }
+        ]
+      }
     },
     {
       "id": "priest_eda",
@@ -38,7 +64,30 @@
       "role": "废村幸存者",
       "goal": "在死前为亡魂赎罪，引导冒险者用圣水净化古钟之灵",
       "secret": "她知道古钟之灵的真名「赫尔薇」，也知道唯有圣水能削弱它",
-      "disposition": "friendly"
+      "disposition": "friendly",
+      "card": {
+        "id": "priest_eda",
+        "name": "神父艾达",
+        "strength": 10,
+        "dexterity": 10,
+        "constitution": 10,
+        "intelligence": 10,
+        "wisdom": 14,
+        "charisma": 10,
+        "current_hp": 9,
+        "max_hp": 9,
+        "ac": 10,
+        "initiative_bonus": 0,
+        "attacks": [
+          {
+            "name": "长杖",
+            "attack_bonus": 2,
+            "damage_dice": "1d6",
+            "damage_type": "bludgeoning",
+            "range": "melee"
+          }
+        ]
+      }
     },
     {
       "id": "bell_spirit",
@@ -118,6 +167,7 @@
             "actor_id": "elder_marlon",
             "name": "村长马伦",
             "disposition": "friendly",
+            "location_id": "tavern",
             "type": "npc"
           }
         ],
@@ -156,6 +206,7 @@
             "actor_id": "priest_eda",
             "name": "神父艾达",
             "disposition": "friendly",
+            "location_id": "bell_tower_hall",
             "type": "npc"
           }
         ],
@@ -165,28 +216,47 @@
       "key_info": [
         {
           "id": "clue_bell_crack",
-          "text": "钟楼前厅的吊钟上有一道熔痕——古钟曾被强行熔毁过，它的怨念由此而生。"
+          "text": "钟楼前厅的吊钟上有一道熔痕——古钟曾被强行熔毁过，它的怨念由此而生。",
+          "discovery_effects": {
+            "flags_set": { "clue_bell_crack": true }
+          }
         },
         {
           "id": "clue_spirit_name",
-          "text": "枯井底的木牌上刻着一个名字「赫尔薇」——那是被熔进钟里的少女的真名，呼唤真名能让它动摇。"
+          "text": "枯井底的木牌上刻着一个名字「赫尔薇」——那是被熔进钟里的少女的真名，呼唤真名能让它动摇。",
+          "discovery_effects": {
+            "flags_set": { "clue_spirit_name": true }
+          }
         },
         {
           "id": "clue_holy_water",
-          "text": "墓园无名碑下藏着一小瓶圣水——唯有圣水能在决战中削弱古钟之灵。"
+          "text": "墓园无名碑下藏着一小瓶圣水——唯有圣水能在决战中削弱古钟之灵。",
+          "discovery_effects": {
+            "flags_set": { "clue_holy_water": true },
+            "grant_items": [
+              {
+                "item_id": "item_holy_water",
+                "quantity": 1,
+                "recipient": "active_actor"
+              }
+            ]
+          }
         }
       ],
       "advance_conditions": [
         {
-          "id": "t_all_clues",
-          "kind": "flag",
-          "predicate": {
-            "all": ["clue_bell_crack", "clue_spirit_name", "clue_holy_water"]
-          },
-          "description": "集齐三条线索（熔痕、真名、圣水）后，可登上钟楼之巅"
+          "id": "t_ascend_tower",
+          "kind": "action",
+          "predicate": { "action": "ascend_tower" },
+          "description": "玩家明确决定并成功登上钟楼之巅"
         }
       ],
-      "exits": [{ "trigger_id": "t_all_clues", "next_beat_id": "bell_tower_summit" }],
+      "exits": [
+        {
+          "trigger_id": "t_ascend_tower",
+          "next_beat_id": "bell_tower_summit"
+        }
+      ],
       "stuck_fallback": {
         "hint": "神父艾达拉住你，主动道出一条你尚未发现的线索，并指向钟楼螺旋楼梯。",
         "reveal_clue": true,
@@ -206,6 +276,7 @@
             "actor_id": "bell_spirit",
             "name": "古钟之灵",
             "disposition": "hostile",
+            "location_id": "bell_tower_summit",
             "type": "monster",
             "card": {
               "id": "bell_spirit",
@@ -259,6 +330,42 @@
         "surprised": [],
         "random_seed": 20240626,
         "on_win_flags": ["boss_dead"],
+        "special_actions": [
+          {
+            "id": "exploit_bell_crack",
+            "label": "扩大古钟熔痕",
+            "description": "利用已发现的熔痕撬开古钟之灵的防御。",
+            "requires_flags": ["clue_bell_crack"],
+            "target_actor_id": "bell_spirit",
+            "range": "melee",
+            "check": { "ability": "strength", "dc": 13 },
+            "effect": { "kind": "modify_ac", "amount": -2 }
+          },
+          {
+            "id": "invoke_true_name",
+            "label": "呼唤赫尔薇",
+            "description": "呼唤古钟之灵的真名，尝试唤醒残存意识。",
+            "requires_flags": ["clue_spirit_name"],
+            "target_actor_id": "bell_spirit",
+            "range": "any",
+            "check": { "ability": "charisma", "dc": 13 },
+            "effect": {
+              "kind": "add_condition",
+              "condition": "stunned",
+              "rounds": 1
+            }
+          },
+          {
+            "id": "apply_holy_water",
+            "label": "泼洒圣水",
+            "description": "把找到的圣水泼向古钟之灵，削弱它的攻击。",
+            "requires_item_id": "item_holy_water",
+            "consume_item": true,
+            "target_actor_id": "bell_spirit",
+            "range": "melee",
+            "effect": { "kind": "modify_attack_bonus", "amount": -2 }
+          }
+        ],
         "loot_table": ["赫尔薇的银铃", "净化圣水（残）", "古钟碎银 50"]
       }
     },
@@ -287,8 +394,9 @@
       "ending_outcome": "lose",
       "location_ids": ["bell_tower_summit"],
       "entry_state": {
-        "location_id": "bell_tower_summit",
-        "description": "你们倒在钟楼之巅，低语将你们的名字也收进了古钟。从此灰岩村的钟声里，多了几道新的呜咽。",
+        "location_id": null,
+        "preserve_current_scene": true,
+        "description": "冒险队在当前冲突中全员倒下。失败发生在何处、败于谁手，由本场真实战斗结果决定。",
         "actors": [],
         "exits": [],
         "threat": null

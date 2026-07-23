@@ -252,7 +252,13 @@ class SessionService:
             enemies=[
                 self._character_view(actor, member, None) for actor in enemies_source
             ],
-            timeline=self._timeline(safe_state.get("messages") or []),
+            timeline=self._timeline(
+                [
+                    *(safe_state.get("messages") or []),
+                    *(combat_view.get("feed") or []),
+                ],
+                room=room,
+            ),
             pending_interaction=pending,
             recent_resolution=RecentResolutionView(
                 check=(payload or {}).get("last_check") or safe_state.get("last_check"),
@@ -337,7 +343,7 @@ class SessionService:
     ) -> dict[str, Any]:
         """校验声明行动必须来自引擎给出的合法选项。"""
         action_type = action.get("action_type")
-        if action_type == "pass":
+        if action_type == "pass" and options.get("pass"):
             return {"action_type": "pass"}
         if action_type == "move":
             zone = action.get("target_zone")
@@ -364,10 +370,22 @@ class SessionService:
                 if action.get("target_id"):
                     normalized["target_id"] = action["target_id"]
                 return normalized
-        if action_type == "improvise" and options.get("improvise"):
+        if action_type == "special":
+            special_action_id = action.get("special_action_id")
+            for option in options.get("special", []):
+                if option.get("special_action_id") == special_action_id:
+                    return {
+                        "action_type": "special",
+                        "special_action_id": special_action_id,
+                        "target_id": option.get("target_id"),
+                    }
+        if action_type == "natural_language" and options.get("natural_language"):
             description = str(action.get("description") or "").strip()
             if description:
-                return {"action_type": "improvise", "description": description}
+                return {
+                    "action_type": "natural_language",
+                    "description": description,
+                }
         raise HTTPException(status_code=422, detail="行动不在当前合法选项中")
 
     def _get_engine(self) -> SessionEngine:
@@ -440,7 +458,12 @@ class SessionService:
         return enemies
 
     @staticmethod
-    def _timeline(messages: list[dict[str, Any]]) -> list[TimelineEntry]:
+    def _timeline(
+        messages: list[dict[str, Any]],
+        *,
+        room: GameRoom | None = None,
+    ) -> list[TimelineEntry]:
+        """把剧情消息和战斗内公开消息合并为统一时间线。"""
         timeline = []
         for index, message in enumerate(messages):
             raw_role = message.get("role")
@@ -452,14 +475,29 @@ class SessionService:
             content = str(message.get("content") or "").strip()
             if not content:
                 continue
+            character_id = message.get("character_id")
+            sender = (
+                next(
+                    (
+                        member
+                        for member in room.members.values()
+                        if member.character_id == character_id
+                    ),
+                    None,
+                )
+                if room and character_id
+                else None
+            )
             timeline.append(
                 TimelineEntry(
-                    id=f"message-{index}",
+                    id=str(message.get("id") or f"message-{index}"),
                     role=role,
                     content=content,
-                    sender_user_id=message.get("sender_user_id"),
-                    sender_name=message.get("sender_name"),
-                    character_id=message.get("character_id"),
+                    sender_user_id=message.get("sender_user_id")
+                    or (sender.user_id if sender else None),
+                    sender_name=message.get("sender_name")
+                    or (sender.display_name if sender else None),
+                    character_id=character_id,
                 )
             )
         return timeline

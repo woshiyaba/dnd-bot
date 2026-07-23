@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from src.model.combatant import Combatant
-from src.model.enums import StrEnum
+from src.model.enums import Ability, ConditionType, StrEnum
 
 
 # ---------------------------------------------------------------------------
@@ -40,6 +40,7 @@ class TriggerKind(StrEnum):
     LOCATION = "location"  # 玩家到达某地点（引擎确定）
     COMBAT_OUTCOME = "combat_outcome"  # 某场战斗的结果（引擎确定）
     SEMANTIC = "semantic"  # 对一条预写固定条件问 DM 是/否（兜底）
+    ACTION = "action"  # 仅由 DM 已确认并经引擎校验的结构化行动触发
 
 
 class EndingOutcome(StrEnum):
@@ -93,11 +94,18 @@ class KeyInfo:
 
     id: str  # 线索 id
     text: str  # 线索内容（DM 要把它自然地讲给玩家）
+    discovery_effects: dict[str, Any] = field(
+        default_factory=dict
+    )  # 玩家真正发现后由引擎提交的 flag / 物品效果
 
     @classmethod
     def from_dict(cls, data: dict) -> "KeyInfo":
         """从字典构造关键线索。"""
-        return cls(id=data["id"], text=str(data.get("text", "")))
+        return cls(
+            id=data["id"],
+            text=str(data.get("text", "")),
+            discovery_effects=dict(data.get("discovery_effects", {})),
+        )
 
 
 @dataclass(slots=True)
@@ -160,6 +168,9 @@ class Encounter:
     on_win_flags: list[str] = field(
         default_factory=list
     )  # 玩家胜利时引擎自动写入的 flag（须在白名单内）
+    special_actions: list[dict[str, Any]] = field(
+        default_factory=list
+    )  # canon 封闭定义的特殊战斗行动（DM 只负责映射意图）
 
     @classmethod
     def from_dict(cls, data: dict) -> "Encounter":
@@ -172,6 +183,9 @@ class Encounter:
             loot_table=list(data.get("loot_table", [])),
             random_seed=int(seed) if seed is not None else None,
             on_win_flags=list(data.get("on_win_flags", [])),
+            special_actions=[
+                dict(action) for action in data.get("special_actions", [])
+            ],
         )
 
 
@@ -259,6 +273,13 @@ class Canon:
         """按 id 取一个 NPC 册页。"""
         return next((n for n in self.cast if n.id == npc_id), None)
 
+    def encounter(self, encounter_id: str) -> tuple[Beat, Encounter] | None:
+        """按 id 取预置遭遇及其所属剧情拍。"""
+        for beat in self.beats:
+            if beat.encounter is not None and beat.encounter.id == encounter_id:
+                return beat, beat.encounter
+        return None
+
     def location(self, location_id: str) -> LocationSpec | None:
         """按 id 取一个地点。"""
         return next((loc for loc in self.locations if loc.id == location_id), None)
@@ -337,7 +358,14 @@ def evaluate_trigger(
             "current_location_id"
         ) == location_id or location_id in story.get("visited_locations", [])
     if trigger.kind == TriggerKind.COMBAT_OUTCOME:
-        return (last_combat or {}).get("outcome") == pred.get("outcome")
+        combat = last_combat or {}
+        if combat.get("outcome") != pred.get("outcome"):
+            return False
+        encounter_id = pred.get("encounter_id")
+        return encounter_id is None or combat.get("encounter_id") == encounter_id
+    if trigger.kind == TriggerKind.ACTION:
+        # action 出口只接受已规范化的显式 transition 写入，不能靠回合末自动猜中。
+        return False
     # semantic：引擎判不了
     return None
 
@@ -382,6 +410,7 @@ def beat_brief(canon: Canon, story: dict) -> dict | None:
         "theme": canon.theme,
         "tone": canon.tone,
         "beat_title": beat.title,
+        "beat_id": beat.id,
         "beat_kind": str(beat.kind.value),
         "locations": locations,
         "undelivered_clues": undelivered,
@@ -389,6 +418,54 @@ def beat_brief(canon: Canon, story: dict) -> dict | None:
         "advance_hints": [
             t.description for t in beat.advance_conditions if t.description
         ],
+        "allowed_flags": list(canon.declared_flags),
+        "allowed_clue_ids": [k.id for k in beat.key_info],
+        "discovery_managed_flags": [
+            flag
+            for candidate_beat in canon.beats
+            for clue in candidate_beat.key_info
+            for flag in (clue.discovery_effects.get("flags_set") or {})
+        ],
+        "reachable_transitions": [
+            {
+                "trigger_id": ex.trigger_id,
+                "trigger_kind": (
+                    trigger.kind.value
+                    if (
+                        trigger := next(
+                            (
+                                item
+                                for item in beat.advance_conditions
+                                if item.id == ex.trigger_id
+                            ),
+                            None,
+                        )
+                    )
+                    else None
+                ),
+                "to_beat_id": ex.next_beat_id,
+            }
+            for ex in beat.exits
+        ],
+        "reachable_encounters": [
+            {
+                "encounter_id": next_beat.encounter.id,
+                "beat_id": next_beat.id,
+                "monster_ids": list(next_beat.encounter.monster_ids),
+            }
+            for ex in beat.exits
+            if (next_beat := canon.beat(ex.next_beat_id)) is not None
+            and next_beat.encounter is not None
+        ],
+        "current_encounter": (
+            {
+                "encounter_id": beat.encounter.id,
+                "beat_id": beat.id,
+                "monster_ids": list(beat.encounter.monster_ids),
+            }
+            if beat.encounter is not None
+            else None
+        ),
     }
 
 
@@ -405,6 +482,7 @@ def validate_canon(canon: Canon) -> list[str]:
     beat_ids = {b.id for b in canon.beats}
     location_ids = {loc.id for loc in canon.locations}
     declared = set(canon.declared_flags)
+    encounter_ids: set[str] = set()
 
     # 起始拍
     if not canon.start_beat_id:
@@ -448,14 +526,53 @@ def validate_canon(canon: Canon) -> list[str]:
                             f"拍 «{beat.id}» 触发器 «{t.id}» 的 flag «{flag}» 不在 declared_flags 白名单内"
                         )
         if beat.encounter is not None:
+            if beat.encounter.id in encounter_ids:
+                errors.append(f"遭遇 id «{beat.encounter.id}» 重复")
+            encounter_ids.add(beat.encounter.id)
             for flag in beat.encounter.on_win_flags:
                 if flag not in declared:
                     errors.append(
                         f"拍 «{beat.id}» 遭遇胜利写入的 flag «{flag}» 不在 declared_flags 白名单内"
                     )
+            actor_entries = {
+                actor.get("actor_id") or actor.get("npc_ref"): actor
+                for actor in beat.entry_state.get("actors", [])
+            }
+            for monster_id in beat.encounter.monster_ids:
+                actor = actor_entries.get(monster_id)
+                spec = canon.npc(monster_id)
+                card = (actor or {}).get("card") or (spec.card if spec else None)
+                if actor is None and spec is None:
+                    errors.append(
+                        f"拍 «{beat.id}» 遭遇 «{beat.encounter.id}» 引用了不存在的 actor «{monster_id}»"
+                    )
+                elif not card:
+                    errors.append(
+                        f"拍 «{beat.id}» 遭遇 «{beat.encounter.id}» 的 actor «{monster_id}» 缺少战斗卡面"
+                    )
+            _validate_special_actions(canon, beat, errors)
+        for clue in beat.key_info:
+            effects = clue.discovery_effects or {}
+            for flag in effects.get("flags_set") or {}:
+                if flag not in declared:
+                    errors.append(
+                        f"拍 «{beat.id}» 线索 «{clue.id}» 的发现效果 flag «{flag}» 不在白名单内"
+                    )
         # 非结局拍必须有出路
         if not beat.is_ending and not beat.exits:
             errors.append(f"非结局拍 «{beat.id}» 没有任何出口（会卡死）")
+
+    for condition_name, condition in (
+        ("win_condition", canon.win_condition),
+        ("lose_condition", canon.lose_condition),
+    ):
+        encounter_id = (
+            condition.predicate.get("encounter_id")
+            if condition is not None and condition.kind == TriggerKind.COMBAT_OUTCOME
+            else None
+        )
+        if encounter_id and encounter_id not in encounter_ids:
+            errors.append(f"{condition_name} 引用了不存在的遭遇 «{encounter_id}»")
 
     # 可达性：从起始拍沿出口 BFS；结局拍可由引擎按胜负条件直接跳入，故视为可达根
     reachable = _reachable_beats(canon)
@@ -464,6 +581,62 @@ def validate_canon(canon: Canon) -> list[str]:
             errors.append(f"拍 «{beat.id}» 从 start_beat_id 不可达（孤岛）")
 
     return errors
+
+
+def _validate_special_actions(canon: Canon, beat: Beat, errors: list[str]) -> None:
+    """校验遭遇特殊行动只引用封闭、可结算的规则原语。"""
+    encounter = beat.encounter
+    if encounter is None:
+        return
+    valid_effects = {"modify_ac", "modify_attack_bonus", "add_condition"}
+    valid_ranges = {"melee", "any"}
+    valid_abilities = {ability.value for ability in Ability}
+    valid_conditions = {condition.value for condition in ConditionType}
+    seen: set[str] = set()
+    for action in encounter.special_actions:
+        action_id = str(action.get("id") or "")
+        if not action_id:
+            errors.append(f"遭遇 «{encounter.id}» 存在缺少 id 的特殊行动")
+            continue
+        if action_id in seen:
+            errors.append(f"遭遇 «{encounter.id}» 的特殊行动 id «{action_id}» 重复")
+        seen.add(action_id)
+        target_id = action.get("target_actor_id")
+        if target_id not in encounter.monster_ids:
+            errors.append(
+                f"遭遇 «{encounter.id}» 的特殊行动 «{action_id}» 目标 «{target_id}» 不在参战者中"
+            )
+        if action.get("range", "any") not in valid_ranges:
+            errors.append(f"遭遇 «{encounter.id}» 的特殊行动 «{action_id}» range 非法")
+        for flag in action.get("requires_flags", []):
+            if flag not in canon.declared_flags:
+                errors.append(
+                    f"遭遇 «{encounter.id}» 的特殊行动 «{action_id}» 引用了未声明 flag «{flag}»"
+                )
+        check = action.get("check")
+        if check:
+            if check.get("ability") not in valid_abilities:
+                errors.append(
+                    f"遭遇 «{encounter.id}» 的特殊行动 «{action_id}» ability 非法"
+                )
+            try:
+                dc = int(check.get("dc"))
+            except (TypeError, ValueError):
+                dc = 0
+            if not 1 <= dc <= 30:
+                errors.append(f"遭遇 «{encounter.id}» 的特殊行动 «{action_id}» DC 非法")
+        effect = action.get("effect") or {}
+        if effect.get("kind") not in valid_effects:
+            errors.append(
+                f"遭遇 «{encounter.id}» 的特殊行动 «{action_id}» effect kind 非法"
+            )
+        if (
+            effect.get("kind") == "add_condition"
+            and effect.get("condition") not in valid_conditions
+        ):
+            errors.append(
+                f"遭遇 «{encounter.id}» 的特殊行动 «{action_id}» condition 非法"
+            )
 
 
 def _flag_trigger_names(trigger: Trigger) -> list[str]:

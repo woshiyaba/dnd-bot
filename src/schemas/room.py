@@ -118,12 +118,21 @@ class SendMessageRequest(BaseModel):
 class RoomActionRequest(BaseModel):
     """声明战斗行动；服务端仍按当前中断白名单校验。"""
 
-    action_type: Literal["attack", "move", "skill", "item", "improvise", "pass"]
+    action_type: Literal[
+        "attack",
+        "move",
+        "skill",
+        "item",
+        "special",
+        "natural_language",
+        "pass",
+    ]
     attack_name: str | None = None
     target_id: str | None = None
     target_zone: str | None = None
     skill_id: str | None = None
     item_id: str | None = None
+    special_action_id: str | None = None
     description: str | None = Field(default=None, max_length=500)
 
 

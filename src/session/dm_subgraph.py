@@ -71,6 +71,7 @@ def perceive(state: DMState) -> dict:
         "previous_scene": None,
         "story_transition": None,
         "pending_check": None,
+        "pending_effects": None,
         "last_check": None,
         "combat_request": None,
         "world_writes": None,
@@ -114,6 +115,7 @@ async def dm_decide(state: DMState) -> dict:
         return {
             "intent": intent,
             "pending_check": decision["check"],
+            "pending_effects": decision.get("effects") or {},
             "world_writes": writes,
             "next": "wait",
         }
@@ -226,10 +228,40 @@ def resolve_check(state: DMState) -> dict:
         check["dc"],
         "成功" if success else "失败",
     )
+    branch_name = "on_success" if success else "on_failure"
+    branch = (state.get("pending_effects") or {}).get(branch_name) or {}
+    world_writes = _merge_world_writes(
+        state.get("world_writes") or {}, branch.get("world_writes") or {}
+    )
+    combat_request = branch.get("combat_request")
     return {
         "last_check": result,
+        "world_writes": world_writes,
+        "combat_request": combat_request,
+        "next": "combat" if combat_request else "wait",
         "campaign_log": log_event(state, {"event": "ability_check", **result}),
     }
+
+
+def _merge_world_writes(base: dict, extra: dict) -> dict:
+    """合并即时写入与检定分支写入，列表去重、flag 后者覆盖。"""
+    merged = dict(base)
+    if base.get("flags_set") or extra.get("flags_set"):
+        merged["flags_set"] = {
+            **(base.get("flags_set") or {}),
+            **(extra.get("flags_set") or {}),
+        }
+    for key in ("clues_delivered", "discoveries"):
+        values = list(base.get(key) or [])
+        for value in extra.get(key) or []:
+            if value not in values:
+                values.append(value)
+        if values:
+            merged[key] = values
+    for key in ("moved_to", "transition_to_beat_id"):
+        if extra.get(key):
+            merged[key] = extra[key]
+    return merged
 
 
 async def narrate_result(state: DMState) -> dict:

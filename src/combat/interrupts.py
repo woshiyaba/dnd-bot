@@ -58,12 +58,18 @@ def _default_expected_return(kind: InterruptType) -> dict:
 
 
 def build_action_options(
-    actor: Combatant, combatants: dict[str, Combatant]
+    actor: Combatant,
+    combatants: dict[str, Combatant],
+    *,
+    special_actions: list[dict[str, Any]] | None = None,
+    story_flags: list[str] | None = None,
+    applied_special_actions: list[str] | None = None,
 ) -> dict[str, Any]:
     """为「声明行动」中断构造合法选项（文档 2.1）。
 
     - 攻击：每件武器列出射程内、存活的敌方目标（按区域过滤）。
-    - 技能/道具/移动/创意：仅角色（含 NPC）持有，怪物为空。
+    - 自然语言：只能由真实 DM 映射为这里列出的封闭行动。
+    - 特殊行动：还要满足线索、道具、目标与射程条件，且每场战斗只成功一次。
     """
     enemies_alive = [
         c for c in combatants.values() if c.faction != actor.faction and c.is_alive
@@ -84,7 +90,11 @@ def build_action_options(
             }
         )
 
-    options: dict[str, Any] = {"attack": attack_options, "improvise": True}
+    options: dict[str, Any] = {
+        "attack": attack_options,
+        "natural_language": True,
+        "pass": True,
+    }
 
     # 移动：可去的其他区域
     all_zones = sorted({c.current_zone for c in combatants.values()})
@@ -107,7 +117,70 @@ def build_action_options(
             for i in actor.inventory
             if i.is_available
         ]
+    options["special"] = _available_special_actions(
+        actor,
+        combatants,
+        special_actions=special_actions or [],
+        story_flags=set(story_flags or []),
+        applied_special_actions=set(applied_special_actions or []),
+    )
     return options
+
+
+def _available_special_actions(
+    actor: Combatant,
+    combatants: dict[str, Combatant],
+    *,
+    special_actions: list[dict[str, Any]],
+    story_flags: set[str],
+    applied_special_actions: set[str],
+) -> list[dict[str, Any]]:
+    """筛出当前角色此刻确实可以声明的 canon 特殊行动。"""
+    available: list[dict[str, Any]] = []
+    for definition in special_actions:
+        action_id = str(definition.get("id", ""))
+        if not action_id or action_id in applied_special_actions:
+            continue
+        required_flags = set(definition.get("requires_flags", []) or [])
+        if not required_flags.issubset(story_flags):
+            continue
+        required_item_id = definition.get("requires_item_id")
+        if required_item_id and not _has_item(actor, str(required_item_id)):
+            continue
+
+        target = combatants.get(str(definition.get("target_actor_id", "")))
+        if not target or not target.is_alive or target.faction == actor.faction:
+            continue
+        if (
+            definition.get("range") == "melee"
+            and target.current_zone != actor.current_zone
+        ):
+            continue
+
+        check = definition.get("check")
+        public_action: dict[str, Any] = {
+            "special_action_id": action_id,
+            "label": definition.get("label", action_id),
+            "description": definition.get("description", ""),
+            "target_id": target.id,
+            "target_name": target.name,
+        }
+        if isinstance(check, dict):
+            public_action["check"] = {
+                "ability": check.get("ability"),
+                "dc": int(check.get("dc", 10)),
+            }
+        available.append(public_action)
+    return available
+
+
+def _has_item(actor: Combatant, item_id: str) -> bool:
+    """判断角色背包中是否仍有指定道具。"""
+    if not isinstance(actor, Character):
+        return False
+    return any(
+        item.item_id == item_id and item.is_available for item in actor.inventory
+    )
 
 
 def validate_d20(resume_value: Any, *, default: int = 10) -> int:
@@ -158,6 +231,7 @@ def build_combat_view(state: dict, *, actor_id: str | None = None) -> dict[str, 
         "current_actor_id": current_actor_id,
         "initiative_order": order,
         "recent_events": list(state.get("combat_log", []) or [])[-6:],
+        "feed": _build_combat_feed(list(state.get("combat_log", []) or [])),
         "combatants": [
             {
                 "id": combatant.id,
@@ -176,3 +250,28 @@ def build_combat_view(state: dict, *, actor_id: str | None = None) -> dict[str, 
             for combatant in combatants.values()
         ],
     }
+
+
+def _build_combat_feed(combat_log: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """把战斗事件压成只含玩家宣言与 DM 叙述的公开消息流。"""
+    feed: list[dict[str, Any]] = []
+    for index, event in enumerate(combat_log):
+        event_type = event.get("event")
+        if event_type == "declaration" and event.get("text"):
+            feed.append(
+                {
+                    "id": f"combat-{index}",
+                    "role": "player",
+                    "character_id": event.get("actor_id"),
+                    "content": str(event["text"]),
+                }
+            )
+        elif event_type in {"combat_opening", "narration"} and event.get("text"):
+            feed.append(
+                {
+                    "id": f"combat-{index}",
+                    "role": "dm",
+                    "content": str(event["text"]),
+                }
+            )
+    return feed

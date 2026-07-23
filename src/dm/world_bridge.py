@@ -62,6 +62,7 @@ def _scene_brief(scene: dict) -> dict:
             "actor_id": a.get("actor_id"),
             "name": a.get("name"),
             "disposition": a.get("disposition"),
+            "combat_capable": bool(a.get("card")),
         }
         for a in (scene or {}).get("actors", [])
     ]
@@ -117,6 +118,7 @@ async def decide_turn(
     party_ids = list(party.keys())
     correction_hint = None
     last_error = ""
+    locked_intent: str | None = None
     for attempt in range(1, _DECISION_ATTEMPTS + 1):
         data = await _decide_llm(
             user_input,
@@ -132,20 +134,55 @@ async def decide_turn(
         if data is None:
             last_error = "LLM 未返回可解析 JSON"
             correction_hint = _decision_correction_hint(
-                last_error, scene, party_ids, active_actor_id
+                last_error,
+                scene,
+                party_ids,
+                active_actor_id,
+                beat_brief,
+                locked_intent,
             )
             logger.warning(
                 "[dm_decide] 第 %d 次决策不可解析，交回真实 LLM 重评", attempt
             )
             continue
+        if locked_intent and data.get("intent") != locked_intent:
+            last_error = (
+                f"已锁定语义意图 {locked_intent!r}，不能降级为 "
+                f"{data.get('intent')!r}"
+            )
+            correction_hint = _decision_correction_hint(
+                last_error,
+                scene,
+                party_ids,
+                active_actor_id,
+                beat_brief,
+                locked_intent,
+            )
+            logger.warning(
+                "[dm_decide] 第 %d 次决策试图降级已锁定意图 | raw=%s",
+                attempt,
+                _dump(data),
+            )
+            continue
         try:
             return _normalize_decision(
-                data, scene, party_ids, active_actor_id=active_actor_id
+                data,
+                scene,
+                party_ids,
+                active_actor_id=active_actor_id,
+                decision_context=beat_brief,
             )
         except ValueError as exc:
             last_error = str(exc)
+            if data.get("intent") == "start_combat":
+                locked_intent = "start_combat"
             correction_hint = _decision_correction_hint(
-                last_error, scene, party_ids, active_actor_id
+                last_error,
+                scene,
+                party_ids,
+                active_actor_id,
+                beat_brief,
+                locked_intent,
             )
             logger.warning(
                 "[dm_decide] 第 %d 次决策不合法，交回真实 LLM 重评 | error=%s | raw=%s",
@@ -197,11 +234,21 @@ async def _decide_llm(
         "2) 玩家主动做一件结果不确定且成败都有意义的事（撬锁/说服/跳跃/豁免…）——交玩家明骰，"
         '输出 {"intent":"player_check","check":{"actor_id":"哪个玩家角色id","ability":"strength|dexterity|constitution|intelligence|wisdom|charisma",'
         '"dc":数字,"kind":"ability_check|saving_throw","proficient":true/false,"prompt":"提示玩家掷什么","reason":"为什么要检定"}}。\n'
-        '3) 局势升级为战斗——输出 {"intent":"start_combat","encounter":{"monster_ids":["场景里敌意在场者的actor_id"],"surprised":["被突袭者id"],"reason":"..."}}。\n'
+        '3) 局势升级为战斗——预置遭遇输出 {"intent":"start_combat","encounter":{"encounter_id":"候选遭遇id",'
+        '"target_actor_ids":["目标actor_id"],"surprised":["被突袭者id"],"reason":"..."},'
+        '"before_combat":{"transition_to_beat_id":"必要时填写目标拍"}}；当前场景临时冲突可省略 encounter_id。\n'
+        "玩家明确攻击可接触且有战斗卡面的目标时，必须选择 start_combat，不要再次要求确认；"
+        "不要提前叙述命中、伤害或受伤。\n"
         "【可选·世界写入】当玩家这步确实改变了世界时，可在 JSON 里附带（不改变上面的 intent）：\n"
-        '  "flags_set":{"flag名":true} —— 仅声明 canon 白名单内的世界 flag（如玩家发现了某条线索）；\n'
+        '  "flags_set":{"flag名":true} —— 仅声明 canon 白名单内、且不由线索发现效果管理的普通世界 flag；\n'
         '  "moved_to":"地点id" —— 玩家移动到的当前拍内地点；\n'
-        '  "clues_delivered":["你这步已讲给玩家的关键线索id"]。\n'
+        '  "clues_delivered":["你这步已讲给玩家的关键线索id"]；\n'
+        '  "discoveries":["玩家这步真正发现/取得的线索id"] —— 线索对应 flag 与物品只能用此字段触发；\n'
+        '  "transition_to_beat_id":"玩家已经完成的合法跨拍行动目标"。\n'
+        "若 player_check 成功后才发生世界变化，必须把上述字段放进 "
+        '"effects":{"on_success":{...},"on_failure":{...}}，不可提前写入。\n'
+        "如果一次行动在检定成功后立即开战，可在 on_success 里同时给出 "
+        '"start_combat":{"encounter_id":"...","target_actor_ids":[...],"reason":"..."}。\n'
         "不确定 DC 时可 kb_read ability_check / 即兴伤害表。只输出 JSON，不要额外文字。"
     )
     return await dm_complete_json(task)
@@ -212,6 +259,8 @@ def _decision_correction_hint(
     scene: dict,
     party_ids: list[str],
     active_actor_id: str | None = None,
+    decision_context: dict | None = None,
+    locked_intent: str | None = None,
 ) -> str:
     """把非法决策反馈给真实 LLM，要求它重新产出合法 JSON。"""
     hostiles = [
@@ -223,34 +272,76 @@ def _decision_correction_hint(
         for actor in hostile_actors(scene)
         if actor.get("actor_id")
     ]
+    reachable = (decision_context or {}).get("reachable_encounters", [])
+    intent_line = (
+        "上次已确认玩家明确开战，本次 intent 必须保持 start_combat，只修正引用和字段；"
+        if locked_intent == "start_combat"
+        else ""
+    )
     return (
         f"错误原因：{error}。"
         f"合法玩家 actor_id：{_dump(party_ids)}。"
         f"当前发言角色 actor_id：{active_actor_id or '未知'}。"
         f"当前场景合法敌意 actor_id：{_dump(hostiles)}。"
-        "如果要 start_combat，monster_ids 必须只使用上面敌意 actor_id；"
-        "如果没有合法敌人或局势还不到战斗，请改为 reply，引导玩家继续调查、交谈、靠近或明确攻击。"
+        f"可达预置遭遇：{_dump(reachable)}。"
+        f"{intent_line}"
+        "start_combat 只能引用当前有卡面的 actor 或可达预置遭遇；"
         "如果错误是 reply_brief 缺失，请补上一句不可见回应计划，说明该传达什么和应引导玩家做什么。"
         "不要编造不存在的 actor_id。只输出修正后的 JSON。"
     )
 
 
-def _world_writes(data: dict) -> dict:
-    """从 DM 决策里抽出可选的世界写入声明（类型清洗；白名单校验留给引擎）。
-
-    返回形如 ``{"flags_set": {...}, "moved_to": "loc_id", "clues_delivered": [...]}``；
-    无任何声明时返回空 dict。
-    """
+def _world_writes(data: dict, decision_context: dict | None = None) -> dict:
+    """抽取并校验 DM 世界写入，只接受当前拍明确提供的候选 id。"""
+    context = decision_context or {}
+    allowed_flags = set(context.get("allowed_flags", []))
+    discovery_managed_flags = set(context.get("discovery_managed_flags", []))
+    allowed_clues = set(context.get("allowed_clue_ids", []))
+    allowed_locations = {item.get("id") for item in context.get("locations", [])}
+    allowed_transitions = {
+        item.get("to_beat_id") for item in context.get("reachable_transitions", [])
+    }
     writes: dict = {}
     flags_set = data.get("flags_set")
     if isinstance(flags_set, dict) and flags_set:
-        writes["flags_set"] = {str(k): v for k, v in flags_set.items()}
+        normalized_flags = {str(k): v for k, v in flags_set.items()}
+        invalid = set(normalized_flags) - allowed_flags if allowed_flags else set()
+        if invalid:
+            raise ValueError(f"[dm] flags_set 含非法 flag：{sorted(invalid)}")
+        managed = set(normalized_flags) & discovery_managed_flags
+        if managed:
+            raise ValueError(
+                f"[dm] 线索 flag 必须通过 discoveries 触发：{sorted(managed)}"
+            )
+        writes["flags_set"] = normalized_flags
     moved_to = data.get("moved_to")
     if isinstance(moved_to, str) and moved_to:
+        if allowed_locations and moved_to not in allowed_locations:
+            raise ValueError(f"[dm] moved_to 不在当前拍地点中：{moved_to!r}")
         writes["moved_to"] = moved_to
     clues = data.get("clues_delivered")
     if isinstance(clues, list) and clues:
-        writes["clues_delivered"] = [str(c) for c in clues]
+        normalized_clues = [str(c) for c in clues]
+        invalid = set(normalized_clues) - allowed_clues if allowed_clues else set()
+        if invalid:
+            raise ValueError(f"[dm] clues_delivered 含非法线索：{sorted(invalid)}")
+        writes["clues_delivered"] = normalized_clues
+    discoveries = data.get("discoveries")
+    if isinstance(discoveries, list) and discoveries:
+        normalized_discoveries = [str(c) for c in discoveries]
+        invalid = (
+            set(normalized_discoveries) - allowed_clues if allowed_clues else set()
+        )
+        if invalid:
+            raise ValueError(f"[dm] discoveries 含非法线索：{sorted(invalid)}")
+        writes["discoveries"] = normalized_discoveries
+    transition_to = data.get("transition_to_beat_id")
+    if isinstance(transition_to, str) and transition_to:
+        if allowed_transitions and transition_to not in allowed_transitions:
+            raise ValueError(
+                f"[dm] transition_to_beat_id 不是合法出口：{transition_to!r}"
+            )
+        writes["transition_to_beat_id"] = transition_to
     return writes
 
 
@@ -260,12 +351,13 @@ def _normalize_decision(
     party_ids: list[str],
     *,
     active_actor_id: str | None = None,
+    decision_context: dict | None = None,
 ) -> dict:
     """校验并规范化 DM 给的决策；非法字段直接报错。
 
     任一意图都会带上 ``world_writes`` 字段（可能为空 dict），承载 DM 声明的世界变化。
     """
-    writes = _world_writes(data)
+    writes = _world_writes(data, decision_context)
     intent = data.get("intent")
     if intent not in _INTENTS:
         raise ValueError(f"[dm] 非法 DM 意图：{intent!r}")
@@ -281,6 +373,16 @@ def _normalize_decision(
         }
 
     if intent == "player_check":
+        premature = set(writes) & {
+            "moved_to",
+            "transition_to_beat_id",
+            "discoveries",
+        }
+        if premature:
+            raise ValueError(
+                "[dm] player_check 的移动、跨拍和发现效果必须放入 "
+                f"effects.on_success/on_failure：{sorted(premature)}"
+            )
         check = data.get("check") or {}
         ability = check.get("ability")
         if ability not in _ABILITY_VALUES:
@@ -298,6 +400,9 @@ def _normalize_decision(
         return {
             "intent": "player_check",
             "world_writes": writes,
+            "effects": _normalize_check_effects(
+                data.get("effects"), scene, party_ids, decision_context
+            ),
             "check": {
                 "actor_id": actor_id,
                 "ability": ability,
@@ -309,21 +414,133 @@ def _normalize_decision(
             },
         }
 
-    # start_combat：把 monster_ids 收敛到场景里真实存在的敌意在场者
-    encounter = data.get("encounter") or {}
-    hostiles = {a["actor_id"]: a for a in hostile_actors(scene) if a.get("actor_id")}
-    chosen = [mid for mid in (encounter.get("monster_ids") or []) if mid in hostiles]
-    if not chosen:
-        raise ValueError("[dm] start_combat 未给出合法敌意 actor_id")
-    surprised = [sid for sid in (encounter.get("surprised") or []) if sid in chosen]
+    before_combat = dict(data.get("before_combat") or {})
+    if writes.get("transition_to_beat_id") and not before_combat.get(
+        "transition_to_beat_id"
+    ):
+        before_combat["transition_to_beat_id"] = writes["transition_to_beat_id"]
+    encounter = _normalize_encounter(
+        data.get("encounter") or {},
+        before_combat,
+        scene,
+        party_ids,
+        decision_context,
+    )
     return {
         "intent": "start_combat",
         "world_writes": writes,
-        "encounter": {
-            "monster_ids": chosen,
-            "surprised": surprised,
-            "reason": str(encounter.get("reason") or ""),
-        },
+        "encounter": encounter,
+    }
+
+
+def _normalize_check_effects(
+    raw: object,
+    scene: dict,
+    party_ids: list[str],
+    decision_context: dict | None,
+) -> dict:
+    """规范化检定成功/失败后的条件化世界效果。"""
+    effects = raw if isinstance(raw, dict) else {}
+    normalized: dict = {}
+    for branch_name in ("on_success", "on_failure"):
+        branch = effects.get(branch_name)
+        if not isinstance(branch, dict):
+            continue
+        item: dict = {
+            "world_writes": _world_writes(branch, decision_context),
+        }
+        start_combat = branch.get("start_combat")
+        if isinstance(start_combat, dict):
+            before = {"transition_to_beat_id": branch.get("transition_to_beat_id")}
+            item["combat_request"] = _normalize_encounter(
+                start_combat,
+                before,
+                scene,
+                party_ids,
+                decision_context,
+            )
+        normalized[branch_name] = item
+    return normalized
+
+
+def _normalize_encounter(
+    raw: dict,
+    before_combat: dict,
+    scene: dict,
+    party_ids: list[str],
+    decision_context: dict | None,
+) -> dict:
+    """把 DM 战斗请求绑定到当前 actor 或 canon 提供的预置遭遇。"""
+    context = decision_context or {}
+    current_actor_ids = {
+        actor.get("actor_id")
+        for actor in (scene or {}).get("actors", [])
+        if actor.get("actor_id") and actor.get("card")
+    }
+    candidates = list(context.get("reachable_encounters", []))
+    current_encounter = context.get("current_encounter")
+    if current_encounter:
+        candidates.append(current_encounter)
+    candidate_by_id = {
+        item.get("encounter_id"): item
+        for item in candidates
+        if item.get("encounter_id")
+    }
+
+    encounter_id = raw.get("encounter_id")
+    requested_ids = [
+        str(value)
+        for value in (raw.get("target_actor_ids") or raw.get("monster_ids") or [])
+    ]
+    candidate = candidate_by_id.get(encounter_id) if encounter_id else None
+    if encounter_id and candidate is None:
+        raise ValueError(f"[dm] start_combat 引用了非法 encounter_id：{encounter_id!r}")
+
+    if candidate is None and requested_ids:
+        matching = [
+            item
+            for item in candidates
+            if set(requested_ids).issubset(set(item.get("monster_ids", [])))
+        ]
+        if len(matching) == 1:
+            candidate = matching[0]
+            encounter_id = candidate.get("encounter_id")
+
+    if candidate is not None:
+        allowed_targets = set(candidate.get("monster_ids", []))
+        chosen = requested_ids or list(allowed_targets)
+        if not chosen or not set(chosen).issubset(allowed_targets):
+            raise ValueError("[dm] start_combat 目标不属于所选预置遭遇")
+    else:
+        chosen = requested_ids
+        if not chosen or not set(chosen).issubset(current_actor_ids):
+            raise ValueError("[dm] start_combat 未给出当前有卡面的 actor")
+
+    allowed_transitions = {
+        item.get("to_beat_id") for item in context.get("reachable_transitions", [])
+    }
+    transition_to = before_combat.get("transition_to_beat_id")
+    if candidate and candidate.get("beat_id") != context.get("beat_id"):
+        transition_to = transition_to or candidate.get("beat_id")
+    if transition_to and transition_to not in allowed_transitions:
+        raise ValueError(f"[dm] 开战前迁移不是合法出口：{transition_to!r}")
+
+    participants = set(chosen) | set(party_ids)
+    surprised = [
+        str(value)
+        for value in (raw.get("surprised") or raw.get("surprised_actor_ids") or [])
+        if str(value) in participants
+    ]
+    return {
+        "encounter_id": encounter_id,
+        "source": "canon_encounter" if encounter_id else "scene_actors",
+        "target_actor_ids": chosen,
+        "monster_ids": chosen,
+        "surprised": surprised,
+        "reason": str(raw.get("reason") or ""),
+        "before_combat": (
+            {"transition_to_beat_id": transition_to} if transition_to else {}
+        ),
     }
 
 

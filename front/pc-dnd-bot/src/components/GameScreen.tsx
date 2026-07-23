@@ -167,6 +167,14 @@ function AdventureRoom({
   const leftPlayers = others.filter((_, index) => index % 2 === 0)
   const rightPlayers = others.filter((_, index) => index % 2 === 1)
   const pending = session.pending_interaction
+  const canSubmitCombatText =
+    pending?.is_yours === true &&
+    pending.interrupt_type === 'declare_action' &&
+    pending.options?.natural_language === true
+  const composerDisabled =
+    isBusy ||
+    session.session_status === 'finished' ||
+    (Boolean(pending) && !canSubmitCombatText)
 
   useEffect(() => {
     timelineRef.current?.scrollTo({
@@ -190,9 +198,13 @@ function AdventureRoom({
   async function send(event: React.FormEvent) {
     event.preventDefault()
     const content = input.trim()
-    if (!content || isBusy || pending) return
+    if (!content || composerDisabled) return
     setInput('')
-    await onMessage(content)
+    if (canSubmitCombatText) {
+      await onAction({ action_type: 'natural_language', description: content })
+    } else {
+      await onMessage(content)
+    }
   }
 
   return (
@@ -286,11 +298,13 @@ function AdventureRoom({
             <form className="chat-composer" onSubmit={send}>
               <span>✦</span>
               <input
-                disabled={isBusy || Boolean(pending) || session.session_status === 'finished'}
+                disabled={composerDisabled}
                 onChange={(event) => setInput(event.target.value)}
                 placeholder={
-                  pending
-                    ? '先完成当前检定或行动…'
+                  canSubmitCombatText
+                    ? '描述你本回合要执行的战斗行动…'
+                    : pending
+                      ? '当前不是你的行动声明阶段…'
                     : session.session_status === 'finished'
                       ? '这场冒险已经落幕'
                       : '描述你的行动…'
@@ -298,7 +312,7 @@ function AdventureRoom({
                 ref={inputRef}
                 value={input}
               />
-              <button disabled={!input.trim() || isBusy || Boolean(pending)} type="submit">
+              <button disabled={!input.trim() || composerDisabled} type="submit">
                 发送
               </button>
             </form>
@@ -564,7 +578,6 @@ function ActionPanel({
   disabled: boolean
   onAction: (action: Record<string, unknown>) => Promise<void>
 }) {
-  const [description, setDescription] = useState('')
   if (!pending?.is_yours || pending.interrupt_type !== 'declare_action') {
     return <p className="drawer-empty">轮到你的战斗回合时，合法行动会在这里出现。</p>
   }
@@ -633,34 +646,40 @@ function ActionPanel({
           <small>{item.item_id}</small>
         </button>
       ))}
-      {options?.improvise ? (
-        <form
-          className="improvise-action"
-          onSubmit={(event) => {
-            event.preventDefault()
-            if (description.trim()) {
-              void onAction({ action_type: 'improvise', description: description.trim() })
-            }
-          }}
+      {(options?.special ?? []).map((special) => (
+        <button
+          disabled={disabled}
+          key={special.special_action_id}
+          onClick={() =>
+            void onAction({
+              action_type: 'special',
+              special_action_id: special.special_action_id,
+            })
+          }
+          type="button"
         >
-          <input
-            onChange={(event) => setDescription(event.target.value)}
-            placeholder="描述你的创意行动…"
-            value={description}
-          />
-          <button disabled={!description.trim() || disabled} type="submit">执行</button>
-        </form>
+          <span>✧</span>
+          <strong>{special.label}</strong>
+          <small>
+            {special.description || `对 ${special.target_name} 使用`}
+            {special.check
+              ? ` · ${special.check.ability} DC ${special.check.dc}`
+              : ''}
+          </small>
+        </button>
+      ))}
+      {options?.pass ? (
+        <button
+          className="pass-action"
+          disabled={disabled}
+          onClick={() => void onAction({ action_type: 'pass' })}
+          type="button"
+        >
+          <span>—</span>
+          <strong>结束回合</strong>
+          <small>暂不行动</small>
+        </button>
       ) : null}
-      <button
-        className="pass-action"
-        disabled={disabled}
-        onClick={() => void onAction({ action_type: 'pass' })}
-        type="button"
-      >
-        <span>—</span>
-        <strong>结束回合</strong>
-        <small>暂不行动</small>
-      </button>
     </div>
   )
 }

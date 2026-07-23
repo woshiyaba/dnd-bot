@@ -30,6 +30,8 @@ class CombatState(TypedDict, total=False):
 
     # —— 本回合工作区（节点间传递，回合开始清空）——
     current_action: dict | None  # 声明行动节点产出：{action_type, target_id, ...}
+    action_feedback: str | None  # 自然语言无法映射时，下一次行动中断展示的 DM 反馈
+    applied_special_actions: list[str]  # 本场已成功应用的 canon 特殊行动 id
     turn_events: list[dict]  # 本回合事件：结算节点产出的结构化事件，喂给 DM 叙述
 
     # —— 输出 ——

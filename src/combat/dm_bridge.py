@@ -92,9 +92,7 @@ async def judge_surprise_llm(
 # ---------------------------------------------------------------------------
 # 2. 怪物/NPC 行动决策
 # ---------------------------------------------------------------------------
-async def decide_action_llm(
-    actor: Combatant, combatants: dict[str, Combatant]
-) -> dict:
+async def decide_action_llm(actor: Combatant, combatants: dict[str, Combatant]) -> dict:
     """让 DM 替怪物/NPC 决定本回合动作，返回规范化的 action 字典。
 
     仅允许从"行动者已有的攻击 + 存活敌人"中选择；攻击需目标存活且够得着，
@@ -149,8 +147,134 @@ async def decide_action_llm(
 
 
 # ---------------------------------------------------------------------------
-# 3. 叙述
+# 3. 玩家自然语言行动裁定
 # ---------------------------------------------------------------------------
+async def adjudicate_player_action_llm(
+    actor: Combatant,
+    text: str,
+    options: dict,
+    combatants: dict[str, Combatant],
+    scene: dict,
+) -> dict:
+    """把玩家自然语言映射为当前合法行动；无法映射时明确拒绝且不消耗回合。
+
+    LLM 只能从引擎提供的封闭选项中挑选，返回后还会再次做确定性校验。它不能
+    自创 DC、伤害、状态或目标，也不能直接结算任何规则效果。
+    """
+    task = (
+        f"当前轮到「{actor.name}」行动。玩家说：{text!r}\n"
+        f"行动者：{_dump(_brief(actor))}\n"
+        f"当前参战者：{_dump([_brief(c) for c in combatants.values()])}\n"
+        f"引擎给出的全部合法选项：{_dump(options)}\n"
+        f"场景提示：{_dump({'location': scene.get('location'), 'reason': scene.get('reason')})}\n"
+        "你的职责只是解释玩家意图并选择一个合法选项，不能创造新规则、DC、效果、"
+        "攻击、目标或移动区域。表达能清楚对应攻击、移动、技能、道具、特殊行动或"
+        "放弃时，输出 accepted=true 以及对应 action；否则 accepted=false，并用简短"
+        "中文说明当前可行的改法。不要结算命中、伤害或 HP。\n"
+        "只输出 JSON：\n"
+        '{"accepted":true,"action":{"action_type":"attack|move|skill|item|special|pass",'
+        '"attack_name":"可选","target_id":"可选","target_zone":"可选",'
+        '"skill_id":"可选","item_id":"可选","special_action_id":"可选"}}\n'
+        '或 {"accepted":false,"reason":"简短中文反馈"}'
+    )
+    data = await dm_complete_json(task)
+    if not isinstance(data, dict) or not isinstance(data.get("accepted"), bool):
+        raise RuntimeError("[combat.dm] 玩家行动裁定未返回合法 JSON")
+    if not data["accepted"]:
+        reason = str(data.get("reason", "")).strip()
+        return {
+            "accepted": False,
+            "reason": reason or "这项行动目前无法对应到合法选项，请换一种做法。",
+        }
+
+    normalized = validate_player_action(data.get("action"), options, combatants)
+    if normalized is None:
+        return {
+            "accepted": False,
+            "reason": "这项行动目前无法对应到合法选项，请从当前可用行动中重新描述。",
+        }
+    return {"accepted": True, "action": normalized}
+
+
+def validate_player_action(
+    raw_action: object,
+    options: dict,
+    combatants: dict[str, Combatant],
+) -> dict | None:
+    """确定性验证 LLM 选中的行动确实属于当前选项集合。"""
+    if not isinstance(raw_action, dict):
+        return None
+    action_type = raw_action.get("action_type")
+    if action_type == ActionType.ATTACK.value:
+        attack_name = raw_action.get("attack_name")
+        target_id = raw_action.get("target_id")
+        for attack in options.get("attack", []) or []:
+            target_ids = {target.get("id") for target in attack.get("targets", [])}
+            if attack.get("attack_name") == attack_name and target_id in target_ids:
+                return {
+                    "action_type": ActionType.ATTACK.value,
+                    "attack_name": str(attack_name),
+                    "target_id": str(target_id),
+                }
+        return None
+    if action_type == ActionType.MOVE.value:
+        target_zone = raw_action.get("target_zone")
+        legal_zones = {
+            move.get("target_zone") for move in options.get("move", []) or []
+        }
+        if target_zone in legal_zones:
+            return {
+                "action_type": ActionType.MOVE.value,
+                "target_zone": str(target_zone),
+            }
+        return None
+    if action_type in {ActionType.SKILL.value, ActionType.ITEM.value}:
+        key = "skill_id" if action_type == ActionType.SKILL.value else "item_id"
+        legal_ids = {entry.get(key) for entry in options.get(action_type, []) or []}
+        selected_id = raw_action.get(key)
+        if selected_id not in legal_ids:
+            return None
+        normalized = {"action_type": action_type, key: str(selected_id)}
+        target_id = raw_action.get("target_id")
+        if target_id is not None:
+            target = combatants.get(str(target_id))
+            if not target or not target.is_alive:
+                return None
+            normalized["target_id"] = target.id
+        return normalized
+    if action_type == ActionType.SPECIAL.value:
+        selected_id = raw_action.get("special_action_id")
+        for special in options.get("special", []) or []:
+            if special.get("special_action_id") == selected_id:
+                return {
+                    "action_type": ActionType.SPECIAL.value,
+                    "special_action_id": str(selected_id),
+                    "target_id": str(special["target_id"]),
+                }
+        return None
+    if action_type == ActionType.PASS.value and options.get("pass"):
+        return {"action_type": ActionType.PASS.value}
+    return None
+
+
+# ---------------------------------------------------------------------------
+# 4. 叙述
+# ---------------------------------------------------------------------------
+async def narrate_combat_opening_llm(
+    combatants: dict[str, Combatant],
+    scene: dict,
+) -> str:
+    """根据已经提交的参战名单叙述开战瞬间，不提前结算任何攻击。"""
+    task = (
+        "战斗已经由 DM 裁定成立，下面的参战者与场景是引擎已经提交的事实：\n"
+        f"场景：{_dump({'location': scene.get('location'), 'reason': scene.get('reason')})}\n"
+        f"参战者：{_dump([_brief(c) for c in combatants.values()])}\n"
+        "请用 2-4 句中文叙述冲突如何正式进入战斗，并让读者清楚谁在对峙。"
+        "这只是开场镜头：不要描述任何攻击已经命中、伤害、HP 变化、死亡或胜负。"
+    )
+    return await dm_narrate(task)
+
+
 async def narrate_llm(
     events: list[dict],
     combatants: dict[str, Combatant],

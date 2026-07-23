@@ -1,0 +1,510 @@
+"""战斗触发、自然语言行动与线索战斗效果的无模型回归测试。"""
+
+from __future__ import annotations
+
+import unittest
+from unittest.mock import AsyncMock, patch
+
+from fastapi import HTTPException
+
+from src.dm import world_bridge
+from src.combat.dm_bridge import validate_player_action
+from src.combat.engine import CombatEngine
+from src.combat.interrupts import build_action_options, build_combat_view
+from src.combat.nodes import resolve_action
+from src.model.attack import Attack
+from src.model.canon import beat_brief
+from src.model.combatant import Monster, PlayerCharacter
+from src.model.dm_state import build_beat_scene
+from src.model.effects import InventoryItem
+from src.model.enums import ConditionType, DamageType, Faction, Range
+from src.services.room_service import GameRoom, RoomMember
+from src.services.session_service import session_service
+from src.session import story_nodes
+from src.session.graph import _build_combat_input, resolve_engagement
+from src.story.loader import get_registry
+
+
+class CombatFreedomTests(unittest.TestCase):
+    """验证自由开战仍会在规则边界内解析成严格战斗输入。"""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        registry = get_registry()
+        registry.load_all()
+        cls.canon = registry.get("whispers_bell_tower")
+
+    def _player(self) -> PlayerCharacter:
+        player = PlayerCharacter.from_card(
+            {
+                "id": "pc_aldous",
+                "name": "奥尔德斯",
+                "strength": 16,
+                "charisma": 14,
+                "current_hp": 20,
+                "max_hp": 20,
+                "ac": 16,
+                "attacks": [
+                    {
+                        "name": "长剑",
+                        "attack_bonus": 5,
+                        "damage_dice": "1d8+3",
+                        "damage_type": "slashing",
+                        "range": "melee",
+                    }
+                ],
+            }
+        )
+        player.controller = "user_aldous"
+        return player
+
+    def test_composite_attack_transitions_and_resolves_boss_encounter(self):
+        ruined = self.canon.beat("ruined_village")
+        scene = build_beat_scene(self.canon, ruined)
+        player = self._player()
+        state = {
+            "campaign_id": self.canon.campaign_id,
+            "story": {
+                "current_beat_id": ruined.id,
+                "current_location_id": scene["location_id"],
+                "visited_beats": [ruined.id],
+                "visited_locations": [scene["location_id"]],
+                "flags": {},
+                "delivered_clues": [],
+                "discovered_clues": [],
+                "removed_actor_ids": [],
+                "turn_index": 0,
+            },
+            "scene": scene,
+            "party": {player.id: player},
+            "campaign_log": [],
+            "combat_request": {
+                "encounter_id": "boss_bell_spirit",
+                "target_actor_ids": ["bell_spirit"],
+                "reason": "玩家冲上钟楼直接攻击古钟之灵",
+                "before_combat": {"transition_to_beat_id": "bell_tower_summit"},
+            },
+        }
+
+        update = resolve_engagement(state)
+        merged = {**state, **update}
+        combatants, context = _build_combat_input(merged)
+
+        self.assertEqual(update["story"]["current_beat_id"], "bell_tower_summit")
+        self.assertEqual(update["scene"]["beat_id"], "bell_tower_summit")
+        self.assertEqual(update["scene"]["location_id"], "bell_tower_summit")
+        self.assertIn("bell_spirit", combatants)
+        self.assertEqual(context["encounter_id"], "boss_bell_spirit")
+        self.assertEqual(update["story"].get("discovered_clues", []), [])
+
+    def test_dm_context_exposes_reachable_encounter_and_closed_ids(self):
+        ruined = self.canon.beat("ruined_village")
+        brief = beat_brief(
+            self.canon,
+            {
+                "current_beat_id": ruined.id,
+                "delivered_clues": [],
+            },
+        )
+
+        self.assertIn("accepted_quest", brief["allowed_flags"])
+        self.assertIn("clue_holy_water", brief["allowed_clue_ids"])
+        self.assertEqual(
+            brief["reachable_encounters"][0]["encounter_id"],
+            "boss_bell_spirit",
+        )
+
+    def test_discovery_atomically_sets_flag_and_grants_item(self):
+        ruined = self.canon.beat("ruined_village")
+        scene = build_beat_scene(self.canon, ruined)
+        player = self._player()
+        story = {
+            "current_beat_id": ruined.id,
+            "current_location_id": scene["location_id"],
+            "visited_locations": [scene["location_id"]],
+            "flags": {},
+            "delivered_clues": [],
+            "discovered_clues": [],
+        }
+        state = {
+            "scene": scene,
+            "party": {player.id: player},
+            "active_actor_id": player.id,
+            "world_writes": {"discoveries": ["clue_holy_water"]},
+        }
+
+        updated_story, _, _, _ = story_nodes._apply_world_writes(
+            self.canon,
+            story,
+            state,
+        )
+
+        self.assertTrue(updated_story["flags"]["clue_holy_water"])
+        self.assertEqual(updated_story["discovered_clues"], ["clue_holy_water"])
+        self.assertEqual(player.inventory[0].item_id, "item_holy_water")
+
+        state["world_writes"] = {"flags_set": {"clue_spirit_name": True}}
+        with self.assertRaises(ValueError):
+            story_nodes._apply_world_writes(self.canon, story, state)
+
+
+class LockedCombatIntentTests(unittest.IsolatedAsyncioTestCase):
+    """确认 DM 一旦识别开战，修正载荷时不能偷偷降级成普通回复。"""
+
+    async def test_invalid_combat_payload_cannot_downgrade_to_reply(self):
+        scene = {
+            "location": "村长家",
+            "actors": [
+                {
+                    "actor_id": "elder_marlon",
+                    "name": "村长马伦",
+                    "disposition": "friendly",
+                    "card": {"id": "elder_marlon"},
+                }
+            ],
+        }
+        decisions = AsyncMock(
+            side_effect=[
+                {
+                    "intent": "start_combat",
+                    "encounter": {"target_actor_ids": ["ghost_actor"]},
+                },
+                {"intent": "reply", "reply_brief": "请玩家再确认一次。"},
+                {
+                    "intent": "start_combat",
+                    "encounter": {
+                        "target_actor_ids": ["elder_marlon"],
+                        "reason": "玩家主动攻击村长",
+                    },
+                },
+            ]
+        )
+
+        with patch("src.dm.world_bridge._decide_llm", decisions):
+            result = await world_bridge.decide_turn(
+                "我拔剑攻击村长",
+                scene,
+                {},
+            )
+
+        self.assertEqual(result["intent"], "start_combat")
+        self.assertEqual(
+            result["encounter"]["target_actor_ids"],
+            ["elder_marlon"],
+        )
+        self.assertEqual(decisions.await_count, 3)
+
+
+class SpecialActionTests(unittest.TestCase):
+    """验证线索只解锁优势，不成为进入战斗的空气墙。"""
+
+    def setUp(self) -> None:
+        get_registry().load_all()
+        canon = get_registry().get("whispers_bell_tower")
+        self.special_actions = list(
+            canon.beat("bell_tower_summit").encounter.special_actions
+        )
+        self.player = PlayerCharacter.from_card(
+            {
+                "id": "pc_aldous",
+                "name": "奥尔德斯",
+                "strength": 16,
+                "charisma": 14,
+                "current_hp": 20,
+                "max_hp": 20,
+                "current_zone": "前排",
+            }
+        )
+        self.player.controller = "user_aldous"
+        self.player.inventory.append(
+            InventoryItem(item_id="item_holy_water", quantity=1)
+        )
+        self.boss = Monster(
+            id="bell_spirit",
+            name="古钟之灵",
+            current_hp=22,
+            max_hp=22,
+            ac=13,
+            current_zone="前排",
+            faction=Faction.ENEMY,
+            attacks=[
+                Attack(
+                    name="回响重击",
+                    attack_bonus=4,
+                    damage_dice="1d8+2",
+                    damage_type=DamageType.THUNDER,
+                    attack_range=Range.MELEE,
+                )
+            ],
+        )
+
+    def _state(self, special_action_id: str) -> dict:
+        return {
+            "combatants": {
+                self.player.id: self.player,
+                self.boss.id: self.boss,
+            },
+            "initiative_order": [self.player.id, self.boss.id],
+            "current_index": 0,
+            "current_round": 1,
+            "current_action": {
+                "action_type": "special",
+                "special_action_id": special_action_id,
+                "target_id": self.boss.id,
+            },
+            "combat_log": [],
+            "applied_special_actions": [],
+            "scene_context": {
+                "special_actions": self.special_actions,
+                "story_flags": {
+                    "clue_bell_crack": True,
+                    "clue_spirit_name": True,
+                    "clue_holy_water": True,
+                },
+            },
+        }
+
+    def test_no_clues_still_has_normal_actions_but_no_special_actions(self):
+        self.player.inventory.clear()
+        options = build_action_options(
+            self.player,
+            {self.player.id: self.player, self.boss.id: self.boss},
+            special_actions=self.special_actions,
+            story_flags=[],
+        )
+
+        self.assertTrue(options["natural_language"])
+        self.assertTrue(options["pass"])
+        self.assertEqual(options["special"], [])
+
+    def test_all_three_preparations_unlock_their_fixed_actions(self):
+        options = build_action_options(
+            self.player,
+            {self.player.id: self.player, self.boss.id: self.boss},
+            special_actions=self.special_actions,
+            story_flags=[
+                "clue_bell_crack",
+                "clue_spirit_name",
+                "clue_holy_water",
+            ],
+        )
+
+        self.assertEqual(
+            {item["special_action_id"] for item in options["special"]},
+            {"exploit_bell_crack", "invoke_true_name", "apply_holy_water"},
+        )
+
+    def test_crack_true_name_and_holy_water_apply_engine_effects(self):
+        with patch("src.combat.nodes.interrupt", return_value={"d20": 20}):
+            crack = resolve_action(self._state("exploit_bell_crack"))
+        self.assertEqual(self.boss.ac, 11)
+        self.assertIn("exploit_bell_crack", crack["applied_special_actions"])
+
+        with patch("src.combat.nodes.interrupt", return_value={"d20": 20}):
+            true_name = resolve_action(self._state("invoke_true_name"))
+        self.assertTrue(self.boss.has_condition(ConditionType.STUNNED))
+        self.assertIn("invoke_true_name", true_name["applied_special_actions"])
+
+        holy_water = resolve_action(self._state("apply_holy_water"))
+        self.assertEqual(self.boss.attacks[0].attack_bonus, 2)
+        self.assertEqual(self.player.inventory[0].quantity, 0)
+        self.assertIn("apply_holy_water", holy_water["applied_special_actions"])
+
+
+class NaturalLanguageActionTests(unittest.TestCase):
+    """验证自然语言只可落入引擎当前给出的行动集合。"""
+
+    def test_llm_action_selection_is_revalidated_against_options(self):
+        enemy = Monster(id="goblin", name="哥布林", current_hp=5, max_hp=5)
+        options = {
+            "attack": [
+                {
+                    "attack_name": "长剑",
+                    "targets": [{"id": enemy.id, "name": enemy.name}],
+                }
+            ],
+            "move": [{"target_zone": "后排"}],
+            "special": [],
+            "pass": True,
+        }
+        combatants = {enemy.id: enemy}
+
+        accepted = validate_player_action(
+            {
+                "action_type": "attack",
+                "attack_name": "长剑",
+                "target_id": enemy.id,
+            },
+            options,
+            combatants,
+        )
+        rejected = validate_player_action(
+            {
+                "action_type": "attack",
+                "attack_name": "凭空出现的火球",
+                "target_id": enemy.id,
+            },
+            options,
+            combatants,
+        )
+
+        self.assertEqual(accepted["target_id"], enemy.id)
+        self.assertIsNone(rejected)
+
+    def test_api_accepts_natural_language_and_special_only_when_offered(self):
+        natural = session_service.validate_action_resume(
+            {"natural_language": True},
+            {
+                "action_type": "natural_language",
+                "description": "我压低身形，用长剑横扫它的膝盖",
+            },
+        )
+        special = session_service.validate_action_resume(
+            {
+                "special": [
+                    {
+                        "special_action_id": "invoke_true_name",
+                        "target_id": "bell_spirit",
+                    }
+                ]
+            },
+            {
+                "action_type": "special",
+                "special_action_id": "invoke_true_name",
+            },
+        )
+
+        self.assertEqual(natural["action_type"], "natural_language")
+        self.assertEqual(special["target_id"], "bell_spirit")
+
+    def test_combat_feed_contains_only_declarations_and_dm_narration(self):
+        view = build_combat_view(
+            {
+                "combatants": {},
+                "combat_log": [
+                    {
+                        "event": "combat_opening",
+                        "text": "双方拔出武器，战斗一触即发。",
+                    },
+                    {
+                        "event": "declaration",
+                        "actor_id": "pc_aldous",
+                        "text": "我用长剑逼退它。",
+                    },
+                    {"event": "attack", "actor": "pc_aldous", "hit": True},
+                    {"event": "narration", "text": "剑锋擦过钟体。"},
+                ],
+            }
+        )
+
+        self.assertEqual(
+            [item["role"] for item in view["feed"]], ["dm", "player", "dm"]
+        )
+        self.assertNotIn("hit", " ".join(item["content"] for item in view["feed"]))
+
+
+class CombatTurnInputTests(unittest.IsolatedAsyncioTestCase):
+    """验证战斗挂起期间不能绕过回合约束走普通消息接口。"""
+
+    async def test_free_message_is_rejected_during_combat_interrupt(self):
+        member = RoomMember(
+            user_id="user_aldous",
+            display_name="奥尔德斯玩家",
+            character_id="pc_aldous",
+            access_token="token",
+            is_host=True,
+        )
+        room = GameRoom(
+            room_code="COMBAT",
+            campaign_id="whispers_bell_tower",
+            status="playing",
+            members={member.user_id: member},
+        )
+
+        class _InterruptedEngine:
+            async def current_payload(self, _room_id):
+                return {
+                    "status": "interrupted",
+                    "interrupt": {
+                        "interrupt_type": "declare_action",
+                        "directed_to": {"user_id": member.user_id},
+                    },
+                }
+
+        previous_engine = session_service._engine
+        previous_loaded = session_service._canon_loaded
+        session_service._engine = _InterruptedEngine()
+        session_service._canon_loaded = True
+        try:
+            with self.assertRaises(HTTPException) as raised:
+                await session_service.message(room, member, "我在战斗外随便插一句话")
+        finally:
+            session_service._engine = previous_engine
+            session_service._canon_loaded = previous_loaded
+            session_service._room_locks.clear()
+
+        self.assertEqual(raised.exception.status_code, 409)
+
+    async def test_combat_opening_reaches_initiative_without_premature_hit(self):
+        scene = {
+            "random_seed": 7,
+            "combatants": [
+                {
+                    "type": "player",
+                    "controller": "user_aldous",
+                    "card": {
+                        "id": "pc_aldous",
+                        "name": "奥尔德斯",
+                        "current_hp": 12,
+                        "max_hp": 12,
+                        "attacks": [
+                            {
+                                "name": "长剑",
+                                "attack_bonus": 5,
+                                "damage_dice": "1d8+3",
+                            }
+                        ],
+                    },
+                },
+                {
+                    "type": "monster",
+                    "card": {
+                        "id": "bell_spirit",
+                        "name": "古钟之灵",
+                        "current_hp": 22,
+                        "max_hp": 22,
+                        "attacks": [
+                            {
+                                "name": "回响重击",
+                                "attack_bonus": 4,
+                                "damage_dice": "1d8+2",
+                            }
+                        ],
+                    },
+                },
+            ],
+        }
+        with (
+            patch(
+                "src.combat.dm_bridge.judge_surprise_llm",
+                AsyncMock(return_value=[]),
+            ),
+            patch(
+                "src.combat.dm_bridge.narrate_combat_opening_llm",
+                AsyncMock(return_value="双方在钟影下摆开架势，战斗正式开始。"),
+            ),
+        ):
+            payload = await CombatEngine().start_combat("opening-test", scene)
+
+        self.assertEqual(payload["status"], "interrupted")
+        self.assertEqual(
+            payload["interrupt"]["interrupt_type"],
+            "roll_initiative",
+        )
+        feed = payload["interrupt"]["extra"]["combat"]["feed"]
+        self.assertEqual(feed[0]["content"], "双方在钟影下摆开架势，战斗正式开始。")
+        self.assertNotIn("命中", feed[0]["content"])
+
+
+if __name__ == "__main__":
+    unittest.main()

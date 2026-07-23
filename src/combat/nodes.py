@@ -2,7 +2,7 @@
 
 每个节点读写 docs/战斗/01 定义的 `CombatState`，对照 docs/战斗/02 的流程：
 
-    enter_combat → judge_surprise → roll_initiative → next_turn
+    enter_combat → judge_surprise → narrate_opening → roll_initiative → next_turn
     → declare_action → resolve_action → narrate → check_end ─┐
               ▲────────────────(outcome==进行中)─────────────┘
               └──(否则)──► settle → END
@@ -38,6 +38,7 @@ from src.combat.rules import (
 )
 from src.model.combat_state import CombatState, load_combatants
 from src.model.combatant import Character, Combatant
+from src.model.effects import Condition
 from src.model.enums import (
     Ability,
     ActionType,
@@ -96,6 +97,8 @@ def enter_combat(state: CombatState) -> dict:
         "phase": CombatPhase.SETUP,
         "outcome": CombatOutcome.ONGOING,
         "current_action": None,
+        "action_feedback": None,
+        "applied_special_actions": [],
         "turn_events": [],
         "combat_log": list(state.get("combat_log", [])),
     }
@@ -125,6 +128,24 @@ async def judge_surprise(state: CombatState) -> dict:
         "combatants": combatants,
         "phase": CombatPhase.SURPRISE,
         "combat_log": _append_log(state, events),
+    }
+
+
+async def narrate_opening(state: CombatState) -> dict:
+    """由真实 DM 叙述已提交战斗的开场，不提前产生任何规则结果。"""
+    from src.combat import dm_bridge
+
+    narration = await dm_bridge.narrate_combat_opening_llm(
+        state["combatants"],
+        state.get("scene_context", {}) or {},
+    )
+    if not narration:
+        raise RuntimeError("[combat.dm] 战斗开场叙述为空")
+    return {
+        "combat_log": _append_log(
+            state,
+            [{"event": "combat_opening", "text": narration, "round": 0}],
+        )
     }
 
 
@@ -282,6 +303,7 @@ def next_turn(state: CombatState) -> dict:
         "current_round": rnd,
         "phase": CombatPhase.IN_TURN,
         "current_action": None,
+        "action_feedback": None,
         "turn_events": [],
         "combat_log": _append_log(state, events),
     }
@@ -300,35 +322,124 @@ async def declare_action(state: CombatState) -> dict:
     actor = _current_actor(state)
 
     if actor.is_player_controlled:
-        options = build_action_options(actor, combatants)
+        story_flags = scene.get("story_flags", {}) or {}
+        options = build_action_options(
+            actor,
+            combatants,
+            special_actions=list(scene.get("special_actions", []) or []),
+            story_flags=[
+                flag for flag, enabled in story_flags.items() if bool(enabled)
+            ],
+            applied_special_actions=list(
+                state.get("applied_special_actions", []) or []
+            ),
+        )
+        feedback = state.get("action_feedback")
+        prompt = f"轮到 {actor.name}，从当前选项中选择或描述本回合行动"
+        if feedback:
+            prompt = f"{feedback}\n{prompt}"
         resume_value = interrupt(
             build_interrupt_request(
                 kind=InterruptType.DECLARE_ACTION,
                 actor=actor,
-                prompt=f"轮到 {actor.name}，声明你的行动",
+                prompt=prompt,
                 options=options,
                 extra={"combat": build_combat_view(state, actor_id=actor.id)},
             )
         )
-        current_action = _normalize_action(resume_value, actor, combatants)
+        current_action, feedback, declaration = await _normalize_player_action(
+            resume_value,
+            actor,
+            combatants,
+            options,
+            scene,
+        )
+        update = {
+            "current_action": current_action,
+            "action_feedback": feedback,
+        }
+        if declaration:
+            update["combat_log"] = _append_log(state, [declaration])
     else:
         from src.combat import dm_bridge
 
         current_action = await dm_bridge.decide_action_llm(actor, combatants)
+        update = {"current_action": current_action, "action_feedback": None}
 
     logger.info("[declare_action] %s -> %s", actor.id, current_action)
-    return {"current_action": current_action}
+    return update
 
 
-def _normalize_action(
-    resume_value: Any, actor: Combatant, combatants: dict[str, Combatant]
-) -> dict:
-    """把玩家回报的恢复值规范成统一的「current_action」结构。"""
+async def _normalize_player_action(
+    resume_value: Any,
+    actor: Combatant,
+    combatants: dict[str, Combatant],
+    options: dict,
+    scene: dict,
+) -> tuple[dict, str | None, dict | None]:
+    """校验玩家回报；自然语言只由真实 DM 映射到当前封闭选项。"""
     if not isinstance(resume_value, dict):
-        return {"action_type": ActionType.PASS.value}
-    action = dict(resume_value)
-    action.setdefault("action_type", ActionType.PASS.value)
-    return action
+        return (
+            {"action_type": ActionType.REJECTED.value},
+            "没有收到可识别的行动，请重新选择或描述。",
+            None,
+        )
+
+    from src.combat import dm_bridge
+
+    action_type = resume_value.get("action_type")
+    if action_type == ActionType.NATURAL_LANGUAGE.value:
+        text = str(
+            resume_value.get("description") or resume_value.get("text") or ""
+        ).strip()
+        if not text:
+            return (
+                {"action_type": ActionType.REJECTED.value},
+                "行动描述不能为空，请说清楚这回合想做什么。",
+                None,
+            )
+        declaration = {
+            "event": "declaration",
+            "actor_id": actor.id,
+            "text": text,
+        }
+        decision = await dm_bridge.adjudicate_player_action_llm(
+            actor,
+            text,
+            options,
+            combatants,
+            scene,
+        )
+        if not decision["accepted"]:
+            return (
+                {"action_type": ActionType.REJECTED.value},
+                str(decision["reason"]),
+                declaration,
+            )
+        action = dict(decision["action"])
+        action["declared_text"] = text
+        return action, None, declaration
+
+    normalized = dm_bridge.validate_player_action(
+        resume_value,
+        options,
+        combatants,
+    )
+    if normalized is None:
+        return (
+            {"action_type": ActionType.REJECTED.value},
+            "该行动不在当前合法选项中，请重新选择。",
+            None,
+        )
+    return normalized, None, None
+
+
+def route_after_declare(state: CombatState) -> str:
+    """非法自然语言行动不消耗回合，留在当前行动者重新声明。"""
+    action = state.get("current_action") or {}
+    if action.get("action_type") == ActionType.REJECTED.value:
+        return "retry"
+    return "resolve"
 
 
 # ---------------------------------------------------------------------------
@@ -347,19 +458,30 @@ def resolve_action(state: CombatState) -> dict:
         events = _resolve_skill(actor, action, combatants)
     elif action_type == ActionType.ITEM.value:
         events = _resolve_item(actor, action, combatants)
-    elif action_type == ActionType.IMPROVISE.value:
-        events = _resolve_improvise(state, actor, action, combatants)
+    elif action_type == ActionType.SPECIAL.value:
+        events = _resolve_special(state, actor, action, combatants)
     elif action_type == ActionType.MOVE.value:
         events = _resolve_move(actor, action)
     else:
         events = [{"event": "pass", "actor": actor.id}]
 
+    declared_text = action.get("declared_text")
     events = [_with_round(state, e) for e in events]
+    if declared_text:
+        for event in events:
+            event["declared_text"] = declared_text
+    applied_special_actions = list(state.get("applied_special_actions", []) or [])
+    for event in events:
+        applied_id = event.get("applied_special_action_id")
+        if applied_id and applied_id not in applied_special_actions:
+            applied_special_actions.append(applied_id)
     logger.info(
         "[resolve_action] %s 事件=%s", actor.id, [e.get("event") for e in events]
     )
     return {
         "combatants": combatants,
+        "action_feedback": None,
+        "applied_special_actions": applied_special_actions,
         "turn_events": events,
         "combat_log": _append_log(state, events),
     }
@@ -540,6 +662,143 @@ def _resolve_item(
     if item_id in _HEALING_ITEMS:
         healed = target.heal(current_engine_dice().roll(_HEALING_ITEMS[item_id]).total)
         event.update({"heal": healed, "target_hp": target.current_hp})
+    return [event]
+
+
+def _resolve_special(
+    state: CombatState,
+    actor: Combatant,
+    action: dict,
+    combatants: dict[str, Combatant],
+) -> list[dict]:
+    """结算 canon 封闭定义的特殊行动，LLM 不参与数值与效果计算。"""
+    scene = state.get("scene_context", {}) or {}
+    action_id = str(action.get("special_action_id", ""))
+    definition = next(
+        (
+            candidate
+            for candidate in scene.get("special_actions", []) or []
+            if candidate.get("id") == action_id
+        ),
+        None,
+    )
+    if definition is None:
+        raise ValueError(f"[combat] 未知特殊行动 «{action_id}»")
+
+    story_flags = scene.get("story_flags", {}) or {}
+    if any(not story_flags.get(flag) for flag in definition.get("requires_flags", [])):
+        raise ValueError(f"[combat] 特殊行动 «{action_id}» 缺少剧情条件")
+    if action_id in (state.get("applied_special_actions", []) or []):
+        raise ValueError(f"[combat] 特殊行动 «{action_id}» 已经生效")
+
+    target_id = str(definition.get("target_actor_id", ""))
+    target = combatants.get(target_id)
+    if target is None or not target.is_alive or target.faction == actor.faction:
+        raise ValueError(f"[combat] 特殊行动 «{action_id}» 的目标无效")
+    if definition.get("range") == "melee" and target.current_zone != actor.current_zone:
+        raise ValueError(f"[combat] 特殊行动 «{action_id}» 的目标不在同一区域")
+
+    required_item_id = definition.get("requires_item_id")
+    owned_item = None
+    if required_item_id and isinstance(actor, Character):
+        owned_item = next(
+            (
+                item
+                for item in actor.inventory
+                if item.item_id == required_item_id and item.is_available
+            ),
+            None,
+        )
+    if required_item_id and owned_item is None:
+        raise ValueError(f"[combat] 特殊行动 «{action_id}» 缺少所需道具")
+
+    event: dict[str, Any] = {
+        "event": "special_action",
+        "actor": actor.id,
+        "target": target.id,
+        "special_action_id": action_id,
+        "label": definition.get("label", action_id),
+    }
+    check = definition.get("check")
+    if isinstance(check, dict):
+        ability = Ability(str(check["ability"]))
+        dc = int(check["dc"])
+        bonus = ability_check_bonus(actor, ability)
+        if actor.is_player_controlled:
+            resume_value = interrupt(
+                build_interrupt_request(
+                    kind=InterruptType.ABILITY_CHECK,
+                    actor=actor,
+                    prompt=(
+                        f"{definition.get('label', action_id)}：掷 "
+                        f"{ability.value} 检定 d20 + {bonus}，对抗 DC {dc}"
+                    ),
+                    required_dice="d20",
+                    bonus=bonus,
+                    extra={"combat": build_combat_view(state, actor_id=actor.id)},
+                )
+            )
+            d20 = validate_d20(resume_value)
+            roll_source = extract_roll_source(resume_value)
+        else:
+            d20 = current_engine_dice().d20()
+            roll_source = "engine"
+        success = check_success(d20, bonus, dc)
+        event.update(
+            {
+                "ability": ability.value,
+                "d20": d20,
+                "bonus": bonus,
+                "dc": dc,
+                "source": roll_source,
+                "success": success,
+            }
+        )
+        if not success:
+            return [event]
+    else:
+        event["success"] = True
+
+    effect = definition["effect"]
+    effect_kind = effect["kind"]
+    amount = int(effect.get("amount", 0))
+    if effect_kind == "modify_ac":
+        old_value = target.ac
+        target.ac += amount
+        event["effect"] = {
+            "kind": effect_kind,
+            "before": old_value,
+            "after": target.ac,
+        }
+    elif effect_kind == "modify_attack_bonus":
+        before = {attack.name: attack.attack_bonus for attack in target.attacks}
+        for attack in target.attacks:
+            attack.attack_bonus += amount
+        event["effect"] = {
+            "kind": effect_kind,
+            "before": before,
+            "after": {attack.name: attack.attack_bonus for attack in target.attacks},
+        }
+    elif effect_kind == "add_condition":
+        condition = Condition(
+            kind=ConditionType(str(effect["condition"])),
+            rounds_left=int(effect.get("rounds", 1)),
+        )
+        target.add_condition(condition)
+        event["effect"] = {
+            "kind": effect_kind,
+            "condition": condition.kind.value,
+            "rounds": condition.rounds_left,
+        }
+    else:
+        raise ValueError(f"[combat] 不支持的特殊行动效果 «{effect_kind}»")
+
+    if definition.get("consume_item"):
+        if owned_item is None:
+            raise ValueError(f"[combat] 特殊行动 «{action_id}» 没有可消耗道具")
+        owned_item.quantity -= 1
+        event["consumed_item_id"] = owned_item.item_id
+    event["applied_special_action_id"] = action_id
     return [event]
 
 

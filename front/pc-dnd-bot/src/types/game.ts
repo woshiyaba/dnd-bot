@@ -90,7 +90,16 @@ export type PendingInteraction = {
     move?: Array<{ target_zone: string }>
     skill?: Array<{ skill_id: string; charges_left?: number }>
     item?: Array<{ item_id: string; quantity?: number }>
-    improvise?: boolean
+    special?: Array<{
+      special_action_id: string
+      label: string
+      description?: string
+      target_id: string
+      target_name: string
+      check?: { ability: string; dc: number }
+    }>
+    natural_language?: boolean
+    pass?: boolean
   }
 }
 

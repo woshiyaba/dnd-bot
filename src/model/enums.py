@@ -106,6 +106,9 @@ class ActionType(StrEnum):
     SKILL = "skill"  # 技能
     ITEM = "item"  # 道具
     IMPROVISE = "improvise"  # 创意
+    SPECIAL = "special"  # canon 封闭定义的特殊行动
+    NATURAL_LANGUAGE = "natural_language"  # 玩家自然语言行动，交真实 DM 映射
+    REJECTED = "rejected"  # DM 无法映射，保持当前回合重新声明
     MOVE = "move"  # 移动
     PASS = "pass"  # 放弃
 

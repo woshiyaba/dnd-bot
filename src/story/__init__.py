@@ -3,7 +3,8 @@
 依赖方向：``session → story → model``；``story`` 不认识 LangGraph。
 本层是「提前定死」的剧情圣经（canon）的生产者与加载者：
 - :mod:`src.story.loader` —— 从 ``canon/*.json`` 读盘、校验、反序列化为 ``Canon``，按 ``campaign_id`` 在内存注册表中引用。
-- ``src.story.generator``（LLM 编剧）留作二期，本版只手写 canon。
+- :mod:`src.story.prompt` —— 对话式故事访谈、确认门槛与 Canon 编译/修复规则。
+- ``src.story.generator``（真实 LLM 编剧服务）留作后续接入；当前仍由文件加载已发布 Canon。
 """
 
 from src.story.loader import (
@@ -12,10 +13,24 @@ from src.story.loader import (
     get_registry,
     load_canon_file,
 )
+from src.story.prompt import (
+    CANON_AUTHORING_RULE,
+    STORY_INTERVIEW_RULE,
+    build_canon_authoring_prompt,
+    build_canon_repair_prompt,
+    build_story_interview_prompt,
+    validate_confirmed_design_brief,
+)
 
 __all__ = [
+    "CANON_AUTHORING_RULE",
+    "STORY_INTERVIEW_RULE",
     "CanonRegistry",
     "CanonValidationError",
+    "build_canon_authoring_prompt",
+    "build_canon_repair_prompt",
+    "build_story_interview_prompt",
     "get_registry",
     "load_canon_file",
+    "validate_confirmed_design_brief",
 ]

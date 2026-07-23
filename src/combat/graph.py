@@ -2,8 +2,9 @@
 
 把 docs/战斗/02 的流程落成 `StateGraph(CombatState)`：
 
-    START → enter_combat → judge_surprise → roll_initiative → next_turn
-    → declare_action → resolve_action → narrate → check_end
+    START → enter_combat → judge_surprise → narrate_opening → roll_initiative → next_turn
+    → declare_action ─(非法自然语言)→ declare_action
+                     └(合法)→ resolve_action → narrate → check_end
     check_end ─(进行中)→ next_turn
     check_end ─(否则)──→ settle → END
 
@@ -39,9 +40,11 @@ from src.combat.nodes import (
     enter_combat,
     judge_surprise,
     narrate,
+    narrate_opening,
     next_turn,
     resolve_action,
     roll_initiative,
+    route_after_declare,
     route_after_check,
     settle,
 )
@@ -102,6 +105,7 @@ def build_combat_graph(checkpointer: Any | None = None, *, embeddable: bool = Fa
 
     g.add_node("enter_combat", enter_combat)
     g.add_node("judge_surprise", judge_surprise)
+    g.add_node("narrate_opening", narrate_opening)
     g.add_node("roll_initiative", roll_initiative)
     g.add_node("next_turn", next_turn)
     g.add_node("declare_action", declare_action)
@@ -112,10 +116,18 @@ def build_combat_graph(checkpointer: Any | None = None, *, embeddable: bool = Fa
 
     g.add_edge(START, "enter_combat")
     g.add_edge("enter_combat", "judge_surprise")
-    g.add_edge("judge_surprise", "roll_initiative")
+    g.add_edge("judge_surprise", "narrate_opening")
+    g.add_edge("narrate_opening", "roll_initiative")
     g.add_edge("roll_initiative", "next_turn")
     g.add_edge("next_turn", "declare_action")
-    g.add_edge("declare_action", "resolve_action")
+    g.add_conditional_edges(
+        "declare_action",
+        route_after_declare,
+        {
+            "retry": "declare_action",
+            "resolve": "resolve_action",
+        },
+    )
     g.add_edge("resolve_action", "narrate")
     g.add_edge("narrate", "check_end")
 

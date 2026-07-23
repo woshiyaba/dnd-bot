@@ -26,6 +26,7 @@ from src.model.canon import (
     evaluate_trigger,
 )
 from src.model.dm_state import DMState, build_beat_scene
+from src.model.effects import InventoryItem
 from src.session.common import llm_enabled, log_event
 from src.story.loader import get_registry
 
@@ -97,29 +98,40 @@ async def evaluate_advancement(state: DMState) -> dict:
     story["turn_index"] = story.get("turn_index", 0) + 1
 
     # 先把世界写入落进 story（DM 声明 + 引擎自动写），再据此判定推进
-    story, write_events = _apply_world_writes(canon, story, state)
-
-    scene = state.get("scene") or {}
-    party = state.get("party") or {}
+    story, scene, party, write_events = _apply_world_writes(canon, story, state)
     last_combat = state.get("last_combat")
     messages = state.get("messages", [])
 
     target_beat_id: str | None = None
     transition_reason = ""
 
-    # 2) 全局胜负条件优先（达成即进对应结局拍）
-    if canon.lose_condition is not None and await _condition_met(
-        canon.lose_condition, story, scene, party, last_combat, messages, state
+    # 2) 已校验的显式行动迁移优先；它只能指向当前拍的 action 出口。
+    explicit_target = story.get("pending_next_beat_id")
+    if explicit_target:
+        target_beat_id = explicit_target
+        transition_reason = "DM 已确认的玩家行动"
+
+    # 3) 全局胜负条件（达成即进对应结局拍）
+    if (
+        target_beat_id is None
+        and canon.lose_condition is not None
+        and await _condition_met(
+            canon.lose_condition, story, scene, party, last_combat, messages, state
+        )
     ):
         ending = canon.ending_beat(EndingOutcome.LOSE)
         target_beat_id = ending.id if ending else None
-    elif canon.win_condition is not None and await _condition_met(
-        canon.win_condition, story, scene, party, last_combat, messages, state
+    elif (
+        target_beat_id is None
+        and canon.win_condition is not None
+        and await _condition_met(
+            canon.win_condition, story, scene, party, last_combat, messages, state
+        )
     ):
         ending = canon.ending_beat(EndingOutcome.WIN)
         target_beat_id = ending.id if ending else None
 
-    # 3) 本拍推进条件（确定性优先，semantic 问 DM）
+    # 4) 本拍推进条件（确定性优先，semantic 问 DM）
     beat = canon.beat(story.get("current_beat_id", ""))
     if target_beat_id is None and beat is not None:
         for trig in beat.advance_conditions:
@@ -145,6 +157,8 @@ async def evaluate_advancement(state: DMState) -> dict:
         story["pending_next_beat_id"] = target_beat_id
         return {
             "story": story,
+            "scene": scene,
+            "party": party,
             "next_story": "advance",
             "world_writes": None,
             "story_transition": {
@@ -173,6 +187,8 @@ async def evaluate_advancement(state: DMState) -> dict:
     )
     return {
         "story": story,
+        "scene": scene,
+        "party": party,
         "next_story": "stay",
         "world_writes": None,
         "story_transition": {"type": "stay"},
@@ -206,7 +222,7 @@ async def _condition_met(
 
 def _apply_world_writes(
     canon: Canon, story: dict, state: DMState
-) -> tuple[dict, list[dict]]:
+) -> tuple[dict, dict, dict, list[dict]]:
     """把 DM 声明的世界写入（白名单校验）与引擎自动写落进 story，返回 ``(新 story, 事件列表)``。
 
     - DM 写：``flags_set``（仅 canon ``declared_flags`` 白名单内）、``moved_to``（须在本拍地点内）、``clues_delivered``。
@@ -215,32 +231,147 @@ def _apply_world_writes(
     events: list[dict] = []
     declared = set(canon.declared_flags)
     writes = state.get("world_writes") or {}
+    scene = dict(state.get("scene") or {})
+    party = dict(state.get("party") or {})
+    discovery_managed_flags = {
+        flag
+        for candidate_beat in canon.beats
+        for clue in candidate_beat.key_info
+        for flag in (clue.discovery_effects.get("flags_set") or {})
+    }
 
     flags = dict(story.get("flags", {}))
     for key, value in (writes.get("flags_set") or {}).items():
-        if key in declared:
-            flags[key] = value
-            events.append(
-                {"event": "flag_set", "flag": key, "value": value, "by": "dm"}
-            )
-        else:
-            logger.warning("[story] 忽略白名单外的 flag «%s»（DM 越权声明）", key)
+        if key not in declared:
+            raise ValueError(f"[story] DM 尝试写入白名单外 flag «{key}»")
+        if key in discovery_managed_flags:
+            raise ValueError(f"[story] 线索 flag «{key}» 必须通过 discoveries 写入")
+        flags[key] = value
+        events.append({"event": "flag_set", "flag": key, "value": value, "by": "dm"})
 
     beat = canon.beat(story.get("current_beat_id", ""))
     visited_locations = list(story.get("visited_locations", []))
     current_location_id = story.get("current_location_id")
     moved_to = writes.get("moved_to")
-    if moved_to and beat is not None and moved_to in beat.location_ids:
+    if moved_to:
+        if beat is None or moved_to not in beat.location_ids:
+            raise ValueError(
+                f"[story] 地点 «{moved_to}» 不属于当前拍 "
+                f"«{story.get('current_beat_id')}»"
+            )
         current_location_id = moved_to
         if moved_to not in visited_locations:
             visited_locations.append(moved_to)
         events.append({"event": "moved", "location_id": moved_to})
+        rebuilt = build_beat_scene(
+            canon,
+            beat,
+            location_id=moved_to,
+            removed_actor_ids=story.get("removed_actor_ids", []),
+        )
+        rebuilt["dm_mode"] = scene.get("dm_mode")
+        if scene.get("random_seed") is not None:
+            rebuilt.setdefault("random_seed", scene.get("random_seed"))
+        scene = rebuilt
 
     delivered = list(story.get("delivered_clues", []))
+    current_clue_ids = {clue.id for clue in beat.key_info} if beat else set()
     for clue_id in writes.get("clues_delivered", []):
+        if clue_id not in current_clue_ids:
+            raise ValueError(
+                f"[story] 当前拍 «{story.get('current_beat_id')}» "
+                f"不存在可传达线索 «{clue_id}»"
+            )
         if clue_id not in delivered:
             delivered.append(clue_id)
             events.append({"event": "clue_delivered", "clue_id": clue_id})
+
+    discovered = list(story.get("discovered_clues", []))
+    if beat is not None:
+        clue_by_id = {clue.id: clue for clue in beat.key_info}
+        for clue_id in writes.get("discoveries", []):
+            clue = clue_by_id.get(clue_id)
+            if clue is None:
+                raise ValueError(
+                    f"[story] 当前拍 «{beat.id}» 不存在可发现线索 «{clue_id}»"
+                )
+            if clue_id in discovered:
+                continue
+            discovered.append(clue_id)
+            effects = clue.discovery_effects or {}
+            for key, value in (effects.get("flags_set") or {}).items():
+                if key not in declared:
+                    raise ValueError(
+                        f"[story] 线索 «{clue_id}» 尝试写入未声明 flag «{key}»"
+                    )
+                flags[key] = value
+                events.append(
+                    {
+                        "event": "flag_set",
+                        "flag": key,
+                        "value": value,
+                        "by": "discovery",
+                    }
+                )
+            for grant in effects.get("grant_items", []):
+                recipient = _discovery_recipient(party, state, grant)
+                item_id = str(grant.get("item_id") or "")
+                quantity = int(grant.get("quantity", 1))
+                if recipient is None or not item_id or quantity <= 0:
+                    raise ValueError(f"[story] 线索 «{clue_id}» 的物品发放配置无效")
+                owned = next(
+                    (item for item in recipient.inventory if item.item_id == item_id),
+                    None,
+                )
+                if owned is None:
+                    recipient.inventory.append(
+                        InventoryItem(item_id=item_id, quantity=quantity)
+                    )
+                else:
+                    owned.quantity += quantity
+                events.append(
+                    {
+                        "event": "item_granted",
+                        "item_id": item_id,
+                        "quantity": quantity,
+                        "actor_id": recipient.id,
+                        "by": "discovery",
+                    }
+                )
+            events.append({"event": "clue_discovered", "clue_id": clue_id})
+
+    transition_to = writes.get("transition_to_beat_id")
+    if transition_to:
+        if beat is None:
+            raise ValueError("[story] 无当前剧情拍，不能执行跨拍行动")
+        allowed = {
+            ex.next_beat_id
+            for ex in beat.exits
+            if (
+                trigger := next(
+                    (
+                        item
+                        for item in beat.advance_conditions
+                        if item.id == ex.trigger_id
+                    ),
+                    None,
+                )
+            )
+            is not None
+            and trigger.kind.value == "action"
+        }
+        if transition_to not in allowed:
+            raise ValueError(
+                f"[story] 当前拍 «{beat.id}» 不允许行动迁移到 «{transition_to}»"
+            )
+        story["pending_next_beat_id"] = transition_to
+        events.append(
+            {
+                "event": "transition_requested",
+                "from_beat_id": beat.id,
+                "to_beat_id": transition_to,
+            }
+        )
 
     # 引擎自动写：战斗胜利 → on_win_flags
     last_combat = state.get("last_combat") or {}
@@ -248,6 +379,7 @@ def _apply_world_writes(
         last_combat.get("outcome") == "players_win"
         and beat is not None
         and beat.encounter is not None
+        and last_combat.get("encounter_id") == beat.encounter.id
     ):
         for flag in beat.encounter.on_win_flags:
             if flag in declared and not flags.get(flag):
@@ -262,8 +394,35 @@ def _apply_world_writes(
         "visited_locations": visited_locations,
         "current_location_id": current_location_id,
         "delivered_clues": delivered,
+        "discovered_clues": discovered,
     }
-    return story, events
+    return story, scene, party, events
+
+
+def _discovery_recipient(party: dict, state: DMState, grant: dict):
+    """解析线索物品接收者；当前只允许发给实际发现线索的角色。"""
+    if grant.get("recipient", "active_actor") != "active_actor":
+        raise ValueError("[story] 只支持 recipient=active_actor")
+    return party.get(state.get("active_actor_id"))
+
+
+def apply_world_writes(state: DMState) -> dict:
+    """立即提交本回合已校验的世界写入，供开战前原子准备阶段复用。"""
+    canon = current_canon(state)
+    story = dict(state.get("story") or {})
+    if canon is None or not story:
+        return {"world_writes": None}
+    story, scene, party, events = _apply_world_writes(canon, story, state)
+    campaign_log = list(state.get("campaign_log", []) or [])
+    for event in events:
+        campaign_log = log_event({"campaign_log": campaign_log}, event)
+    return {
+        "story": story,
+        "scene": scene,
+        "party": party,
+        "campaign_log": campaign_log,
+        "world_writes": None,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -271,18 +430,38 @@ def _apply_world_writes(
 # ---------------------------------------------------------------------------
 def enter_beat(state: DMState) -> dict:
     """切到 ``pending_next_beat_id`` 指向的下一拍：搭新 scene、更新进度、重置空转。"""
+    story = state.get("story") or {}
+    return transition_to_beat(
+        state,
+        story.get("pending_next_beat_id"),
+        reason=(state.get("story_transition") or {}).get("reason"),
+    )
+
+
+def transition_to_beat(
+    state: DMState, next_id: str | None, *, reason: str | None = None
+) -> dict:
+    """经上游校验后原子切换剧情拍，供普通推进与开战前迁移复用。"""
     canon = current_canon(state)
     story = dict(state.get("story") or {})
+    from_beat_id = story.get("current_beat_id")
     previous_scene = state.get("scene")
     transition = dict(state.get("story_transition") or {"type": "advance"})
-    next_id = story.get("pending_next_beat_id")
     beat = canon.beat(next_id) if canon else None
     if beat is None:  # 兜底：目标拍不存在 → 不切，留在原地
-        logger.warning("[enter_beat] 目标拍 «%s» 不存在，放弃切拍", next_id)
-        story["pending_next_beat_id"] = None
-        return {"story": story, "story_transition": {"type": "stay"}}
+        raise ValueError(f"[enter_beat] 目标拍 «{next_id}» 不存在")
 
-    scene = build_beat_scene(canon, beat)
+    if beat.entry_state.get("preserve_current_scene"):
+        scene = dict(previous_scene or {})
+        scene["beat_id"] = beat.id
+        if beat.entry_state.get("description"):
+            scene["description"] = beat.entry_state["description"]
+    else:
+        scene = build_beat_scene(
+            canon,
+            beat,
+            removed_actor_ids=story.get("removed_actor_ids", []),
+        )
     scene["dm_mode"] = (state.get("scene") or {}).get("dm_mode")  # 沿用本局 DM 模式
 
     visited_beats = list(story.get("visited_beats", []))
@@ -311,9 +490,11 @@ def enter_beat(state: DMState) -> dict:
     transition.update(
         {
             "type": "advance",
+            "from_beat_id": from_beat_id,
             "to_beat_id": beat.id,
             "to_beat_title": beat.title,
             "to_location": scene.get("location"),
+            "reason": reason or transition.get("reason") or "玩家行动触发",
         }
     )
     return {

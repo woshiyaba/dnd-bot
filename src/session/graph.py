@@ -3,7 +3,8 @@
 落实 docs/DM/01-中央DM主图方案.md §2（选项 A：战斗作为子图嵌入）：
 
     START → dm_turn(DM 子图) → route_session ─┬─(wait)──► evaluate_advancement
-                                              └─(combat)► run_combat(战斗子图·包装节点)
+                                              └─(combat)► resolve_engagement
+                                                          → run_combat(战斗子图·包装节点)
                                                           → evaluate_advancement
              evaluate_advancement ─┬─(stay)────► final_narrate_turn → END
                                     └─(advance)► enter_beat → final_narrate_turn → END
@@ -48,6 +49,98 @@ def route_session(state: DMState) -> str:
     return "combat" if state.get("next") == "combat" else "wait"
 
 
+def resolve_engagement(state: DMState) -> dict:
+    """提交开战前迁移，并把 DM 引用解析成完整、严格的遭遇请求。"""
+    request = dict(state.get("combat_request") or {})
+    if not request:
+        raise ValueError("[session] start_combat 缺少 combat_request")
+
+    working = dict(state)
+    world_update = story_nodes.apply_world_writes(state)
+    working.update(world_update)
+    transition_to = (request.get("before_combat") or {}).get("transition_to_beat_id")
+    transition_update: dict = {}
+    if transition_to:
+        transition_update = story_nodes.transition_to_beat(
+            working,
+            transition_to,
+            reason=request.get("reason") or "玩家主动进入战斗",
+        )
+        working.update(transition_update)
+
+    canon = story_nodes.current_canon(working)
+    story = working.get("story") or {}
+    scene = dict(working.get("scene") or {})
+    encounter_id = request.get("encounter_id")
+
+    if encounter_id:
+        resolved = canon.encounter(encounter_id) if canon else None
+        if resolved is None:
+            raise ValueError(f"[session] 遭遇 «{encounter_id}» 不存在")
+        encounter_beat, encounter = resolved
+        if story.get("current_beat_id") != encounter_beat.id:
+            raise ValueError(
+                f"[session] 遭遇 «{encounter_id}» 不属于当前拍 "
+                f"«{story.get('current_beat_id')}»"
+            )
+        monster_ids = list(encounter.monster_ids)
+        request.update(
+            {
+                "encounter_id": encounter.id,
+                "monster_ids": monster_ids,
+                "target_actor_ids": monster_ids,
+                "random_seed": encounter.random_seed,
+                "loot_table": list(encounter.loot_table),
+                "special_actions": [
+                    dict(action) for action in encounter.special_actions
+                ],
+            }
+        )
+    else:
+        request["encounter_id"] = (
+            f"ad_hoc:{story.get('current_beat_id', 'scene')}:"
+            f"{story.get('turn_index', 0)}"
+        )
+
+    actors = {
+        actor.get("actor_id"): actor
+        for actor in scene.get("actors", [])
+        if actor.get("actor_id")
+    }
+    targets = list(request.get("target_actor_ids") or request.get("monster_ids") or [])
+    if not targets:
+        raise ValueError("[session] 遭遇没有目标 actor")
+    for actor_id in targets:
+        actor = actors.get(actor_id)
+        if actor is None:
+            raise ValueError(f"[session] 当前场景不存在 actor «{actor_id}»")
+        if not actor.get("card"):
+            raise ValueError(f"[session] actor «{actor_id}» 缺少战斗卡面")
+        actor["disposition"] = "hostile"
+    scene["actors"] = list(actors.values())
+
+    request["monster_ids"] = targets
+    request["target_actor_ids"] = targets
+    request["story_flags"] = dict(story.get("flags", {}))
+    request["before_combat"] = {}
+
+    return {
+        **world_update,
+        **transition_update,
+        "scene": scene,
+        "combat_request": request,
+        "world_writes": None,
+        "campaign_log": log_event(
+            working,
+            {
+                "event": "engagement_resolved",
+                "encounter_id": request["encounter_id"],
+                "targets": targets,
+            },
+        ),
+    }
+
+
 # ---------------------------------------------------------------------------
 # run_combat：包装节点——把世界状态映射进战斗子图，跑完再折回世界
 # ---------------------------------------------------------------------------
@@ -66,8 +159,10 @@ def _build_combat_input(state: DMState) -> tuple[dict, dict]:
     combatants = dict(party)  # 先放玩家方（同一引用，HP 延续）
     for mid in request.get("monster_ids", []):
         actor = actors.get(mid)
-        if not actor or not actor.get("card"):
-            continue
+        if not actor:
+            raise ValueError(f"[run_combat] 当前场景不存在敌方 actor «{mid}»")
+        if not actor.get("card"):
+            raise ValueError(f"[run_combat] 敌方 actor «{mid}» 缺少战斗卡面")
         entry = {
             "type": actor.get("type", "monster"),
             "card": actor["card"],
@@ -76,10 +171,24 @@ def _build_combat_input(state: DMState) -> tuple[dict, dict]:
         enemy = load_combatant(entry)
         combatants[enemy.id] = enemy
 
+    if not party:
+        raise ValueError("[run_combat] 战斗缺少玩家参战者")
+    if len(combatants) <= len(party):
+        raise ValueError("[run_combat] 战斗缺少合法对立方")
+
     scene_context = {
         "random_seed": request.get("random_seed", scene.get("random_seed")),
         "surprised": request.get("surprised", []),
         "loot_table": request.get("loot_table", scene.get("loot_table", [])),
+        "encounter_id": request.get("encounter_id"),
+        "special_actions": list(request.get("special_actions", [])),
+        "story_flags": dict(request.get("story_flags", {})),
+        "surprise_context": {
+            "reason": request.get("reason", ""),
+            "dm_suggested_surprised": list(request.get("surprised", [])),
+        },
+        "reason": request.get("reason", ""),
+        "location": scene.get("location"),
         "dm_mode": "llm",
     }
     return combatants, scene_context
@@ -110,6 +219,7 @@ async def run_combat(state: DMState) -> dict:
 
     party = dict(state.get("party") or {})
     last_combat = fold_combat_writeback(party, combat_state)
+    last_combat["encounter_id"] = scene_context.get("encounter_id")
 
     # 从场景里移除已被击败的敌人（保持世界一致）
     casualty_ids = {c["id"] for c in last_combat.get("casualties", [])}
@@ -124,14 +234,44 @@ async def run_combat(state: DMState) -> dict:
         last_combat.get("outcome"),
         len(casualty_ids),
     )
+    story = dict(state.get("story") or {})
+    removed = list(story.get("removed_actor_ids", []))
+    for actor_id in casualty_ids:
+        if actor_id not in party and actor_id not in removed:
+            removed.append(actor_id)
+    story["removed_actor_ids"] = removed
+    messages = _append_combat_messages(
+        state.get("messages", []), combat_state.get("combat_log", [])
+    )
     return {
         "party": party,
         "scene": scene,
+        "story": story,
+        "messages": messages,
         "last_combat": last_combat,
         "combat_request": None,
         "next": "wait",
         "campaign_log": log_event(state, {"event": "combat", **last_combat}),
     }
+
+
+def _append_combat_messages(messages: list[dict], combat_log: list[dict]) -> list[dict]:
+    """把战斗声明与 DM 叙述折回会话历史，供刷新和战后继续对话。"""
+    result = list(messages or [])
+    for event in combat_log or []:
+        if event.get("event") == "declaration" and event.get("text"):
+            result.append(
+                {
+                    "role": "user",
+                    "content": event["text"],
+                    "character_id": event.get("actor_id") or event.get("actor"),
+                }
+            )
+        elif event.get("event") in {"combat_opening", "narration"} and event.get(
+            "text"
+        ):
+            result.append({"role": "dm", "content": event["text"]})
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -145,6 +285,7 @@ def build_session_graph(checkpointer: Any | None = None):
     g = StateGraph(DMState)
 
     g.add_node("dm_turn", build_dm_subgraph())  # DM 子图（同 schema，直接嵌入）
+    g.add_node("resolve_engagement", resolve_engagement)
     g.add_node("run_combat", run_combat)  # 战斗子图（包装节点映射 schema）
     # 故事推进段（糖葫芦串珠：触发推进 / 否则探索）
     g.add_node("evaluate_advancement", story_nodes.evaluate_advancement)
@@ -159,9 +300,10 @@ def build_session_graph(checkpointer: Any | None = None):
         route_session,
         {
             "wait": "evaluate_advancement",
-            "combat": "run_combat",
+            "combat": "resolve_engagement",
         },
     )
+    g.add_edge("resolve_engagement", "run_combat")
     g.add_edge("run_combat", "evaluate_advancement")
     # 推进判定：命中切拍，否则把控制权交回玩家（END，等下一条消息）
     g.add_conditional_edges(
