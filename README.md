@@ -225,7 +225,7 @@ uv sync
 启动后端：
 
 ```bash
-uv run python main.py
+
 ```
 
 直接调用 deepagents 示例：

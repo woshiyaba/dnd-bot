@@ -1,0 +1,398 @@
+{
+  "class_id": "warlock",
+  "class_name_zh": "邪术师",
+  "class_name_en": "Warlock",
+  "spell_count": 74,
+  "spells_by_level": {
+    "0": [
+      {
+        "id": "blade_ward",
+        "name_zh": "剑刃防护",
+        "name_en": "Blade Ward"
+      },
+      {
+        "id": "chill_touch",
+        "name_zh": "冻寒之触",
+        "name_en": "Chill Touch"
+      },
+      {
+        "id": "eldritch_blast",
+        "name_zh": "魔能爆",
+        "name_en": "Eldritch Blast"
+      },
+      {
+        "id": "friends",
+        "name_zh": "交友术",
+        "name_en": "Friends"
+      },
+      {
+        "id": "mage_hand",
+        "name_zh": "法师之手",
+        "name_en": "Mage Hand"
+      },
+      {
+        "id": "minor_illusion",
+        "name_zh": "次级幻影",
+        "name_en": "Minor Illusion"
+      },
+      {
+        "id": "poison_spray",
+        "name_zh": "毒气喷溅",
+        "name_en": "Poison Spray"
+      },
+      {
+        "id": "prestidigitation",
+        "name_zh": "魔法伎俩",
+        "name_en": "Prestidigitation"
+      },
+      {
+        "id": "true_strike",
+        "name_zh": "克敌机先",
+        "name_en": "True Strike"
+      }
+    ],
+    "1": [
+      {
+        "id": "armor_of_agathys",
+        "name_zh": "艾嘉西斯之铠",
+        "name_en": "Armor of Agathys"
+      },
+      {
+        "id": "arms_of_hadar",
+        "name_zh": "哈达之臂",
+        "name_en": "Arms of Hadar"
+      },
+      {
+        "id": "charm_person",
+        "name_zh": "魅惑人类",
+        "name_en": "Charm Person"
+      },
+      {
+        "id": "comprehend_languages",
+        "name_zh": "通晓语言",
+        "name_en": "Comprehend Languages"
+      },
+      {
+        "id": "expeditious_retreat",
+        "name_zh": "脚底抹油",
+        "name_en": "Expeditious Retreat"
+      },
+      {
+        "id": "hellish_rebuke",
+        "name_zh": "炼狱叱喝",
+        "name_en": "Hellish Rebuke"
+      },
+      {
+        "id": "hex",
+        "name_zh": "脆弱诅咒",
+        "name_en": "Hex"
+      },
+      {
+        "id": "illusory_script",
+        "name_zh": "迷幻手稿",
+        "name_en": "Illusory Script"
+      },
+      {
+        "id": "protection_from_evil_and_good",
+        "name_zh": "防护善恶",
+        "name_en": "Protection from Evil and Good"
+      },
+      {
+        "id": "unseen_servant",
+        "name_zh": "隐形仆役",
+        "name_en": "Unseen Servant"
+      },
+      {
+        "id": "witch_bolt",
+        "name_zh": "巫术箭",
+        "name_en": "Witch Bolt"
+      }
+    ],
+    "2": [
+      {
+        "id": "cloud_of_daggers",
+        "name_zh": "匕首之云",
+        "name_en": "Cloud of Daggers"
+      },
+      {
+        "id": "crown_of_madness",
+        "name_zh": "疯狂冠冕",
+        "name_en": "Crown of Madness"
+      },
+      {
+        "id": "darkness",
+        "name_zh": "黑暗术",
+        "name_en": "Darkness"
+      },
+      {
+        "id": "enthrall",
+        "name_zh": "注目术",
+        "name_en": "Enthrall"
+      },
+      {
+        "id": "hold_person",
+        "name_zh": "人类定身术",
+        "name_en": "Hold Person"
+      },
+      {
+        "id": "invisibility",
+        "name_zh": "隐形术",
+        "name_en": "Invisibility"
+      },
+      {
+        "id": "mirror_image",
+        "name_zh": "镜影术",
+        "name_en": "Mirror Image"
+      },
+      {
+        "id": "misty_step",
+        "name_zh": "迷踪步",
+        "name_en": "Misty Step"
+      },
+      {
+        "id": "ray_of_enfeeblement",
+        "name_zh": "衰弱射线",
+        "name_en": "Ray of Enfeeblement"
+      },
+      {
+        "id": "shatter",
+        "name_zh": "粉碎音波",
+        "name_en": "Shatter"
+      },
+      {
+        "id": "spider_climb",
+        "name_zh": "蛛行术",
+        "name_en": "Spider Climb"
+      },
+      {
+        "id": "suggestion",
+        "name_zh": "暗示术",
+        "name_en": "Suggestion"
+      }
+    ],
+    "3": [
+      {
+        "id": "counterspell",
+        "name_zh": "法术反制",
+        "name_en": "Counterspell"
+      },
+      {
+        "id": "dispel_magic",
+        "name_zh": "解除魔法",
+        "name_en": "Dispel Magic"
+      },
+      {
+        "id": "fear",
+        "name_zh": "恐惧术",
+        "name_en": "Fear"
+      },
+      {
+        "id": "fly",
+        "name_zh": "飞行术",
+        "name_en": "Fly"
+      },
+      {
+        "id": "gaseous_form",
+        "name_zh": "气化形体",
+        "name_en": "Gaseous Form"
+      },
+      {
+        "id": "hunger_of_hadar",
+        "name_zh": "哈达之欲",
+        "name_en": "Hunger of Hadar"
+      },
+      {
+        "id": "hypnotic_pattern",
+        "name_zh": "催眠图纹",
+        "name_en": "Hypnotic Pattern"
+      },
+      {
+        "id": "magic_circle",
+        "name_zh": "防护法阵",
+        "name_en": "Magic Circle"
+      },
+      {
+        "id": "major_image",
+        "name_zh": "高等幻影",
+        "name_en": "Major Image"
+      },
+      {
+        "id": "remove_curse",
+        "name_zh": "移除诅咒",
+        "name_en": "Remove Curse"
+      },
+      {
+        "id": "tongues",
+        "name_zh": "巧言术",
+        "name_en": "Tongues"
+      },
+      {
+        "id": "vampiric_touch",
+        "name_zh": "吸血鬼之触",
+        "name_en": "Vampiric Touch"
+      }
+    ],
+    "4": [
+      {
+        "id": "banishment",
+        "name_zh": "放逐术",
+        "name_en": "Banishment"
+      },
+      {
+        "id": "blight",
+        "name_zh": "枯萎术",
+        "name_en": "Blight"
+      },
+      {
+        "id": "dimension_door",
+        "name_zh": "任意门",
+        "name_en": "Dimension Door"
+      },
+      {
+        "id": "hallucinatory_terrain",
+        "name_zh": "幻景",
+        "name_en": "Hallucinatory Terrain"
+      }
+    ],
+    "5": [
+      {
+        "id": "contact_other_plane",
+        "name_zh": "异界探知",
+        "name_en": "Contact Other Plane"
+      },
+      {
+        "id": "dream",
+        "name_zh": "托梦术",
+        "name_en": "Dream"
+      },
+      {
+        "id": "hold_monster",
+        "name_zh": "怪物定身术",
+        "name_en": "Hold Monster"
+      },
+      {
+        "id": "scrying",
+        "name_zh": "探知",
+        "name_en": "Scrying"
+      }
+    ],
+    "6": [
+      {
+        "id": "arcane_gate",
+        "name_zh": "秘法门",
+        "name_en": "Arcane Gate"
+      },
+      {
+        "id": "circle_of_death",
+        "name_zh": "死亡法阵",
+        "name_en": "Circle of Death"
+      },
+      {
+        "id": "conjure_fey",
+        "name_zh": "召唤精类生物",
+        "name_en": "Conjure Fey"
+      },
+      {
+        "id": "create_undead",
+        "name_zh": "唤起死灵",
+        "name_en": "Create Undead"
+      },
+      {
+        "id": "eyebite",
+        "name_zh": "摄心目光",
+        "name_en": "Eyebite"
+      },
+      {
+        "id": "flesh_to_stone",
+        "name_zh": "石化术",
+        "name_en": "Flesh to Stone"
+      },
+      {
+        "id": "mass_suggestion",
+        "name_zh": "群体暗示术",
+        "name_en": "Mass Suggestion"
+      },
+      {
+        "id": "true_seeing",
+        "name_zh": "真知术",
+        "name_en": "True Seeing"
+      }
+    ],
+    "7": [
+      {
+        "id": "etherealness",
+        "name_zh": "以太化",
+        "name_en": "Etherealness"
+      },
+      {
+        "id": "finger_of_death",
+        "name_zh": "死亡一指",
+        "name_en": "Finger of Death"
+      },
+      {
+        "id": "forcecage",
+        "name_zh": "魔力监牢",
+        "name_en": "Forcecage"
+      },
+      {
+        "id": "plane_shift",
+        "name_zh": "异界传送",
+        "name_en": "Plane Shift"
+      }
+    ],
+    "8": [
+      {
+        "id": "demiplane",
+        "name_zh": "创造半位面",
+        "name_en": "Demiplane"
+      },
+      {
+        "id": "dominate_monster",
+        "name_zh": "支配怪物",
+        "name_en": "Dominate Monster"
+      },
+      {
+        "id": "feeblemind",
+        "name_zh": "弱智术",
+        "name_en": "Feeblemind"
+      },
+      {
+        "id": "glibness",
+        "name_zh": "花言巧语",
+        "name_en": "Glibness"
+      },
+      {
+        "id": "power_word_stun",
+        "name_zh": "律令震慑",
+        "name_en": "Power Word Stun"
+      }
+    ],
+    "9": [
+      {
+        "id": "astral_projection",
+        "name_zh": "星界投影",
+        "name_en": "Astral Projection"
+      },
+      {
+        "id": "foresight",
+        "name_zh": "预警术",
+        "name_en": "Foresight"
+      },
+      {
+        "id": "imprisonment",
+        "name_zh": "禁锢术",
+        "name_en": "Imprisonment"
+      },
+      {
+        "id": "power_word_kill",
+        "name_zh": "律令死亡",
+        "name_en": "Power Word Kill"
+      },
+      {
+        "id": "true_polymorph",
+        "name_zh": "完全变形术",
+        "name_en": "True Polymorph"
+      }
+    ]
+  }
+}

@@ -1,0 +1,558 @@
+{
+  "class_id": "cleric",
+  "class_name_zh": "牧师",
+  "class_name_en": "Cleric",
+  "spell_count": 106,
+  "spells_by_level": {
+    "0": [
+      {
+        "id": "guidance",
+        "name_zh": "神导术",
+        "name_en": "Guidance"
+      },
+      {
+        "id": "light",
+        "name_zh": "光亮术",
+        "name_en": "Light"
+      },
+      {
+        "id": "mending",
+        "name_zh": "修复术",
+        "name_en": "Mending"
+      },
+      {
+        "id": "resistance",
+        "name_zh": "提升抗性",
+        "name_en": "Resistance"
+      },
+      {
+        "id": "sacred_flame",
+        "name_zh": "圣火术",
+        "name_en": "Sacred Flame"
+      },
+      {
+        "id": "spare_the_dying",
+        "name_zh": "维生术",
+        "name_en": "Spare the Dying"
+      },
+      {
+        "id": "thaumaturgy",
+        "name_zh": "奇术",
+        "name_en": "Thaumaturgy"
+      }
+    ],
+    "1": [
+      {
+        "id": "bane",
+        "name_zh": "灾祸术",
+        "name_en": "Bane"
+      },
+      {
+        "id": "bless",
+        "name_zh": "祝福术",
+        "name_en": "Bless"
+      },
+      {
+        "id": "command",
+        "name_zh": "命令术",
+        "name_en": "Command"
+      },
+      {
+        "id": "create_or_destroy_water",
+        "name_zh": "造水/枯水术",
+        "name_en": "Create or Destroy Water"
+      },
+      {
+        "id": "cure_wounds",
+        "name_zh": "疗伤术",
+        "name_en": "Cure Wounds"
+      },
+      {
+        "id": "detect_evil_and_good",
+        "name_zh": "侦测善恶",
+        "name_en": "Detect Evil and Good"
+      },
+      {
+        "id": "detect_magic",
+        "name_zh": "侦测魔法",
+        "name_en": "Detect Magic"
+      },
+      {
+        "id": "detect_poison_and_disease",
+        "name_zh": "侦测毒性和疾病",
+        "name_en": "Detect Poison and Disease"
+      },
+      {
+        "id": "guiding_bolt",
+        "name_zh": "曳光弹",
+        "name_en": "Guiding Bolt"
+      },
+      {
+        "id": "healing_word",
+        "name_zh": "治愈真言",
+        "name_en": "Healing Word"
+      },
+      {
+        "id": "inflict_wounds",
+        "name_zh": "致伤术",
+        "name_en": "Inflict Wounds"
+      },
+      {
+        "id": "protection_from_evil_and_good",
+        "name_zh": "防护善恶",
+        "name_en": "Protection from Evil and Good"
+      },
+      {
+        "id": "purify_food_and_drink",
+        "name_zh": "净化食粮",
+        "name_en": "Purify Food and Drink"
+      },
+      {
+        "id": "sanctuary",
+        "name_zh": "庇护术",
+        "name_en": "Sanctuary"
+      },
+      {
+        "id": "shield_of_faith",
+        "name_zh": "虔诚护盾",
+        "name_en": "Shield of Faith"
+      }
+    ],
+    "2": [
+      {
+        "id": "aid",
+        "name_zh": "援助术",
+        "name_en": "Aid"
+      },
+      {
+        "id": "augury",
+        "name_zh": "卜筮术",
+        "name_en": "Augury"
+      },
+      {
+        "id": "blindness_deafness",
+        "name_zh": "目盲／耳聋术",
+        "name_en": "Blindness/Deafness"
+      },
+      {
+        "id": "calm_emotions",
+        "name_zh": "安定心神",
+        "name_en": "Calm Emotions"
+      },
+      {
+        "id": "continual_flame",
+        "name_zh": "不灭明焰",
+        "name_en": "Continual Flame"
+      },
+      {
+        "id": "enhance_ability",
+        "name_zh": "强化属性",
+        "name_en": "Enhance Ability"
+      },
+      {
+        "id": "find_traps",
+        "name_zh": "寻找陷阱",
+        "name_en": "Find Traps"
+      },
+      {
+        "id": "gentle_repose",
+        "name_zh": "遗体防腐",
+        "name_en": "Gentle Repose"
+      },
+      {
+        "id": "hold_person",
+        "name_zh": "人类定身术",
+        "name_en": "Hold Person"
+      },
+      {
+        "id": "lesser_restoration",
+        "name_zh": "次级复原术",
+        "name_en": "Lesser Restoration"
+      },
+      {
+        "id": "locate_object",
+        "name_zh": "物件定位术",
+        "name_en": "Locate Object"
+      },
+      {
+        "id": "prayer_of_healing",
+        "name_zh": "治疗祷言",
+        "name_en": "Prayer of Healing"
+      },
+      {
+        "id": "protection_from_poison",
+        "name_zh": "防护毒素",
+        "name_en": "Protection from Poison"
+      },
+      {
+        "id": "silence",
+        "name_zh": "沉默术",
+        "name_en": "Silence"
+      },
+      {
+        "id": "spiritual_weapon",
+        "name_zh": "灵体武器",
+        "name_en": "Spiritual Weapon"
+      },
+      {
+        "id": "warding_bond",
+        "name_zh": "守护之链",
+        "name_en": "Warding Bond"
+      },
+      {
+        "id": "zone_of_truth",
+        "name_zh": "诚实之域",
+        "name_en": "Zone of Truth"
+      }
+    ],
+    "3": [
+      {
+        "id": "animate_dead",
+        "name_zh": "操纵死尸",
+        "name_en": "Animate Dead"
+      },
+      {
+        "id": "beacon_of_hope",
+        "name_zh": "希望信标",
+        "name_en": "Beacon of Hope"
+      },
+      {
+        "id": "bestow_curse",
+        "name_zh": "降咒",
+        "name_en": "Bestow Curse"
+      },
+      {
+        "id": "clairvoyance",
+        "name_zh": "鹰眼术",
+        "name_en": "Clairvoyance"
+      },
+      {
+        "id": "create_food_and_water",
+        "name_zh": "造粮术",
+        "name_en": "Create Food and Water"
+      },
+      {
+        "id": "daylight",
+        "name_zh": "昼明术",
+        "name_en": "Daylight"
+      },
+      {
+        "id": "dispel_magic",
+        "name_zh": "解除魔法",
+        "name_en": "Dispel Magic"
+      },
+      {
+        "id": "feign_death",
+        "name_zh": "假死术",
+        "name_en": "Feign Death"
+      },
+      {
+        "id": "glyph_of_warding",
+        "name_zh": "守卫刻文",
+        "name_en": "Glyph of Warding"
+      },
+      {
+        "id": "magic_circle",
+        "name_zh": "防护法阵",
+        "name_en": "Magic Circle"
+      },
+      {
+        "id": "mass_healing_word",
+        "name_zh": "群体治愈真言",
+        "name_en": "Mass Healing Word"
+      },
+      {
+        "id": "meld_into_stone",
+        "name_zh": "融身入石",
+        "name_en": "Meld into Stone"
+      },
+      {
+        "id": "protection_from_energy",
+        "name_zh": "防护能量伤害",
+        "name_en": "Protection from Energy"
+      },
+      {
+        "id": "remove_curse",
+        "name_zh": "移除诅咒",
+        "name_en": "Remove Curse"
+      },
+      {
+        "id": "revivify",
+        "name_zh": "回生术",
+        "name_en": "Revivify"
+      },
+      {
+        "id": "sending",
+        "name_zh": "短讯术",
+        "name_en": "Sending"
+      },
+      {
+        "id": "speak_with_dead",
+        "name_zh": "死者交谈",
+        "name_en": "Speak with Dead"
+      },
+      {
+        "id": "spirit_guardians",
+        "name_zh": "灵体卫士",
+        "name_en": "Spirit Guardians"
+      },
+      {
+        "id": "tongues",
+        "name_zh": "巧言术",
+        "name_en": "Tongues"
+      },
+      {
+        "id": "water_walk",
+        "name_zh": "水上行走",
+        "name_en": "Water Walk"
+      }
+    ],
+    "4": [
+      {
+        "id": "banishment",
+        "name_zh": "放逐术",
+        "name_en": "Banishment"
+      },
+      {
+        "id": "control_water",
+        "name_zh": "操控水体",
+        "name_en": "Control Water"
+      },
+      {
+        "id": "death_ward",
+        "name_zh": "防死结界",
+        "name_en": "Death Ward"
+      },
+      {
+        "id": "divination",
+        "name_zh": "预言术",
+        "name_en": "Divination"
+      },
+      {
+        "id": "freedom_of_movement",
+        "name_zh": "行动自如",
+        "name_en": "Freedom of Movement"
+      },
+      {
+        "id": "guardian_of_faith",
+        "name_zh": "信仰守卫",
+        "name_en": "Guardian of Faith"
+      },
+      {
+        "id": "locate_creature",
+        "name_zh": "生物定位术",
+        "name_en": "Locate Creature"
+      },
+      {
+        "id": "stone_shape",
+        "name_zh": "塑石术",
+        "name_en": "Stone Shape"
+      }
+    ],
+    "5": [
+      {
+        "id": "commune",
+        "name_zh": "通神术",
+        "name_en": "Commune"
+      },
+      {
+        "id": "contagion",
+        "name_zh": "疫病术",
+        "name_en": "Contagion"
+      },
+      {
+        "id": "dispel_evil_and_good",
+        "name_zh": "反制善恶",
+        "name_en": "Dispel Evil and Good"
+      },
+      {
+        "id": "flame_strike",
+        "name_zh": "焰击术",
+        "name_en": "Flame Strike"
+      },
+      {
+        "id": "geas",
+        "name_zh": "指使术",
+        "name_en": "Geas"
+      },
+      {
+        "id": "greater_restoration",
+        "name_zh": "高等复原术",
+        "name_en": "Greater Restoration"
+      },
+      {
+        "id": "hallow",
+        "name_zh": "圣居",
+        "name_en": "Hallow"
+      },
+      {
+        "id": "insect_plague",
+        "name_zh": "疫病虫群",
+        "name_en": "Insect Plague"
+      },
+      {
+        "id": "legend_lore",
+        "name_zh": "通晓传奇",
+        "name_en": "Legend Lore"
+      },
+      {
+        "id": "mass_cure_wounds",
+        "name_zh": "群体疗伤术",
+        "name_en": "Mass Cure Wounds"
+      },
+      {
+        "id": "planar_binding",
+        "name_zh": "异界誓缚",
+        "name_en": "Planar Binding"
+      },
+      {
+        "id": "raise_dead",
+        "name_zh": "死者复活",
+        "name_en": "Raise Dead"
+      },
+      {
+        "id": "scrying",
+        "name_zh": "探知",
+        "name_en": "Scrying"
+      }
+    ],
+    "6": [
+      {
+        "id": "blade_barrier",
+        "name_zh": "剑刃护壁",
+        "name_en": "Blade Barrier"
+      },
+      {
+        "id": "create_undead",
+        "name_zh": "唤起死灵",
+        "name_en": "Create Undead"
+      },
+      {
+        "id": "find_the_path",
+        "name_zh": "寻路术",
+        "name_en": "Find the Path"
+      },
+      {
+        "id": "forbiddance",
+        "name_zh": "禁制术",
+        "name_en": "Forbiddance"
+      },
+      {
+        "id": "harm",
+        "name_zh": "重伤术",
+        "name_en": "Harm"
+      },
+      {
+        "id": "heal",
+        "name_zh": "医疗术",
+        "name_en": "Heal"
+      },
+      {
+        "id": "true_seeing",
+        "name_zh": "真知术",
+        "name_en": "True Seeing"
+      },
+      {
+        "id": "word_of_recall",
+        "name_zh": "回返真言",
+        "name_en": "Word of Recall"
+      },
+      {
+        "id": "hero_s_feast",
+        "name_zh": "英雄宴",
+        "name_en": "Hero’s Feast"
+      },
+      {
+        "id": "planar_ally",
+        "name_zh": "异界誓盟",
+        "name_en": "Planar Ally"
+      }
+    ],
+    "7": [
+      {
+        "id": "conjure_celestial",
+        "name_zh": "召唤天界生物",
+        "name_en": "Conjure Celestial"
+      },
+      {
+        "id": "divine_word",
+        "name_zh": "圣言术",
+        "name_en": "Divine Word"
+      },
+      {
+        "id": "etherealness",
+        "name_zh": "以太化",
+        "name_en": "Etherealness"
+      },
+      {
+        "id": "fire_storm",
+        "name_zh": "火焰风暴",
+        "name_en": "Fire Storm"
+      },
+      {
+        "id": "plane_shift",
+        "name_zh": "异界传送",
+        "name_en": "Plane Shift"
+      },
+      {
+        "id": "regenerate",
+        "name_zh": "再生术",
+        "name_en": "Regenerate"
+      },
+      {
+        "id": "resurrection",
+        "name_zh": "复生术",
+        "name_en": "Resurrection"
+      },
+      {
+        "id": "symbol",
+        "name_zh": "魔法徽记",
+        "name_en": "Symbol"
+      }
+    ],
+    "8": [
+      {
+        "id": "antimagic_field",
+        "name_zh": "反魔法力场",
+        "name_en": "Antimagic Field"
+      },
+      {
+        "id": "control_weather",
+        "name_zh": "操控天气",
+        "name_en": "Control Weather"
+      },
+      {
+        "id": "earthquake",
+        "name_zh": "地震术",
+        "name_en": "Earthquake"
+      },
+      {
+        "id": "holy_aura",
+        "name_zh": "圣洁灵光",
+        "name_en": "Holy Aura"
+      }
+    ],
+    "9": [
+      {
+        "id": "astral_projection",
+        "name_zh": "星界投影",
+        "name_en": "Astral Projection"
+      },
+      {
+        "id": "gate",
+        "name_zh": "异界之门",
+        "name_en": "Gate"
+      },
+      {
+        "id": "mass_heal",
+        "name_zh": "群体医疗术",
+        "name_en": "Mass Heal"
+      },
+      {
+        "id": "true_resurrection",
+        "name_zh": "完全复生术",
+        "name_en": "True Resurrection"
+      }
+    ]
+  }
+}

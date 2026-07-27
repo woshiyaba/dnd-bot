@@ -1,0 +1,243 @@
+{
+  "class_id": "paladin",
+  "class_name_zh": "圣武士",
+  "class_name_en": "Paladin",
+  "spell_count": 45,
+  "spells_by_level": {
+    "1": [
+      {
+        "id": "bless",
+        "name_zh": "祝福术",
+        "name_en": "Bless"
+      },
+      {
+        "id": "command",
+        "name_zh": "命令术",
+        "name_en": "Command"
+      },
+      {
+        "id": "compelled_duel",
+        "name_zh": "强令对决",
+        "name_en": "Compelled Duel"
+      },
+      {
+        "id": "cure_wounds",
+        "name_zh": "疗伤术",
+        "name_en": "Cure Wounds"
+      },
+      {
+        "id": "detect_evil_and_good",
+        "name_zh": "侦测善恶",
+        "name_en": "Detect Evil and Good"
+      },
+      {
+        "id": "detect_magic",
+        "name_zh": "侦测魔法",
+        "name_en": "Detect Magic"
+      },
+      {
+        "id": "detect_poison_and_disease",
+        "name_zh": "侦测毒性和疾病",
+        "name_en": "Detect Poison and Disease"
+      },
+      {
+        "id": "divine_favor",
+        "name_zh": "神恩",
+        "name_en": "Divine Favor"
+      },
+      {
+        "id": "heroism",
+        "name_zh": "英雄气概",
+        "name_en": "Heroism"
+      },
+      {
+        "id": "protection_from_evil_and_good",
+        "name_zh": "防护善恶",
+        "name_en": "Protection from Evil and Good"
+      },
+      {
+        "id": "purify_food_and_drink",
+        "name_zh": "净化食粮",
+        "name_en": "Purify Food and Drink"
+      },
+      {
+        "id": "searing_smite",
+        "name_zh": "炽焰斩",
+        "name_en": "Searing Smite"
+      },
+      {
+        "id": "shield_of_faith",
+        "name_zh": "虔诚护盾",
+        "name_en": "Shield of Faith"
+      },
+      {
+        "id": "thunderous_smite",
+        "name_zh": "雷鸣斩",
+        "name_en": "Thunderous Smite"
+      },
+      {
+        "id": "wrathful_smite",
+        "name_zh": "激愤斩",
+        "name_en": "Wrathful Smite"
+      }
+    ],
+    "2": [
+      {
+        "id": "aid",
+        "name_zh": "援助术",
+        "name_en": "Aid"
+      },
+      {
+        "id": "branding_smite",
+        "name_zh": "印记斩",
+        "name_en": "Branding Smite"
+      },
+      {
+        "id": "find_steed",
+        "name_zh": "召唤坐骑",
+        "name_en": "Find Steed"
+      },
+      {
+        "id": "lesser_restoration",
+        "name_zh": "次级复原术",
+        "name_en": "Lesser Restoration"
+      },
+      {
+        "id": "locate_object",
+        "name_zh": "物件定位术",
+        "name_en": "Locate Object"
+      },
+      {
+        "id": "magic_weapon",
+        "name_zh": "魔化武器",
+        "name_en": "Magic Weapon"
+      },
+      {
+        "id": "protection_from_poison",
+        "name_zh": "防护毒素",
+        "name_en": "Protection from Poison"
+      },
+      {
+        "id": "zone_of_truth",
+        "name_zh": "诚实之域",
+        "name_en": "Zone of Truth"
+      }
+    ],
+    "3": [
+      {
+        "id": "aura_of_vitality",
+        "name_zh": "活力灵光",
+        "name_en": "Aura of Vitality"
+      },
+      {
+        "id": "blinding_smite",
+        "name_zh": "致盲斩",
+        "name_en": "Blinding Smite"
+      },
+      {
+        "id": "create_food_and_water",
+        "name_zh": "造粮术",
+        "name_en": "Create Food and Water"
+      },
+      {
+        "id": "crusader_s_mantle",
+        "name_zh": "十字军披风",
+        "name_en": "Crusader’s Mantle"
+      },
+      {
+        "id": "daylight",
+        "name_zh": "昼明术",
+        "name_en": "Daylight"
+      },
+      {
+        "id": "dispel_magic",
+        "name_zh": "解除魔法",
+        "name_en": "Dispel Magic"
+      },
+      {
+        "id": "elemental_weapon",
+        "name_zh": "元素武器",
+        "name_en": "Elemental Weapon"
+      },
+      {
+        "id": "magic_circle",
+        "name_zh": "防护法阵",
+        "name_en": "Magic Circle"
+      },
+      {
+        "id": "remove_curse",
+        "name_zh": "移除诅咒",
+        "name_en": "Remove Curse"
+      },
+      {
+        "id": "revivify",
+        "name_zh": "回生术",
+        "name_en": "Revivify"
+      }
+    ],
+    "4": [
+      {
+        "id": "aura_of_life",
+        "name_zh": "生命灵光",
+        "name_en": "Aura of Life"
+      },
+      {
+        "id": "aura_of_purity",
+        "name_zh": "净化灵光",
+        "name_en": "Aura of Purity"
+      },
+      {
+        "id": "banishment",
+        "name_zh": "放逐术",
+        "name_en": "Banishment"
+      },
+      {
+        "id": "death_ward",
+        "name_zh": "防死结界",
+        "name_en": "Death Ward"
+      },
+      {
+        "id": "locate_creature",
+        "name_zh": "生物定位术",
+        "name_en": "Locate Creature"
+      },
+      {
+        "id": "staggering_smite",
+        "name_zh": "惊惧斩",
+        "name_en": "Staggering Smite"
+      }
+    ],
+    "5": [
+      {
+        "id": "banishing_smite",
+        "name_zh": "放逐斩",
+        "name_en": "Banishing Smite"
+      },
+      {
+        "id": "circle_of_power",
+        "name_zh": "原力法阵",
+        "name_en": "Circle of Power"
+      },
+      {
+        "id": "destructive_wave",
+        "name_zh": "湮灭波",
+        "name_en": "Destructive Wave"
+      },
+      {
+        "id": "dispel_evil_and_good",
+        "name_zh": "反制善恶",
+        "name_en": "Dispel Evil and Good"
+      },
+      {
+        "id": "geas",
+        "name_zh": "指使术",
+        "name_en": "Geas"
+      },
+      {
+        "id": "raise_dead",
+        "name_zh": "死者复活",
+        "name_en": "Raise Dead"
+      }
+    ]
+  }
+}

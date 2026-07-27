@@ -1,0 +1,578 @@
+{
+  "class_id": "druid",
+  "class_name_zh": "德鲁伊",
+  "class_name_en": "Druid",
+  "spell_count": 110,
+  "spells_by_level": {
+    "0": [
+      {
+        "id": "druidcraft",
+        "name_zh": "德鲁伊伎俩",
+        "name_en": "Druidcraft"
+      },
+      {
+        "id": "guidance",
+        "name_zh": "神导术",
+        "name_en": "Guidance"
+      },
+      {
+        "id": "mending",
+        "name_zh": "修复术",
+        "name_en": "Mending"
+      },
+      {
+        "id": "poison_spray",
+        "name_zh": "毒气喷溅",
+        "name_en": "Poison Spray"
+      },
+      {
+        "id": "produce_flame",
+        "name_zh": "燃火术",
+        "name_en": "Produce Flame"
+      },
+      {
+        "id": "resistance",
+        "name_zh": "提升抗性",
+        "name_en": "Resistance"
+      },
+      {
+        "id": "shillelagh",
+        "name_zh": "橡棍术",
+        "name_en": "Shillelagh"
+      },
+      {
+        "id": "thorn_whip",
+        "name_zh": "荆棘之鞭",
+        "name_en": "Thorn Whip"
+      }
+    ],
+    "1": [
+      {
+        "id": "animal_friendship",
+        "name_zh": "化兽为友",
+        "name_en": "Animal Friendship"
+      },
+      {
+        "id": "charm_person",
+        "name_zh": "魅惑人类",
+        "name_en": "Charm Person"
+      },
+      {
+        "id": "create_or_destroy_water",
+        "name_zh": "造水/枯水术",
+        "name_en": "Create or Destroy Water"
+      },
+      {
+        "id": "cure_wounds",
+        "name_zh": "疗伤术",
+        "name_en": "Cure Wounds"
+      },
+      {
+        "id": "detect_magic",
+        "name_zh": "侦测魔法",
+        "name_en": "Detect Magic"
+      },
+      {
+        "id": "detect_poison_and_disease",
+        "name_zh": "侦测毒性和疾病",
+        "name_en": "Detect Poison and Disease"
+      },
+      {
+        "id": "entangle",
+        "name_zh": "纠缠术",
+        "name_en": "Entangle"
+      },
+      {
+        "id": "faerie_fire",
+        "name_zh": "妖火",
+        "name_en": "Faerie Fire"
+      },
+      {
+        "id": "fog_cloud",
+        "name_zh": "云雾术",
+        "name_en": "Fog Cloud"
+      },
+      {
+        "id": "goodberry",
+        "name_zh": "神莓术",
+        "name_en": "Goodberry"
+      },
+      {
+        "id": "healing_word",
+        "name_zh": "治愈真言",
+        "name_en": "Healing Word"
+      },
+      {
+        "id": "jump",
+        "name_zh": "跳跃术",
+        "name_en": "Jump"
+      },
+      {
+        "id": "longstrider",
+        "name_zh": "大步奔行",
+        "name_en": "Longstrider"
+      },
+      {
+        "id": "purify_food_and_drink",
+        "name_zh": "净化食粮",
+        "name_en": "Purify Food and Drink"
+      },
+      {
+        "id": "thunderwave",
+        "name_zh": "雷鸣波",
+        "name_en": "Thunderwave"
+      },
+      {
+        "id": "speak_with_animals",
+        "name_zh": "动物交谈",
+        "name_en": "Speak with Animals"
+      }
+    ],
+    "2": [
+      {
+        "id": "animal_messenger",
+        "name_zh": "动物信使",
+        "name_en": "Animal Messenger"
+      },
+      {
+        "id": "barkskin",
+        "name_zh": "树肤术",
+        "name_en": "Barkskin"
+      },
+      {
+        "id": "beast_sense",
+        "name_zh": "野兽知觉",
+        "name_en": "Beast Sense"
+      },
+      {
+        "id": "darkvision",
+        "name_zh": "黑暗视觉",
+        "name_en": "Darkvision"
+      },
+      {
+        "id": "enhance_ability",
+        "name_zh": "强化属性",
+        "name_en": "Enhance Ability"
+      },
+      {
+        "id": "find_traps",
+        "name_zh": "寻找陷阱",
+        "name_en": "Find Traps"
+      },
+      {
+        "id": "flame_blade",
+        "name_zh": "火焰刀",
+        "name_en": "Flame Blade"
+      },
+      {
+        "id": "flaming_sphere",
+        "name_zh": "炽焰法球",
+        "name_en": "Flaming Sphere"
+      },
+      {
+        "id": "gust_of_wind",
+        "name_zh": "造风术",
+        "name_en": "Gust of Wind"
+      },
+      {
+        "id": "heat_metal",
+        "name_zh": "灼热金属",
+        "name_en": "Heat Metal"
+      },
+      {
+        "id": "hold_person",
+        "name_zh": "人类定身术",
+        "name_en": "Hold Person"
+      },
+      {
+        "id": "lesser_restoration",
+        "name_zh": "次级复原术",
+        "name_en": "Lesser Restoration"
+      },
+      {
+        "id": "locate_animals_or_plants",
+        "name_zh": "动植物定位术",
+        "name_en": "Locate Animals or Plants"
+      },
+      {
+        "id": "locate_object",
+        "name_zh": "物件定位术",
+        "name_en": "Locate Object"
+      },
+      {
+        "id": "moonbeam",
+        "name_zh": "月华之光",
+        "name_en": "Moonbeam"
+      },
+      {
+        "id": "pass_without_trace",
+        "name_zh": "行动无踪",
+        "name_en": "Pass without Trace"
+      },
+      {
+        "id": "protection_from_poison",
+        "name_zh": "防护毒素",
+        "name_en": "Protection from Poison"
+      },
+      {
+        "id": "spike_growth",
+        "name_zh": "荆棘丛生",
+        "name_en": "Spike Growth"
+      }
+    ],
+    "3": [
+      {
+        "id": "call_lightning",
+        "name_zh": "召雷术",
+        "name_en": "Call Lightning"
+      },
+      {
+        "id": "conjure_animals",
+        "name_zh": "召唤动物",
+        "name_en": "Conjure Animals"
+      },
+      {
+        "id": "daylight",
+        "name_zh": "昼明术",
+        "name_en": "Daylight"
+      },
+      {
+        "id": "dispel_magic",
+        "name_zh": "解除魔法",
+        "name_en": "Dispel Magic"
+      },
+      {
+        "id": "feign_death",
+        "name_zh": "假死术",
+        "name_en": "Feign Death"
+      },
+      {
+        "id": "meld_into_stone",
+        "name_zh": "融身入石",
+        "name_en": "Meld into Stone"
+      },
+      {
+        "id": "plant_growth",
+        "name_zh": "植物滋长",
+        "name_en": "Plant Growth"
+      },
+      {
+        "id": "protection_from_energy",
+        "name_zh": "防护能量伤害",
+        "name_en": "Protection from Energy"
+      },
+      {
+        "id": "sleet_storm",
+        "name_zh": "雪雨暴",
+        "name_en": "Sleet Storm"
+      },
+      {
+        "id": "water_breathing",
+        "name_zh": "水下呼吸",
+        "name_en": "Water Breathing"
+      },
+      {
+        "id": "water_walk",
+        "name_zh": "水上行走",
+        "name_en": "Water Walk"
+      },
+      {
+        "id": "wind_wall",
+        "name_zh": "风墙术",
+        "name_en": "Wind Wall"
+      },
+      {
+        "id": "speak_with_plants",
+        "name_zh": "植物交谈",
+        "name_en": "Speak with Plants"
+      }
+    ],
+    "4": [
+      {
+        "id": "blight",
+        "name_zh": "枯萎术",
+        "name_en": "Blight"
+      },
+      {
+        "id": "confusion",
+        "name_zh": "困惑术",
+        "name_en": "Confusion"
+      },
+      {
+        "id": "conjure_minor_elementals",
+        "name_zh": "召唤次级元素生物",
+        "name_en": "Conjure Minor Elementals"
+      },
+      {
+        "id": "conjure_woodland_beings",
+        "name_zh": "召唤林地之精",
+        "name_en": "Conjure Woodland Beings"
+      },
+      {
+        "id": "control_water",
+        "name_zh": "操控水体",
+        "name_en": "Control Water"
+      },
+      {
+        "id": "dominate_beast",
+        "name_zh": "支配野兽",
+        "name_en": "Dominate Beast"
+      },
+      {
+        "id": "freedom_of_movement",
+        "name_zh": "行动自如",
+        "name_en": "Freedom of Movement"
+      },
+      {
+        "id": "giant_insect",
+        "name_zh": "巨虫术",
+        "name_en": "Giant Insect"
+      },
+      {
+        "id": "grasping_vine",
+        "name_zh": "擒抱藤",
+        "name_en": "Grasping Vine"
+      },
+      {
+        "id": "hallucinatory_terrain",
+        "name_zh": "幻景",
+        "name_en": "Hallucinatory Terrain"
+      },
+      {
+        "id": "ice_storm",
+        "name_zh": "冰风暴",
+        "name_en": "Ice Storm"
+      },
+      {
+        "id": "locate_creature",
+        "name_zh": "生物定位术",
+        "name_en": "Locate Creature"
+      },
+      {
+        "id": "polymorph",
+        "name_zh": "变形术",
+        "name_en": "Polymorph"
+      },
+      {
+        "id": "stone_shape",
+        "name_zh": "塑石术",
+        "name_en": "Stone Shape"
+      },
+      {
+        "id": "stoneskin",
+        "name_zh": "石肤术",
+        "name_en": "Stoneskin"
+      },
+      {
+        "id": "wall_of_fire",
+        "name_zh": "火墙术",
+        "name_en": "Wall of Fire"
+      }
+    ],
+    "5": [
+      {
+        "id": "antilife_shell",
+        "name_zh": "防活物护罩",
+        "name_en": "Antilife Shell"
+      },
+      {
+        "id": "awaken",
+        "name_zh": "启蒙术",
+        "name_en": "Awaken"
+      },
+      {
+        "id": "commune_with_nature",
+        "name_zh": "问道自然",
+        "name_en": "Commune with Nature"
+      },
+      {
+        "id": "conjure_elemental",
+        "name_zh": "召唤元素生物",
+        "name_en": "Conjure Elemental"
+      },
+      {
+        "id": "contagion",
+        "name_zh": "疫病术",
+        "name_en": "Contagion"
+      },
+      {
+        "id": "geas",
+        "name_zh": "指使术",
+        "name_en": "Geas"
+      },
+      {
+        "id": "greater_restoration",
+        "name_zh": "高等复原术",
+        "name_en": "Greater Restoration"
+      },
+      {
+        "id": "insect_plague",
+        "name_zh": "疫病虫群",
+        "name_en": "Insect Plague"
+      },
+      {
+        "id": "mass_cure_wounds",
+        "name_zh": "群体疗伤术",
+        "name_en": "Mass Cure Wounds"
+      },
+      {
+        "id": "planar_binding",
+        "name_zh": "异界誓缚",
+        "name_en": "Planar Binding"
+      },
+      {
+        "id": "reincarnate",
+        "name_zh": "转生术",
+        "name_en": "Reincarnate"
+      },
+      {
+        "id": "scrying",
+        "name_zh": "探知",
+        "name_en": "Scrying"
+      },
+      {
+        "id": "tree_stride",
+        "name_zh": "树跃术",
+        "name_en": "Tree Stride"
+      },
+      {
+        "id": "wall_of_stone",
+        "name_zh": "石墙术",
+        "name_en": "Wall of Stone"
+      }
+    ],
+    "6": [
+      {
+        "id": "conjure_fey",
+        "name_zh": "召唤精类生物",
+        "name_en": "Conjure Fey"
+      },
+      {
+        "id": "find_the_path",
+        "name_zh": "寻路术",
+        "name_en": "Find the Path"
+      },
+      {
+        "id": "heal",
+        "name_zh": "医疗术",
+        "name_en": "Heal"
+      },
+      {
+        "id": "move_earth",
+        "name_zh": "地动术",
+        "name_en": "Move Earth"
+      },
+      {
+        "id": "sunbeam",
+        "name_zh": "阳炎射线",
+        "name_en": "Sunbeam"
+      },
+      {
+        "id": "transport_via_plants",
+        "name_zh": "木遁术",
+        "name_en": "Transport via Plants"
+      },
+      {
+        "id": "wind_walk",
+        "name_zh": "御风而行",
+        "name_en": "Wind Walk"
+      },
+      {
+        "id": "hero_s_feast",
+        "name_zh": "英雄宴",
+        "name_en": "Hero’s Feast"
+      },
+      {
+        "id": "wall_of_thorns",
+        "name_zh": "棘墙术",
+        "name_en": "Wall of Thorns"
+      }
+    ],
+    "7": [
+      {
+        "id": "fire_storm",
+        "name_zh": "火焰风暴",
+        "name_en": "Fire Storm"
+      },
+      {
+        "id": "mirage_arcane",
+        "name_zh": "海市蜃楼",
+        "name_en": "Mirage Arcane"
+      },
+      {
+        "id": "plane_shift",
+        "name_zh": "异界传送",
+        "name_en": "Plane Shift"
+      },
+      {
+        "id": "regenerate",
+        "name_zh": "再生术",
+        "name_en": "Regenerate"
+      },
+      {
+        "id": "reverse_gravity",
+        "name_zh": "反重力",
+        "name_en": "Reverse Gravity"
+      }
+    ],
+    "8": [
+      {
+        "id": "animal_shapes",
+        "name_zh": "动物形态",
+        "name_en": "Animal Shapes"
+      },
+      {
+        "id": "antipathy_sympathy",
+        "name_zh": "嫌恶／关怀术",
+        "name_en": "Antipathy/Sympathy"
+      },
+      {
+        "id": "control_weather",
+        "name_zh": "操控天气",
+        "name_en": "Control Weather"
+      },
+      {
+        "id": "earthquake",
+        "name_zh": "地震术",
+        "name_en": "Earthquake"
+      },
+      {
+        "id": "feeblemind",
+        "name_zh": "弱智术",
+        "name_en": "Feeblemind"
+      },
+      {
+        "id": "sunburst",
+        "name_zh": "阳炎爆",
+        "name_en": "Sunburst"
+      },
+      {
+        "id": "tsunami",
+        "name_zh": "海啸术",
+        "name_en": "Tsunami"
+      }
+    ],
+    "9": [
+      {
+        "id": "foresight",
+        "name_zh": "预警术",
+        "name_en": "Foresight"
+      },
+      {
+        "id": "shapechange",
+        "name_zh": "形体变化",
+        "name_en": "Shapechange"
+      },
+      {
+        "id": "storm_of_vengeance",
+        "name_zh": "复仇风暴",
+        "name_en": "Storm of Vengeance"
+      },
+      {
+        "id": "true_resurrection",
+        "name_zh": "完全复生术",
+        "name_en": "True Resurrection"
+      }
+    ]
+  }
+}

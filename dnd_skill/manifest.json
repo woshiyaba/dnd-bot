@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "source": {
+    "file": "pdf/5eDnD_玩家手册PHB_中译v1.72版.pdf",
+    "document": "D&D 5e 玩家手册中文译本 v1.72",
+    "scope": "第11章中8个独立职业法术表及法术详述"
+  },
+  "counts": {
+    "classes": 8,
+    "unique_spells": 361,
+    "class_spell_memberships": 845
+  },
+  "cooldown_rule": {
+    "unit": "actor_turn",
+    "cantrip": 0,
+    "leveled_spell": "cooldown_rounds 等于实际施放环位",
+    "base_value": "每条法术的 cooldown_rounds 使用最低环位；升环时改用实际施放环位"
+  },
+  "type_values": {
+    "damage": "伤害",
+    "healing": "治疗或复活",
+    "control": "控制",
+    "defense": "防御",
+    "buff": "增益",
+    "mobility": "机动",
+    "summoning": "召唤",
+    "exploration": "探索或通用功能"
+  },
+  "files": {
+    "spells": "spells.json",
+    "class_indexes": "classes/{class_id}.json",
+    "schema": "schema.json"
+  },
+  "notes": [
+    "同一法术只在 spells.json 定义一次，classes 字段记录所有所属职业。",
+    "职业索引按最低法术环位引用共享法术 ID。",
+    "damage_calculation/healing_calculation 为 null 表示该法术没有对应结算。",
+    "法术效果由规则引擎确定性结算，不交给 DM LLM 计算。"
+  ]
+}

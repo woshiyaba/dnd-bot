@@ -1,0 +1,248 @@
+{
+  "class_id": "ranger",
+  "class_name_zh": "游侠",
+  "class_name_en": "Ranger",
+  "spell_count": 46,
+  "spells_by_level": {
+    "1": [
+      {
+        "id": "alarm",
+        "name_zh": "警报术",
+        "name_en": "Alarm"
+      },
+      {
+        "id": "animal_friendship",
+        "name_zh": "化兽为友",
+        "name_en": "Animal Friendship"
+      },
+      {
+        "id": "cure_wounds",
+        "name_zh": "疗伤术",
+        "name_en": "Cure Wounds"
+      },
+      {
+        "id": "detect_magic",
+        "name_zh": "侦测魔法",
+        "name_en": "Detect Magic"
+      },
+      {
+        "id": "detect_poison_and_disease",
+        "name_zh": "侦测毒性和疾病",
+        "name_en": "Detect Poison and Disease"
+      },
+      {
+        "id": "ensnaring_strike",
+        "name_zh": "诱捕打击",
+        "name_en": "Ensnaring Strike"
+      },
+      {
+        "id": "fog_cloud",
+        "name_zh": "云雾术",
+        "name_en": "Fog Cloud"
+      },
+      {
+        "id": "goodberry",
+        "name_zh": "神莓术",
+        "name_en": "Goodberry"
+      },
+      {
+        "id": "hail_of_thorns",
+        "name_zh": "棘雹术",
+        "name_en": "Hail of Thorns"
+      },
+      {
+        "id": "hunter_s_mark",
+        "name_zh": "猎人印记",
+        "name_en": "Hunter’s Mark"
+      },
+      {
+        "id": "jump",
+        "name_zh": "跳跃术",
+        "name_en": "Jump"
+      },
+      {
+        "id": "longstrider",
+        "name_zh": "大步奔行",
+        "name_en": "Longstrider"
+      },
+      {
+        "id": "speak_with_animals",
+        "name_zh": "动物交谈",
+        "name_en": "Speak with Animals"
+      }
+    ],
+    "2": [
+      {
+        "id": "animal_messenger",
+        "name_zh": "动物信使",
+        "name_en": "Animal Messenger"
+      },
+      {
+        "id": "barkskin",
+        "name_zh": "树肤术",
+        "name_en": "Barkskin"
+      },
+      {
+        "id": "beast_sense",
+        "name_zh": "野兽知觉",
+        "name_en": "Beast Sense"
+      },
+      {
+        "id": "cordon_of_arrows",
+        "name_zh": "警戒之箭",
+        "name_en": "Cordon of Arrows"
+      },
+      {
+        "id": "darkvision",
+        "name_zh": "黑暗视觉",
+        "name_en": "Darkvision"
+      },
+      {
+        "id": "find_traps",
+        "name_zh": "寻找陷阱",
+        "name_en": "Find Traps"
+      },
+      {
+        "id": "lesser_restoration",
+        "name_zh": "次级复原术",
+        "name_en": "Lesser Restoration"
+      },
+      {
+        "id": "locate_animals_or_plants",
+        "name_zh": "动植物定位术",
+        "name_en": "Locate Animals or Plants"
+      },
+      {
+        "id": "locate_object",
+        "name_zh": "物件定位术",
+        "name_en": "Locate Object"
+      },
+      {
+        "id": "pass_without_trace",
+        "name_zh": "行动无踪",
+        "name_en": "Pass without Trace"
+      },
+      {
+        "id": "protection_from_poison",
+        "name_zh": "防护毒素",
+        "name_en": "Protection from Poison"
+      },
+      {
+        "id": "silence",
+        "name_zh": "沉默术",
+        "name_en": "Silence"
+      },
+      {
+        "id": "spike_growth",
+        "name_zh": "荆棘丛生",
+        "name_en": "Spike Growth"
+      }
+    ],
+    "3": [
+      {
+        "id": "conjure_animals",
+        "name_zh": "召唤动物",
+        "name_en": "Conjure Animals"
+      },
+      {
+        "id": "conjure_barrage",
+        "name_zh": "召唤箭雨",
+        "name_en": "Conjure Barrage"
+      },
+      {
+        "id": "daylight",
+        "name_zh": "昼明术",
+        "name_en": "Daylight"
+      },
+      {
+        "id": "lightning_arrow",
+        "name_zh": "闪电箭",
+        "name_en": "Lightning Arrow"
+      },
+      {
+        "id": "nondetection",
+        "name_zh": "回避侦测",
+        "name_en": "Nondetection"
+      },
+      {
+        "id": "plant_growth",
+        "name_zh": "植物滋长",
+        "name_en": "Plant Growth"
+      },
+      {
+        "id": "protection_from_energy",
+        "name_zh": "防护能量伤害",
+        "name_en": "Protection from Energy"
+      },
+      {
+        "id": "water_breathing",
+        "name_zh": "水下呼吸",
+        "name_en": "Water Breathing"
+      },
+      {
+        "id": "water_walk",
+        "name_zh": "水上行走",
+        "name_en": "Water Walk"
+      },
+      {
+        "id": "wind_wall",
+        "name_zh": "风墙术",
+        "name_en": "Wind Wall"
+      },
+      {
+        "id": "speak_with_plants",
+        "name_zh": "植物交谈",
+        "name_en": "Speak with Plants"
+      }
+    ],
+    "4": [
+      {
+        "id": "conjure_woodland_beings",
+        "name_zh": "召唤林地之精",
+        "name_en": "Conjure Woodland Beings"
+      },
+      {
+        "id": "freedom_of_movement",
+        "name_zh": "行动自如",
+        "name_en": "Freedom of Movement"
+      },
+      {
+        "id": "grasping_vine",
+        "name_zh": "擒抱藤",
+        "name_en": "Grasping Vine"
+      },
+      {
+        "id": "locate_creature",
+        "name_zh": "生物定位术",
+        "name_en": "Locate Creature"
+      },
+      {
+        "id": "stoneskin",
+        "name_zh": "石肤术",
+        "name_en": "Stoneskin"
+      }
+    ],
+    "5": [
+      {
+        "id": "commune_with_nature",
+        "name_zh": "问道自然",
+        "name_en": "Commune with Nature"
+      },
+      {
+        "id": "conjure_volley",
+        "name_zh": "万箭齐发",
+        "name_en": "Conjure Volley"
+      },
+      {
+        "id": "swift_quiver",
+        "name_zh": "迅捷箭袋",
+        "name_en": "Swift Quiver"
+      },
+      {
+        "id": "tree_stride",
+        "name_zh": "树跃术",
+        "name_en": "Tree Stride"
+      }
+    ]
+  }
+}

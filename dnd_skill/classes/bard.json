@@ -1,0 +1,628 @@
+{
+  "class_id": "bard",
+  "class_name_zh": "吟游诗人",
+  "class_name_en": "Bard",
+  "spell_count": 120,
+  "spells_by_level": {
+    "0": [
+      {
+        "id": "blade_ward",
+        "name_zh": "剑刃防护",
+        "name_en": "Blade Ward"
+      },
+      {
+        "id": "dancing_lights",
+        "name_zh": "舞光术",
+        "name_en": "Dancing Lights"
+      },
+      {
+        "id": "friends",
+        "name_zh": "交友术",
+        "name_en": "Friends"
+      },
+      {
+        "id": "light",
+        "name_zh": "光亮术",
+        "name_en": "Light"
+      },
+      {
+        "id": "mage_hand",
+        "name_zh": "法师之手",
+        "name_en": "Mage Hand"
+      },
+      {
+        "id": "mending",
+        "name_zh": "修复术",
+        "name_en": "Mending"
+      },
+      {
+        "id": "message",
+        "name_zh": "传讯术",
+        "name_en": "Message"
+      },
+      {
+        "id": "minor_illusion",
+        "name_zh": "次级幻影",
+        "name_en": "Minor Illusion"
+      },
+      {
+        "id": "prestidigitation",
+        "name_zh": "魔法伎俩",
+        "name_en": "Prestidigitation"
+      },
+      {
+        "id": "true_strike",
+        "name_zh": "克敌机先",
+        "name_en": "True Strike"
+      },
+      {
+        "id": "vicious_mockery",
+        "name_zh": "恶言相加",
+        "name_en": "Vicious Mockery"
+      }
+    ],
+    "1": [
+      {
+        "id": "animal_friendship",
+        "name_zh": "化兽为友",
+        "name_en": "Animal Friendship"
+      },
+      {
+        "id": "bane",
+        "name_zh": "灾祸术",
+        "name_en": "Bane"
+      },
+      {
+        "id": "charm_person",
+        "name_zh": "魅惑人类",
+        "name_en": "Charm Person"
+      },
+      {
+        "id": "comprehend_languages",
+        "name_zh": "通晓语言",
+        "name_en": "Comprehend Languages"
+      },
+      {
+        "id": "cure_wounds",
+        "name_zh": "疗伤术",
+        "name_en": "Cure Wounds"
+      },
+      {
+        "id": "detect_magic",
+        "name_zh": "侦测魔法",
+        "name_en": "Detect Magic"
+      },
+      {
+        "id": "disguise_self",
+        "name_zh": "易容术",
+        "name_en": "Disguise Self"
+      },
+      {
+        "id": "dissonant_whispers",
+        "name_zh": "不谐低语",
+        "name_en": "Dissonant Whispers"
+      },
+      {
+        "id": "faerie_fire",
+        "name_zh": "妖火",
+        "name_en": "Faerie Fire"
+      },
+      {
+        "id": "feather_fall",
+        "name_zh": "羽落术",
+        "name_en": "Feather Fall"
+      },
+      {
+        "id": "healing_word",
+        "name_zh": "治愈真言",
+        "name_en": "Healing Word"
+      },
+      {
+        "id": "heroism",
+        "name_zh": "英雄气概",
+        "name_en": "Heroism"
+      },
+      {
+        "id": "identify",
+        "name_zh": "鉴定术",
+        "name_en": "Identify"
+      },
+      {
+        "id": "illusory_script",
+        "name_zh": "迷幻手稿",
+        "name_en": "Illusory Script"
+      },
+      {
+        "id": "longstrider",
+        "name_zh": "大步奔行",
+        "name_en": "Longstrider"
+      },
+      {
+        "id": "silent_image",
+        "name_zh": "无声幻影",
+        "name_en": "Silent Image"
+      },
+      {
+        "id": "sleep",
+        "name_zh": "睡眠术",
+        "name_en": "Sleep"
+      },
+      {
+        "id": "tasha_s_hideous_laughter",
+        "name_zh": "塔莎狂笑术",
+        "name_en": "Tasha’s Hideous Laughter"
+      },
+      {
+        "id": "thunderwave",
+        "name_zh": "雷鸣波",
+        "name_en": "Thunderwave"
+      },
+      {
+        "id": "unseen_servant",
+        "name_zh": "隐形仆役",
+        "name_en": "Unseen Servant"
+      },
+      {
+        "id": "speak_with_animals",
+        "name_zh": "动物交谈",
+        "name_en": "Speak with Animals"
+      }
+    ],
+    "2": [
+      {
+        "id": "animal_messenger",
+        "name_zh": "动物信使",
+        "name_en": "Animal Messenger"
+      },
+      {
+        "id": "blindness_deafness",
+        "name_zh": "目盲／耳聋术",
+        "name_en": "Blindness/Deafness"
+      },
+      {
+        "id": "calm_emotions",
+        "name_zh": "安定心神",
+        "name_en": "Calm Emotions"
+      },
+      {
+        "id": "cloud_of_daggers",
+        "name_zh": "匕首之云",
+        "name_en": "Cloud of Daggers"
+      },
+      {
+        "id": "crown_of_madness",
+        "name_zh": "疯狂冠冕",
+        "name_en": "Crown of Madness"
+      },
+      {
+        "id": "detect_thoughts",
+        "name_zh": "侦测思想",
+        "name_en": "Detect Thoughts"
+      },
+      {
+        "id": "enhance_ability",
+        "name_zh": "强化属性",
+        "name_en": "Enhance Ability"
+      },
+      {
+        "id": "enthrall",
+        "name_zh": "注目术",
+        "name_en": "Enthrall"
+      },
+      {
+        "id": "heat_metal",
+        "name_zh": "灼热金属",
+        "name_en": "Heat Metal"
+      },
+      {
+        "id": "hold_person",
+        "name_zh": "人类定身术",
+        "name_en": "Hold Person"
+      },
+      {
+        "id": "invisibility",
+        "name_zh": "隐形术",
+        "name_en": "Invisibility"
+      },
+      {
+        "id": "knock",
+        "name_zh": "敲击术",
+        "name_en": "Knock"
+      },
+      {
+        "id": "lesser_restoration",
+        "name_zh": "次级复原术",
+        "name_en": "Lesser Restoration"
+      },
+      {
+        "id": "locate_animals_or_plants",
+        "name_zh": "动植物定位术",
+        "name_en": "Locate Animals or Plants"
+      },
+      {
+        "id": "locate_object",
+        "name_zh": "物件定位术",
+        "name_en": "Locate Object"
+      },
+      {
+        "id": "magic_mouth",
+        "name_zh": "魔嘴术",
+        "name_en": "Magic Mouth"
+      },
+      {
+        "id": "phantasmal_force",
+        "name_zh": "魅影之力",
+        "name_en": "Phantasmal Force"
+      },
+      {
+        "id": "see_invisibility",
+        "name_zh": "识破隐形",
+        "name_en": "See Invisibility"
+      },
+      {
+        "id": "shatter",
+        "name_zh": "粉碎音波",
+        "name_en": "Shatter"
+      },
+      {
+        "id": "silence",
+        "name_zh": "沉默术",
+        "name_en": "Silence"
+      },
+      {
+        "id": "suggestion",
+        "name_zh": "暗示术",
+        "name_en": "Suggestion"
+      },
+      {
+        "id": "zone_of_truth",
+        "name_zh": "诚实之域",
+        "name_en": "Zone of Truth"
+      }
+    ],
+    "3": [
+      {
+        "id": "bestow_curse",
+        "name_zh": "降咒",
+        "name_en": "Bestow Curse"
+      },
+      {
+        "id": "clairvoyance",
+        "name_zh": "鹰眼术",
+        "name_en": "Clairvoyance"
+      },
+      {
+        "id": "dispel_magic",
+        "name_zh": "解除魔法",
+        "name_en": "Dispel Magic"
+      },
+      {
+        "id": "fear",
+        "name_zh": "恐惧术",
+        "name_en": "Fear"
+      },
+      {
+        "id": "feign_death",
+        "name_zh": "假死术",
+        "name_en": "Feign Death"
+      },
+      {
+        "id": "glyph_of_warding",
+        "name_zh": "守卫刻文",
+        "name_en": "Glyph of Warding"
+      },
+      {
+        "id": "hypnotic_pattern",
+        "name_zh": "催眠图纹",
+        "name_en": "Hypnotic Pattern"
+      },
+      {
+        "id": "leomund_s_tiny_hut",
+        "name_zh": "李欧蒙小屋",
+        "name_en": "Leomund’s Tiny Hut"
+      },
+      {
+        "id": "major_image",
+        "name_zh": "高等幻影",
+        "name_en": "Major Image"
+      },
+      {
+        "id": "nondetection",
+        "name_zh": "回避侦测",
+        "name_en": "Nondetection"
+      },
+      {
+        "id": "plant_growth",
+        "name_zh": "植物滋长",
+        "name_en": "Plant Growth"
+      },
+      {
+        "id": "sending",
+        "name_zh": "短讯术",
+        "name_en": "Sending"
+      },
+      {
+        "id": "speak_with_dead",
+        "name_zh": "死者交谈",
+        "name_en": "Speak with Dead"
+      },
+      {
+        "id": "speak_with_plants",
+        "name_zh": "植物交谈",
+        "name_en": "Speak with Plants"
+      },
+      {
+        "id": "stinking_cloud",
+        "name_zh": "臭云术",
+        "name_en": "Stinking Cloud"
+      },
+      {
+        "id": "tongues",
+        "name_zh": "巧言术",
+        "name_en": "Tongues"
+      }
+    ],
+    "4": [
+      {
+        "id": "compulsion",
+        "name_zh": "强迫术",
+        "name_en": "Compulsion"
+      },
+      {
+        "id": "confusion",
+        "name_zh": "困惑术",
+        "name_en": "Confusion"
+      },
+      {
+        "id": "dimension_door",
+        "name_zh": "任意门",
+        "name_en": "Dimension Door"
+      },
+      {
+        "id": "freedom_of_movement",
+        "name_zh": "行动自如",
+        "name_en": "Freedom of Movement"
+      },
+      {
+        "id": "greater_invisibility",
+        "name_zh": "高等隐形术",
+        "name_en": "Greater Invisibility"
+      },
+      {
+        "id": "hallucinatory_terrain",
+        "name_zh": "幻景",
+        "name_en": "Hallucinatory Terrain"
+      },
+      {
+        "id": "locate_creature",
+        "name_zh": "生物定位术",
+        "name_en": "Locate Creature"
+      },
+      {
+        "id": "polymorph",
+        "name_zh": "变形术",
+        "name_en": "Polymorph"
+      }
+    ],
+    "5": [
+      {
+        "id": "animate_objects",
+        "name_zh": "活化物件",
+        "name_en": "Animate Objects"
+      },
+      {
+        "id": "awaken",
+        "name_zh": "启蒙术",
+        "name_en": "Awaken"
+      },
+      {
+        "id": "dominate_person",
+        "name_zh": "支配人类",
+        "name_en": "Dominate Person"
+      },
+      {
+        "id": "dream",
+        "name_zh": "托梦术",
+        "name_en": "Dream"
+      },
+      {
+        "id": "geas",
+        "name_zh": "指使术",
+        "name_en": "Geas"
+      },
+      {
+        "id": "greater_restoration",
+        "name_zh": "高等复原术",
+        "name_en": "Greater Restoration"
+      },
+      {
+        "id": "hold_monster",
+        "name_zh": "怪物定身术",
+        "name_en": "Hold Monster"
+      },
+      {
+        "id": "legend_lore",
+        "name_zh": "通晓传奇",
+        "name_en": "Legend Lore"
+      },
+      {
+        "id": "mass_cure_wounds",
+        "name_zh": "群体疗伤术",
+        "name_en": "Mass Cure Wounds"
+      },
+      {
+        "id": "mislead",
+        "name_zh": "假象术",
+        "name_en": "Mislead"
+      },
+      {
+        "id": "modify_memory",
+        "name_zh": "篡改记忆",
+        "name_en": "Modify Memory"
+      },
+      {
+        "id": "planar_binding",
+        "name_zh": "异界誓缚",
+        "name_en": "Planar Binding"
+      },
+      {
+        "id": "raise_dead",
+        "name_zh": "死者复活",
+        "name_en": "Raise Dead"
+      },
+      {
+        "id": "scrying",
+        "name_zh": "探知",
+        "name_en": "Scrying"
+      },
+      {
+        "id": "seeming",
+        "name_zh": "伪装术",
+        "name_en": "Seeming"
+      },
+      {
+        "id": "teleportation_circle",
+        "name_zh": "传送法阵",
+        "name_en": "Teleportation Circle"
+      }
+    ],
+    "6": [
+      {
+        "id": "eyebite",
+        "name_zh": "摄心目光",
+        "name_en": "Eyebite"
+      },
+      {
+        "id": "find_the_path",
+        "name_zh": "寻路术",
+        "name_en": "Find the Path"
+      },
+      {
+        "id": "guards_and_wards",
+        "name_zh": "铜墙铁壁",
+        "name_en": "Guards and Wards"
+      },
+      {
+        "id": "mass_suggestion",
+        "name_zh": "群体暗示术",
+        "name_en": "Mass Suggestion"
+      },
+      {
+        "id": "otto_s_irresistible_dance",
+        "name_zh": "奥图迷舞",
+        "name_en": "Otto’s Irresistible Dance"
+      },
+      {
+        "id": "programmed_illusion",
+        "name_zh": "预置幻影",
+        "name_en": "Programmed Illusion"
+      },
+      {
+        "id": "true_seeing",
+        "name_zh": "真知术",
+        "name_en": "True Seeing"
+      }
+    ],
+    "7": [
+      {
+        "id": "etherealness",
+        "name_zh": "以太化",
+        "name_en": "Etherealness"
+      },
+      {
+        "id": "forcecage",
+        "name_zh": "魔力监牢",
+        "name_en": "Forcecage"
+      },
+      {
+        "id": "mirage_arcane",
+        "name_zh": "海市蜃楼",
+        "name_en": "Mirage Arcane"
+      },
+      {
+        "id": "mordenkainen_s_magnificent_mansion",
+        "name_zh": "摩登肯豪宅术",
+        "name_en": "Mordenkainen’s Magnificent Mansion"
+      },
+      {
+        "id": "mordenkainen_s_sword",
+        "name_zh": "摩登肯之剑",
+        "name_en": "Mordenkainen’s Sword"
+      },
+      {
+        "id": "project_image",
+        "name_zh": "投影术",
+        "name_en": "Project Image"
+      },
+      {
+        "id": "regenerate",
+        "name_zh": "再生术",
+        "name_en": "Regenerate"
+      },
+      {
+        "id": "resurrection",
+        "name_zh": "复生术",
+        "name_en": "Resurrection"
+      },
+      {
+        "id": "symbol",
+        "name_zh": "魔法徽记",
+        "name_en": "Symbol"
+      },
+      {
+        "id": "teleport",
+        "name_zh": "传送术",
+        "name_en": "Teleport"
+      }
+    ],
+    "8": [
+      {
+        "id": "dominate_monster",
+        "name_zh": "支配怪物",
+        "name_en": "Dominate Monster"
+      },
+      {
+        "id": "feeblemind",
+        "name_zh": "弱智术",
+        "name_en": "Feeblemind"
+      },
+      {
+        "id": "glibness",
+        "name_zh": "花言巧语",
+        "name_en": "Glibness"
+      },
+      {
+        "id": "mind_blank",
+        "name_zh": "心灵屏障",
+        "name_en": "Mind Blank"
+      },
+      {
+        "id": "power_word_stun",
+        "name_zh": "律令震慑",
+        "name_en": "Power Word Stun"
+      }
+    ],
+    "9": [
+      {
+        "id": "foresight",
+        "name_zh": "预警术",
+        "name_en": "Foresight"
+      },
+      {
+        "id": "power_word_heal",
+        "name_zh": "律令医疗",
+        "name_en": "Power Word Heal"
+      },
+      {
+        "id": "power_word_kill",
+        "name_zh": "律令死亡",
+        "name_en": "Power Word Kill"
+      },
+      {
+        "id": "true_polymorph",
+        "name_zh": "完全变形术",
+        "name_en": "True Polymorph"
+      }
+    ]
+  }
+}
