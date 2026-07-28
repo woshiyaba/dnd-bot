@@ -123,6 +123,7 @@ export type CharacterView = {
     cooldown_rounds: number
   }>
   features: string[]
+  inventory: Array<{ item_id: string; quantity: number }>
   current_hp: number
   max_hp: number
   temporary_hp: number
@@ -162,32 +163,7 @@ export type PendingInteraction = {
       targets?: Array<{ id: string; name: string; zone?: string }>
     }>
     move?: Array<{ target_zone: string }>
-    skill?: Array<{
-      skill_id: string
-      name: string
-      source_type: string
-      types: string[]
-      charges_left?: number | null
-      cooldown_left?: number
-      min_targets?: number
-      max_targets?: number
-      targets?: Array<{
-        id: string
-        name: string
-        faction: string
-        zone?: string
-        life_state: string
-      }>
-    }>
-    item?: Array<{ item_id: string; quantity?: number }>
-    special?: Array<{
-      special_action_id: string
-      label: string
-      description?: string
-      target_id: string
-      target_name: string
-      check?: { ability: string; dc: number }
-    }>
+    rule_actions?: RuleActionEntry[]
     natural_language?: boolean
     pass?: boolean
     actions_remaining?: number
@@ -219,12 +195,33 @@ export type SessionView = {
   }
   party: CharacterView[]
   enemies: CharacterView[]
+  available_actions: RuleActionEntry[]
   timeline: TimelineEntry[]
   pending_interaction?: PendingInteraction
   recent_resolution: {
     check?: Record<string, unknown>
     combat?: Record<string, unknown>
   }
+}
+
+export type RuleActionEntry = {
+  action_id: string
+  name: string
+  description: string
+  source_kind: 'skill' | 'item' | 'quest_feature'
+  source_ref: string
+  enabled: boolean
+  unavailable_reason?: string | null
+  min_targets: number
+  max_targets: number
+  targets: Array<{
+    id: string
+    name: string
+    faction: string
+    zone?: string
+    life_state: string
+  }>
+  usage: { kind: string; [key: string]: unknown }
 }
 
 export type DiceRollResult = {

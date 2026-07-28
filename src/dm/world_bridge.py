@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 # 合法属性值（校验 DM 给的 ability）
 _ABILITY_VALUES = {a.value for a in Ability}
 _CHECK_KINDS = {"ability_check", "saving_throw"}
-_INTENTS = {"reply", "player_check", "start_combat"}
+_INTENTS = {"reply", "player_check", "start_combat", "use_action"}
 _DECISION_ATTEMPTS = 3
 _GUIDANCE_ATTEMPTS = 2
 _WORLD_WRITE_FIELDS = {
@@ -142,6 +142,8 @@ async def decide_turn(
          "check": {"actor_id","ability","dc","kind","proficient","prompt","reason"}}
         {"intent": "start_combat",
          "encounter": {"monster_ids": [...], "surprised": [...], "reason": "..."}}
+        {"intent": "use_action",
+         "action": {"action_id": "...", "target_ids": ["..."]}}
 
     任一意图都可附带可选的世界写入声明 ``flags_set`` / ``moved_to`` / ``clues_delivered``
     （白名单校验由引擎在 evaluate_advancement 做），以及不改变世界状态的可选
@@ -285,6 +287,10 @@ async def _decide_llm(
         '"before_combat":{"transition_to_beat_id":"必要时填写目标拍"}}；当前场景临时冲突可省略 encounter_id。\n'
         "玩家明确攻击可接触且有战斗卡面的目标时，必须选择 start_combat，不要再次要求确认；"
         "不要提前叙述命中、伤害或受伤。\n"
+        "4) 玩家明确使用 available_actions 中的技能、物品或任务特性——输出 "
+        '{"intent":"use_action","action":{"action_id":"合法 action_id",'
+        '"target_ids":["仅从该行动 targets 中选择"]}}。只能选择 enabled=true 的行动；'
+        "不能自行结算检定、物品消耗或效果。\n"
         "【可选·世界写入】当玩家这步确实改变了世界时，可在 JSON 里附带（不改变上面的 intent）：\n"
         '  "flags_set":{"flag名":true} —— 仅声明 canon 白名单内、且不由线索发现效果管理的普通世界 flag；\n'
         '  "moved_to":"地点id" —— 玩家移动到的当前拍内地点；\n'
@@ -546,6 +552,45 @@ def _normalize_decision(
             "reply_brief": reply_brief,
             "narrative_intent": narrative_intent,
             "world_writes": writes,
+        }
+
+    if intent == "use_action":
+        if writes:
+            raise WorldStateDecisionError(
+                "[dm] use_action 的世界变化只能由规则行动执行器产生"
+            )
+        raw_action = data.get("action") or {}
+        action_id = str(raw_action.get("action_id") or "")
+        actions = list((decision_context or {}).get("available_actions", []))
+        selected = next(
+            (
+                item
+                for item in actions
+                if item.get("action_id") == action_id and item.get("enabled")
+            ),
+            None,
+        )
+        if selected is None:
+            raise ValueError(f"[dm] use_action 引用了当前不可用行动：{action_id!r}")
+        target_ids = list(
+            dict.fromkeys(str(value) for value in raw_action.get("target_ids", []))
+        )
+        legal_targets = {
+            str(target.get("id"))
+            for target in selected.get("targets", [])
+            if target.get("id")
+        }
+        if not (
+            int(selected.get("min_targets", 0))
+            <= len(target_ids)
+            <= int(selected.get("max_targets", 20))
+        ) or not set(target_ids).issubset(legal_targets):
+            raise ValueError("[dm] use_action 的目标不合法")
+        return {
+            "intent": "use_action",
+            "narrative_intent": narrative_intent,
+            "world_writes": {},
+            "action": {"action_id": action_id, "target_ids": target_ids},
         }
 
     if intent == "player_check":

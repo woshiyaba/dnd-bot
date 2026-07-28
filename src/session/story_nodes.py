@@ -51,7 +51,13 @@ def beat_brief_for(state: DMState) -> dict | None:
     canon = current_canon(state)
     if canon is None:
         return None
-    return beat_brief(canon, state.get("story") or {})
+    brief = beat_brief(canon, state.get("story") or {})
+    if brief is not None:
+        from src.session.action_nodes import available_world_actions
+
+        actions, _ = available_world_actions(state)
+        brief["available_actions"] = actions
+    return brief
 
 
 def stuck_hint_for(state: DMState) -> str | None:

@@ -33,7 +33,7 @@ from src.dm.tools import set_dice_provider
 from src.model.combat_state import load_combatant
 from src.model.combatant import Character
 from src.model.dm_state import DMState, fold_combat_writeback
-from src.session import story_nodes
+from src.session import action_nodes, story_nodes
 from src.session.dm_subgraph import build_dm_subgraph, log_event
 
 logger = logging.getLogger(__name__)
@@ -47,7 +47,16 @@ set_dice_provider(current_engine_dice)
 # ---------------------------------------------------------------------------
 def route_session(state: DMState) -> str:
     """读 DM 子图写下的 next 信号。"""
-    return "combat" if state.get("next") == "combat" else "wait"
+    if state.get("next") == "combat":
+        return "combat"
+    if state.get("next") == "action":
+        return "action"
+    return "wait"
+
+
+def route_session_input(state: DMState) -> str:
+    """结构化按钮行动绕过意图映射，其余输入进入 DM 决策子图。"""
+    return "action" if state.get("structured_action") else "dm"
 
 
 def resolve_engagement(state: DMState) -> dict:
@@ -92,8 +101,8 @@ def resolve_engagement(state: DMState) -> dict:
                 "target_actor_ids": monster_ids,
                 "loot_table": list(encounter.loot_table),
                 "xp_reward": encounter.xp_reward,
-                "special_actions": [
-                    dict(action) for action in encounter.special_actions
+                "action_definitions": [
+                    action.to_dict() for action in canon.action_definitions
                 ],
             }
         )
@@ -190,7 +199,8 @@ def _build_combat_input(state: DMState) -> tuple[dict, dict]:
         "loot_table": request.get("loot_table", scene.get("loot_table", [])),
         "xp_reward": int(request.get("xp_reward", scene.get("xp_reward", 0))),
         "encounter_id": request.get("encounter_id"),
-        "special_actions": list(request.get("special_actions", [])),
+        "action_definitions": list(request.get("action_definitions", [])),
+        "used_session_rule_actions": list(state.get("used_rule_actions", []) or []),
         "story_flags": dict(request.get("story_flags", {})),
         "surprise_context": {
             "reason": request.get("reason", ""),
@@ -235,6 +245,15 @@ async def run_combat(state: DMState) -> dict:
     growth = dict(settled_scene.get("growth", {}) or {})
     last_combat["xp_reward"] = int(scene_context.get("xp_reward", 0))
     last_combat["growth"] = growth
+    session_action_ids = {
+        str(definition.get("id"))
+        for definition in scene_context.get("action_definitions", [])
+        if (definition.get("usage") or {}).get("kind") == "once_per_session"
+    }
+    used_rule_actions = list(state.get("used_rule_actions", []) or [])
+    for action_id in combat_state.get("used_rule_actions", []) or []:
+        if action_id in session_action_ids and action_id not in used_rule_actions:
+            used_rule_actions.append(action_id)
 
     casualty_ids = {c["id"] for c in last_combat.get("casualties", [])}
     scene, story, death_events = _fold_world_casualties(state, casualty_ids)
@@ -278,6 +297,7 @@ async def run_combat(state: DMState) -> dict:
         "story": story,
         "messages": messages,
         "last_combat": last_combat,
+        "used_rule_actions": used_rule_actions,
         "combat_request": None,
         "next": "wait",
         "campaign_log": campaign_log,
@@ -363,6 +383,9 @@ def build_session_graph(checkpointer: Any | None = None):
     g = StateGraph(DMState)
 
     g.add_node("dm_turn", build_dm_subgraph())  # DM 子图（同 schema，直接嵌入）
+    g.add_node("prepare_world_action", action_nodes.prepare_world_action)
+    g.add_node("commit_world_action", action_nodes.commit_world_action)
+    g.add_node("execute_world_action", action_nodes.execute_world_action)
     g.add_node("resolve_engagement", resolve_engagement)
     g.add_node("run_combat", run_combat)  # 战斗子图（包装节点映射 schema）
     # 故事推进段（糖葫芦串珠：触发推进 / 否则探索）
@@ -371,7 +394,11 @@ def build_session_graph(checkpointer: Any | None = None):
     g.add_node("final_narrate_turn", story_nodes.final_narrate_turn)
     g.add_node("epilogue", story_nodes.epilogue)
 
-    g.add_edge(START, "dm_turn")
+    g.add_conditional_edges(
+        START,
+        route_session_input,
+        {"dm": "dm_turn", "action": "prepare_world_action"},
+    )
     # DM 回合后：进战斗 → 战后叙述 → 推进判定；否则直接推进判定
     g.add_conditional_edges(
         "dm_turn",
@@ -379,8 +406,12 @@ def build_session_graph(checkpointer: Any | None = None):
         {
             "wait": "evaluate_advancement",
             "combat": "resolve_engagement",
+            "action": "prepare_world_action",
         },
     )
+    g.add_edge("prepare_world_action", "commit_world_action")
+    g.add_edge("commit_world_action", "execute_world_action")
+    g.add_edge("execute_world_action", "evaluate_advancement")
     g.add_edge("resolve_engagement", "run_combat")
     g.add_conditional_edges(
         "run_combat",

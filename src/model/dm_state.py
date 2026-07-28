@@ -38,7 +38,7 @@ class DMState(TypedDict, total=False):
     ]  # 玩家角色册：pc_id -> 角色对象（HP/物品跨场景延续，唯一真相源）
 
     # —— DM 决策工作区（每回合刷新）——
-    intent: str  # dm_decide 产出的意图：reply | player_check | start_combat | guidance
+    intent: str  # dm_decide 产出的意图：reply | player_check | start_combat | use_action | guidance
     say: str  # reply 文本：DM 面向玩家要说的话
     reply_brief: str  # reply 分支的叙述计划，由 DM 决策产生，玩家不可见
     narrative_intent: str  # DM 本回合的一句受控叙事巧思，玩家不可见
@@ -71,6 +71,11 @@ class DMState(TypedDict, total=False):
     world_writes: (
         dict | None
     )  # DM 本回合声明：{flags_set, moved_to, clues_delivered, discoveries, transition_to_beat_id}
+    structured_action: dict | None  # 前端按钮或 DM 映射后的统一世界行动声明
+    pending_action_plan: dict | None  # 已校验的 v2 世界行动计划
+    used_rule_actions: list[str]  # 本局已提交的 once_per_session 行动 id
+    committed_action_plans: list[str]  # 已提交成本的 plan_id，防止中断重放重复扣除
+    action_events: list[dict]  # 最近一次世界规则行动的结构化结算事件
     next_story: str  # 推进路由信号：advance（切到下一拍）| stay（留在本拍）
     story_status: str  # ongoing | finished（结局拍叙述完置 finished）
 
@@ -155,6 +160,7 @@ def fold_combat_writeback(
                 pc.pending_ability_points = fighter.pending_ability_points
                 pc.skills = fighter.skills
                 pc.features = fighter.features
+                pc.inventory = fighter.inventory
 
     scene_ctx = combat_state.get("scene_context", {}) or {}
     casualties = [

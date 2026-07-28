@@ -4,6 +4,7 @@ import type {
   CharacterView,
   DiceType,
   PendingInteraction,
+  RuleActionEntry,
   RoomCredential,
   RoomLobbyView,
   SessionView,
@@ -334,6 +335,7 @@ function AdventureRoom({
           me={me}
           party={party}
           pending={pending}
+          worldActions={session.available_actions}
           onAction={onAction}
           onClose={() => setActiveTab('chat')}
           onFreeRoll={onFreeRoll}
@@ -540,6 +542,7 @@ function CommandDrawer({
   me,
   party,
   pending,
+  worldActions,
   isBusy,
   onClose,
   onAction,
@@ -550,6 +553,7 @@ function CommandDrawer({
   me: CharacterView
   party: CharacterView[]
   pending?: PendingInteraction
+  worldActions: RuleActionEntry[]
   isBusy: boolean
   onClose: () => void
   onAction: (action: Record<string, unknown>) => Promise<void>
@@ -579,7 +583,12 @@ function CommandDrawer({
           onInteractionRoll={onInteractionRoll}
         />
       ) : activeTab === 'action' ? (
-        <ActionPanel disabled={isBusy} pending={pending} onAction={onAction} />
+        <ActionPanel
+          disabled={isBusy}
+          pending={pending}
+          worldActions={worldActions}
+          onAction={onAction}
+        />
       ) : (
         <div className="drawer-party">
           {party.map((character) => (
@@ -644,39 +653,44 @@ function DiceTray({
 
 function ActionPanel({
   pending,
+  worldActions,
   disabled,
   onAction,
 }: {
   pending?: PendingInteraction
+  worldActions: RuleActionEntry[]
   disabled: boolean
   onAction: (action: Record<string, unknown>) => Promise<void>
 }) {
-  const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null)
+  const [selectedActionId, setSelectedActionId] = useState<string | null>(null)
   const [selectedTargetIds, setSelectedTargetIds] = useState<string[]>([])
-  if (!pending?.is_yours || pending.interrupt_type !== 'declare_action') {
-    return <p className="drawer-empty">轮到你的战斗回合时，合法行动会在这里出现。</p>
+  const isCombatTurn = pending?.is_yours && pending.interrupt_type === 'declare_action'
+  if (pending && !isCombatTurn) {
+    return <p className="drawer-empty">请先完成当前检定。</p>
   }
-  const options = pending.options
-  const selectedSkill = options?.skill?.find(
-    (skill) => skill.skill_id === selectedSkillId,
+  const options = isCombatTurn
+    ? pending.options
+    : { rule_actions: worldActions }
+  const selectedAction = options?.rule_actions?.find(
+    (action) => action.action_id === selectedActionId,
   )
-  if (selectedSkill) {
+  if (selectedAction) {
     return (
       <div className="skill-target-panel">
-        <button className="text-button" onClick={() => { setSelectedSkillId(null); setSelectedTargetIds([]) }} type="button">← 返回行动</button>
+        <button className="text-button" onClick={() => { setSelectedActionId(null); setSelectedTargetIds([]) }} type="button">← 返回行动</button>
         <div className="skill-target-heading">
           <span>✦</span>
           <div>
-            <strong>{selectedSkill.name}</strong>
-            <small>{selectedSkill.types.join(' · ') || selectedSkill.source_type}</small>
+            <strong>{selectedAction.name}</strong>
+            <small>{selectedAction.source_kind} · {selectedAction.usage.kind}</small>
           </div>
         </div>
         <p>
-          {selectedSkill.max_targets === 1 ? '选择一个技能目标。' : '选择一个或多个技能目标。'}
-          LLM 会解释技能规则，引擎负责校验并结算。
+          {selectedAction.description || '选择目标后提交规则行动。'}
+          LLM 会在定义边界内编译规则，引擎负责骰子、资源与效果结算。
         </p>
         <div className="skill-target-grid">
-          {(selectedSkill.targets ?? []).map((target) => (
+          {(selectedAction.targets ?? []).map((target) => (
             <button
               className={selectedTargetIds.includes(target.id) ? 'selected' : ''}
               disabled={disabled}
@@ -685,8 +699,8 @@ function ActionPanel({
                 if (current.includes(target.id)) {
                   return current.filter((id) => id !== target.id)
                 }
-                if ((selectedSkill.max_targets ?? 20) === 1) return [target.id]
-                if (current.length >= (selectedSkill.max_targets ?? 20)) return current
+                if ((selectedAction.max_targets ?? 20) === 1) return [target.id]
+                if (current.length >= (selectedAction.max_targets ?? 20)) return current
                 return [...current, target.id]
               })}
               type="button"
@@ -703,17 +717,18 @@ function ActionPanel({
           className="primary-cta"
           disabled={
             disabled ||
-            selectedTargetIds.length < (selectedSkill.min_targets ?? 1) ||
-            selectedTargetIds.length > (selectedSkill.max_targets ?? 20)
+            !selectedAction.enabled ||
+            selectedTargetIds.length < (selectedAction.min_targets ?? 0) ||
+            selectedTargetIds.length > (selectedAction.max_targets ?? 20)
           }
           onClick={() => void onAction({
-            action_type: 'skill',
-            skill_id: selectedSkill.skill_id,
+            action_type: 'rule_action',
+            action_id: selectedAction.action_id,
             target_ids: selectedTargetIds,
           })}
           type="button"
         >
-          施放技能 · {selectedTargetIds.length} 个目标
+          确认使用 · {selectedTargetIds.length} 个目标
         </button>
       </div>
     )
@@ -759,52 +774,16 @@ function ActionPanel({
           <small>前往 {move.target_zone}</small>
         </button>
       ))}
-      {(options?.skill ?? []).map((skill) => (
+      {(options?.rule_actions ?? []).map((action) => (
         <button
-          disabled={disabled}
-          key={skill.skill_id}
-          onClick={() => { setSelectedSkillId(skill.skill_id); setSelectedTargetIds([]) }}
+          disabled={disabled || !action.enabled}
+          key={action.action_id}
+          onClick={() => { setSelectedActionId(action.action_id); setSelectedTargetIds([]) }}
           type="button"
         >
-          <span>✦</span>
-          <strong>{skill.name}</strong>
-          <small>{skill.types.join(' · ') || skill.source_type}</small>
-        </button>
-      ))}
-      {(options?.item ?? []).map((item) => (
-        <button
-          disabled={disabled}
-          key={item.item_id}
-          onClick={() =>
-            void onAction({ action_type: 'item', item_id: item.item_id })
-          }
-          type="button"
-        >
-          <span>✚</span>
-          <strong>使用物品</strong>
-          <small>{item.item_id}</small>
-        </button>
-      ))}
-      {(options?.special ?? []).map((special) => (
-        <button
-          disabled={disabled}
-          key={special.special_action_id}
-          onClick={() =>
-            void onAction({
-              action_type: 'special',
-              special_action_id: special.special_action_id,
-            })
-          }
-          type="button"
-        >
-          <span>✧</span>
-          <strong>{special.label}</strong>
-          <small>
-            {special.description || `对 ${special.target_name} 使用`}
-            {special.check
-              ? ` · ${special.check.ability} DC ${special.check.dc}`
-              : ''}
-          </small>
+          <span>{action.source_kind === 'item' ? '✚' : action.source_kind === 'skill' ? '✦' : '✧'}</span>
+          <strong>{action.name}</strong>
+          <small>{action.enabled ? action.description : action.unavailable_reason}</small>
         </button>
       ))}
       {options?.pass ? (

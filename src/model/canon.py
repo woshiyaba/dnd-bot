@@ -17,7 +17,8 @@ import re
 from typing import Any
 
 from src.model.combatant import Combatant
-from src.model.enums import Ability, ConditionType, StrEnum
+from src.model.enums import StrEnum
+from src.model.rule_action import ActionDefinition
 
 _CANON_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 
@@ -199,9 +200,6 @@ class Encounter:
     on_win_flags: list[str] = field(
         default_factory=list
     )  # 玩家胜利时引擎自动写入的 flag（须在白名单内）
-    special_actions: list[dict[str, Any]] = field(
-        default_factory=list
-    )  # canon 封闭定义的特殊战斗行动（DM 只负责映射意图）
 
     @classmethod
     def from_dict(cls, data: dict) -> "Encounter":
@@ -215,9 +213,6 @@ class Encounter:
             xp_reward=max(0, int(data.get("xp_reward", 0))),
             random_seed=int(seed) if seed is not None else None,
             on_win_flags=list(data.get("on_win_flags", [])),
-            special_actions=[
-                dict(action) for action in data.get("special_actions", [])
-            ],
         )
 
 
@@ -297,6 +292,9 @@ class Canon:
     )  # flag 白名单（DM 只能写这里声明过的）
     cast: list[NpcSpec] = field(default_factory=list)  # 重要 NPC / Boss 册
     locations: list[LocationSpec] = field(default_factory=list)  # 主要地点
+    action_definitions: list[ActionDefinition] = field(
+        default_factory=list
+    )  # 物品与任务特性的统一规则行动
     beats: list[Beat] = field(default_factory=list)  # 主线珠子串
     start_beat_id: str = ""  # 起始拍 id
 
@@ -326,6 +324,13 @@ class Canon:
             (b for b in self.beats if b.is_ending and b.ending_outcome == outcome), None
         )
 
+    def action_definition(self, action_id: str) -> ActionDefinition | None:
+        """按 id 取一个 Canon 规则行动定义。"""
+        return next(
+            (action for action in self.action_definitions if action.id == action_id),
+            None,
+        )
+
     @classmethod
     def from_dict(cls, data: dict) -> "Canon":
         """从（手写或生成的）JSON 字典构造剧情圣经。"""
@@ -347,6 +352,10 @@ class Canon:
             cast=[NpcSpec.from_dict(n) for n in data.get("cast", [])],
             locations=[
                 LocationSpec.from_dict(loc) for loc in data.get("locations", [])
+            ],
+            action_definitions=[
+                ActionDefinition.from_dict(item)
+                for item in data.get("action_definitions", [])
             ],
             beats=[Beat.from_dict(b) for b in data.get("beats", [])],
             start_beat_id=str(data.get("start_beat_id", "")),
@@ -598,6 +607,7 @@ def validate_canon(canon: Canon) -> list[str]:
     _validate_ids("location", [location.id for location in canon.locations], errors)
     _validate_ids("actor", [npc.id for npc in canon.cast], errors)
     _validate_ids("flag", canon.declared_flags, errors)
+    _validate_ids("action", [action.id for action in canon.action_definitions], errors)
     trigger_ids_all = [
         trigger.id for beat in canon.beats for trigger in beat.advance_conditions
     ]
@@ -728,7 +738,6 @@ def validate_canon(canon: Canon) -> list[str]:
                     errors.append(
                         f"拍 «{beat.id}» 遭遇 «{beat.encounter.id}» 的 actor «{monster_id}» 缺少战斗卡面"
                     )
-            _validate_special_actions(canon, beat, errors)
         for clue in beat.key_info:
             effects = clue.discovery_effects or {}
             for flag in effects.get("flags_set") or {}:
@@ -751,6 +760,69 @@ def validate_canon(canon: Canon) -> list[str]:
         )
         if encounter_id and encounter_id not in encounter_ids:
             errors.append(f"{condition_name} 引用了不存在的遭遇 «{encounter_id}»")
+
+    for action in canon.action_definitions:
+        requirements = action.requirements
+        for flag in requirements.get("flags", []):
+            if flag not in declared:
+                errors.append(f"规则行动 «{action.id}» 引用了未声明 flag «{flag}»")
+        for beat_id in requirements.get("beat_ids", []):
+            if beat_id not in beat_ids:
+                errors.append(f"规则行动 «{action.id}» 引用了不存在的 beat «{beat_id}»")
+        for location_id in requirements.get("location_ids", []):
+            if location_id not in location_ids:
+                errors.append(
+                    f"规则行动 «{action.id}» 引用了不存在的 location «{location_id}»"
+                )
+        for encounter_id in requirements.get("encounter_ids", []):
+            if encounter_id not in encounter_ids:
+                errors.append(
+                    f"规则行动 «{action.id}» 引用了不存在的 encounter «{encounter_id}»"
+                )
+        for effect in action.contract.get("effect_templates", []):
+            if effect.get("kind") == "set_flag" and effect.get("flag") not in declared:
+                errors.append(
+                    f"规则行动 «{action.id}» 写入了未声明 flag «{effect.get('flag')}»"
+                )
+            if (
+                effect.get("kind") == "move_location"
+                and effect.get("location_id") not in location_ids
+            ):
+                errors.append(
+                    f"规则行动 «{action.id}» 移动到不存在的 location «{effect.get('location_id')}»"
+                )
+            if (
+                effect.get("kind") == "transition_beat"
+                and effect.get("beat_id") not in beat_ids
+            ):
+                errors.append(
+                    f"规则行动 «{action.id}» 迁移到不存在的 beat «{effect.get('beat_id')}»"
+                )
+            if effect.get("kind") == "transition_beat":
+                source_beat_ids = requirements.get("beat_ids", [])
+                if not source_beat_ids:
+                    errors.append(
+                        f"跨拍规则行动 «{action.id}» 必须用 requirements.beat_ids 限定来源拍"
+                    )
+                for source_beat_id in source_beat_ids:
+                    source_beat = canon.beat(source_beat_id)
+                    if source_beat is None:
+                        continue
+                    action_trigger_ids = {
+                        trigger.id
+                        for trigger in source_beat.advance_conditions
+                        if trigger.kind == TriggerKind.ACTION
+                    }
+                    legal_targets = {
+                        exit_.next_beat_id
+                        for exit_ in source_beat.exits
+                        if exit_.trigger_id in action_trigger_ids
+                    }
+                    if effect.get("beat_id") not in legal_targets:
+                        errors.append(
+                            f"规则行动 «{action.id}» 从拍 «{source_beat_id}» "
+                            f"不能迁移到非 action 出口 «{effect.get('beat_id')}»"
+                        )
 
     # 可达性：从起始拍沿出口 BFS；结局拍可由引擎按胜负条件直接跳入，故视为可达根
     reachable = _reachable_beats(canon)
@@ -814,62 +886,6 @@ def _validate_ids(kind: str, values: list[Any], errors: list[str]) -> None:
         if raw_value in seen:
             errors.append(f"{kind} id «{raw_value}» 重复")
         seen.add(raw_value)
-
-
-def _validate_special_actions(canon: Canon, beat: Beat, errors: list[str]) -> None:
-    """校验遭遇特殊行动只引用封闭、可结算的规则原语。"""
-    encounter = beat.encounter
-    if encounter is None:
-        return
-    valid_effects = {"modify_ac", "modify_attack_bonus", "add_condition"}
-    valid_ranges = {"melee", "any"}
-    valid_abilities = {ability.value for ability in Ability}
-    valid_conditions = {condition.value for condition in ConditionType}
-    seen: set[str] = set()
-    for action in encounter.special_actions:
-        action_id = str(action.get("id") or "")
-        if not action_id:
-            errors.append(f"遭遇 «{encounter.id}» 存在缺少 id 的特殊行动")
-            continue
-        if action_id in seen:
-            errors.append(f"遭遇 «{encounter.id}» 的特殊行动 id «{action_id}» 重复")
-        seen.add(action_id)
-        target_id = action.get("target_actor_id")
-        if target_id not in encounter.monster_ids:
-            errors.append(
-                f"遭遇 «{encounter.id}» 的特殊行动 «{action_id}» 目标 «{target_id}» 不在参战者中"
-            )
-        if action.get("range", "any") not in valid_ranges:
-            errors.append(f"遭遇 «{encounter.id}» 的特殊行动 «{action_id}» range 非法")
-        for flag in action.get("requires_flags", []):
-            if flag not in canon.declared_flags:
-                errors.append(
-                    f"遭遇 «{encounter.id}» 的特殊行动 «{action_id}» 引用了未声明 flag «{flag}»"
-                )
-        check = action.get("check")
-        if check:
-            if check.get("ability") not in valid_abilities:
-                errors.append(
-                    f"遭遇 «{encounter.id}» 的特殊行动 «{action_id}» ability 非法"
-                )
-            try:
-                dc = int(check.get("dc"))
-            except (TypeError, ValueError):
-                dc = 0
-            if not 1 <= dc <= 30:
-                errors.append(f"遭遇 «{encounter.id}» 的特殊行动 «{action_id}» DC 非法")
-        effect = action.get("effect") or {}
-        if effect.get("kind") not in valid_effects:
-            errors.append(
-                f"遭遇 «{encounter.id}» 的特殊行动 «{action_id}» effect kind 非法"
-            )
-        if (
-            effect.get("kind") == "add_condition"
-            and effect.get("condition") not in valid_conditions
-        ):
-            errors.append(
-                f"遭遇 «{encounter.id}» 的特殊行动 «{action_id}» condition 非法"
-            )
 
 
 def _flag_trigger_names(trigger: Trigger) -> list[str]:

@@ -30,12 +30,15 @@ class CombatState(TypedDict, total=False):
 
     # —— 本回合工作区（节点间传递，回合开始清空）——
     current_action: dict | None  # 声明行动节点产出：{action_type, target_id, ...}
-    pending_skill_plan: dict | None  # LLM 已生成且通过白名单校验的技能计划
+    pending_action_plan: dict | None  # LLM 已生成且通过白名单校验的统一行动计划
     actions_remaining: int  # 当前行动者本回合尚可使用的通用动作数
     extra_attacks_remaining: int  # 攻击动作触发后尚可使用的额外攻击数
     attack_action_started: bool  # 本回合是否已用通用动作执行过攻击
     action_feedback: str | None  # 自然语言无法映射时，下一次行动中断展示的 DM 反馈
-    applied_special_actions: list[str]  # 本场已成功应用的 canon 特殊行动 id
+    used_rule_actions: list[
+        str
+    ]  # 已提交的 once_per_combat + 带入的 once_per_session 行动 id
+    committed_action_plans: list[str]  # 已提交成本的 plan_id，防止中断重放重复扣除
     turn_events: list[dict]  # 本回合事件：结算节点产出的结构化事件，喂给 DM 叙述
 
     # —— 输出 ——

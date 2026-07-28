@@ -68,6 +68,13 @@ export function CharacterCard({ character }: { character: CharacterView }) {
           ))}
         </div>
       ) : null}
+      {character.inventory.length ? (
+        <div className="condition-list" aria-label="背包">
+          {character.inventory.filter((item) => item.quantity > 0).map((item) => (
+            <span key={item.item_id}>{item.item_id} ×{item.quantity}</span>
+          ))}
+        </div>
+      ) : null}
     </article>
   )
 }

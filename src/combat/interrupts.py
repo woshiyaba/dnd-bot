@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from src.combat.rules import in_reach
-from src.character.skills import is_combat_skill, skill_definition
+from src.combat.action_registry import combat_action_entries
 from src.model.combatant import Character, Combatant
 from src.model.enums import InterruptType
 
@@ -50,7 +50,7 @@ def build_interrupt_request(
 
 def _default_expected_return(kind: InterruptType) -> dict:
     """各中断类型的恢复值 schema 提示（文档第 3 节）。"""
-    if kind == InterruptType.DAMAGE_ROLL:
+    if kind in {InterruptType.DAMAGE_ROLL, InterruptType.EFFECT_ROLL}:
         return {"result": "int 伤害总和"}
     if kind == InterruptType.DECLARE_ACTION:
         return {"action_type": "str", "target_id": "str(可选)"}
@@ -62,9 +62,10 @@ def build_action_options(
     actor: Combatant,
     combatants: dict[str, Combatant],
     *,
-    special_actions: list[dict[str, Any]] | None = None,
+    action_definitions: list[dict[str, Any]] | None = None,
+    encounter_id: str | None = None,
     story_flags: list[str] | None = None,
-    applied_special_actions: list[str] | None = None,
+    used_rule_actions: list[str] | None = None,
     actions_remaining: int = 1,
     extra_attacks_remaining: int = 0,
     attack_action_started: bool = False,
@@ -73,7 +74,7 @@ def build_action_options(
 
     - 攻击：每件武器列出射程内、存活的敌方目标（按区域过滤）。
     - 自然语言：只能由真实 DM 映射为这里列出的封闭行动。
-    - 特殊行动：还要满足线索、道具、目标与射程条件，且每场战斗只成功一次。
+    - 规则行动：技能、物品、任务特性共享同一协议与目标白名单。
     """
     enemies_alive = [
         c for c in combatants.values() if c.faction != actor.faction and c.is_alive
@@ -110,67 +111,15 @@ def build_action_options(
         else []
     )
 
-    if isinstance(actor, Character) and has_general_action:
-        target_options = [
-            {
-                "id": target.id,
-                "name": target.name,
-                "faction": target.faction.value,
-                "zone": target.current_zone,
-                "life_state": target.life_state.value,
-            }
-            for target in combatants.values()
-        ]
-        skill_options: list[dict[str, Any]] = []
-        for skill in actor.skills:
-            if not skill.is_available or not is_combat_skill(skill.skill_id):
-                continue
-            definition = skill_definition(skill.skill_id) or {}
-            targets = target_options
-            if definition.get("target_scope") == "same_zone_enemy_alive":
-                legal_ids = {
-                    target.id
-                    for target in combatants.values()
-                    if target.faction != actor.faction
-                    and target.is_alive
-                    and target.current_zone == actor.current_zone
-                }
-                targets = [
-                    target for target in target_options if target["id"] in legal_ids
-                ]
-            min_targets = int(definition.get("min_targets", 1))
-            if len(targets) < min_targets:
-                continue
-            skill_options.append(
-                {
-                    "skill_id": skill.skill_id,
-                    "name": skill.name or skill.skill_id,
-                    "source_type": skill.source_type,
-                    "types": list(skill.types),
-                    "charges_left": skill.charges,
-                    "cooldown_left": max(0, skill.cooldown_left - 1),
-                    "min_targets": min_targets,
-                    "max_targets": int(definition.get("max_targets", 20)),
-                    "targets": targets,
-                }
-            )
-        options["skill"] = skill_options
-        options["item"] = [
-            {"item_id": i.item_id, "quantity": i.quantity}
-            for i in actor.inventory
-            if i.is_available
-        ]
-    options["special"] = (
-        _available_special_actions(
-            actor,
-            combatants,
-            special_actions=special_actions or [],
-            story_flags=set(story_flags or []),
-            applied_special_actions=set(applied_special_actions or []),
-        )
-        if has_general_action
-        else []
+    rule_actions, _ = combat_action_entries(
+        actor,
+        combatants,
+        canon_definitions=action_definitions or [],
+        story_flags={flag: True for flag in (story_flags or [])},
+        encounter_id=encounter_id,
+        used_action_ids=used_rule_actions or [],
     )
+    options["rule_actions"] = rule_actions if has_general_action else []
     options["actions_remaining"] = max(0, int(actions_remaining)) + max(
         0, int(extra_attacks_remaining)
     )
@@ -178,62 +127,6 @@ def build_action_options(
     options["extra_attacks_remaining"] = max(0, int(extra_attacks_remaining))
     options["attack_only"] = not has_general_action and has_extra_attack
     return options
-
-
-def _available_special_actions(
-    actor: Combatant,
-    combatants: dict[str, Combatant],
-    *,
-    special_actions: list[dict[str, Any]],
-    story_flags: set[str],
-    applied_special_actions: set[str],
-) -> list[dict[str, Any]]:
-    """筛出当前角色此刻确实可以声明的 canon 特殊行动。"""
-    available: list[dict[str, Any]] = []
-    for definition in special_actions:
-        action_id = str(definition.get("id", ""))
-        if not action_id or action_id in applied_special_actions:
-            continue
-        required_flags = set(definition.get("requires_flags", []) or [])
-        if not required_flags.issubset(story_flags):
-            continue
-        required_item_id = definition.get("requires_item_id")
-        if required_item_id and not _has_item(actor, str(required_item_id)):
-            continue
-
-        target = combatants.get(str(definition.get("target_actor_id", "")))
-        if not target or not target.is_alive or target.faction == actor.faction:
-            continue
-        if (
-            definition.get("range") == "melee"
-            and target.current_zone != actor.current_zone
-        ):
-            continue
-
-        check = definition.get("check")
-        public_action: dict[str, Any] = {
-            "special_action_id": action_id,
-            "label": definition.get("label", action_id),
-            "description": definition.get("description", ""),
-            "target_id": target.id,
-            "target_name": target.name,
-        }
-        if isinstance(check, dict):
-            public_action["check"] = {
-                "ability": check.get("ability"),
-                "dc": int(check.get("dc", 10)),
-            }
-        available.append(public_action)
-    return available
-
-
-def _has_item(actor: Combatant, item_id: str) -> bool:
-    """判断角色背包中是否仍有指定道具。"""
-    if not isinstance(actor, Character):
-        return False
-    return any(
-        item.item_id == item_id and item.is_available for item in actor.inventory
-    )
 
 
 def validate_d20(resume_value: Any, *, default: int = 10) -> int:

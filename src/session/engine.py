@@ -121,6 +121,29 @@ class SessionEngine:
             event_sink,
         )
 
+    async def action_stream(
+        self,
+        room_id: str,
+        action: dict[str, Any],
+        *,
+        user_id: str,
+        actor_id: str,
+        display_name: str,
+        event_sink: GraphStreamSink | None = None,
+    ) -> dict:
+        """提交探索阶段结构化规则行动并消费图内中断。"""
+        return await self._astream_interpret(
+            room_id,
+            {
+                "structured_action": dict(action),
+                "user_input": str(action.get("declared_text") or "使用规则行动"),
+                "active_user_id": user_id,
+                "active_actor_id": actor_id,
+                "active_display_name": display_name,
+            },
+            event_sink,
+        )
+
     async def submit(self, room_id: str, resume_value: Any) -> dict:
         """玩家报骰/选择后恢复（DM 明检定，或战斗内的攻击/先攻/豁免骰）。"""
         config = {"configurable": {"thread_id": room_thread_id(room_id)}}
@@ -207,6 +230,11 @@ class SessionEngine:
             "campaign_id": campaign_id or "",
             "story": story,
             "story_status": "ongoing",
+            "structured_action": None,
+            "pending_action_plan": None,
+            "used_rule_actions": [],
+            "committed_action_plans": [],
+            "action_events": [],
         }
 
     @staticmethod

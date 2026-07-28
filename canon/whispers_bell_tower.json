@@ -15,6 +15,63 @@
     "clue_holy_water",
     "boss_dead"
   ],
+  "action_definitions": [
+    {
+      "id": "exploit_bell_crack",
+      "name": "扩大古钟熔痕",
+      "source_kind": "quest_feature",
+      "source_ref": "clue_bell_crack",
+      "scopes": ["combat"],
+      "description": "利用已发现的熔痕撬开古钟之灵的防御。",
+      "requirements": { "flags": ["clue_bell_crack"], "encounter_ids": ["boss_bell_spirit"] },
+      "targeting": { "faction": "enemy", "life_state": "alive", "range": "melee", "actor_ids": ["bell_spirit"], "min_targets": 1, "max_targets": 1 },
+      "usage": { "kind": "once_per_combat" },
+      "contract": {
+        "check_templates": [
+          { "id": "widen_crack", "kind": "ability_check", "roller": "actor", "target_mode": "selected_one", "ability": "strength", "fixed_dc": 13 }
+        ],
+        "effect_templates": [
+          { "id": "lower_ac", "kind": "modify_ac", "target_mode": "selected_one", "amount": -2, "rounds": 100, "when": { "check_template_id": "widen_crack", "outcomes": ["success"] } }
+        ]
+      }
+    },
+    {
+      "id": "invoke_true_name",
+      "name": "呼唤赫尔薇",
+      "source_kind": "quest_feature",
+      "source_ref": "clue_spirit_name",
+      "scopes": ["combat"],
+      "description": "呼唤古钟之灵的真名，尝试唤醒残存意识。",
+      "requirements": { "flags": ["clue_spirit_name"], "encounter_ids": ["boss_bell_spirit"] },
+      "targeting": { "faction": "enemy", "life_state": "alive", "range": "any", "actor_ids": ["bell_spirit"], "min_targets": 1, "max_targets": 1 },
+      "usage": { "kind": "once_per_combat" },
+      "contract": {
+        "check_templates": [
+          { "id": "true_name", "kind": "ability_check", "roller": "actor", "target_mode": "selected_one", "ability": "charisma", "fixed_dc": 13 }
+        ],
+        "effect_templates": [
+          { "id": "stun_spirit", "kind": "add_condition", "target_mode": "selected_one", "condition": "stunned", "rounds": 1, "when": { "check_template_id": "true_name", "outcomes": ["success"] } }
+        ]
+      }
+    },
+    {
+      "id": "apply_holy_water",
+      "name": "泼洒圣水",
+      "source_kind": "item",
+      "source_ref": "item_holy_water",
+      "scopes": ["combat"],
+      "description": "把找到的圣水泼向古钟之灵，削弱它的攻击。",
+      "requirements": { "encounter_ids": ["boss_bell_spirit"] },
+      "targeting": { "faction": "enemy", "life_state": "alive", "range": "melee", "actor_ids": ["bell_spirit"], "min_targets": 1, "max_targets": 1 },
+      "usage": { "kind": "consume_item", "item_id": "item_holy_water", "quantity": 1 },
+      "contract": {
+        "check_templates": [],
+        "effect_templates": [
+          { "id": "weaken_attack", "kind": "modify_attack_bonus", "target_mode": "selected_one", "amount": -2, "rounds": 100, "when": { "outcomes": ["always"] } }
+        ]
+      }
+    }
+  ],
   "win_condition": {
     "id": "win_boss_dead",
     "kind": "combat_outcome",
@@ -347,42 +404,6 @@
         "surprised": [],
         "random_seed": 20240626,
         "on_win_flags": ["boss_dead"],
-        "special_actions": [
-          {
-            "id": "exploit_bell_crack",
-            "label": "扩大古钟熔痕",
-            "description": "利用已发现的熔痕撬开古钟之灵的防御。",
-            "requires_flags": ["clue_bell_crack"],
-            "target_actor_id": "bell_spirit",
-            "range": "melee",
-            "check": { "ability": "strength", "dc": 13 },
-            "effect": { "kind": "modify_ac", "amount": -2 }
-          },
-          {
-            "id": "invoke_true_name",
-            "label": "呼唤赫尔薇",
-            "description": "呼唤古钟之灵的真名，尝试唤醒残存意识。",
-            "requires_flags": ["clue_spirit_name"],
-            "target_actor_id": "bell_spirit",
-            "range": "any",
-            "check": { "ability": "charisma", "dc": 13 },
-            "effect": {
-              "kind": "add_condition",
-              "condition": "stunned",
-              "rounds": 1
-            }
-          },
-          {
-            "id": "apply_holy_water",
-            "label": "泼洒圣水",
-            "description": "把找到的圣水泼向古钟之灵，削弱它的攻击。",
-            "requires_item_id": "item_holy_water",
-            "consume_item": true,
-            "target_actor_id": "bell_spirit",
-            "range": "melee",
-            "effect": { "kind": "modify_attack_bonus", "amount": -2 }
-          }
-        ],
         "loot_table": ["赫尔薇的银铃", "净化圣水（残）", "古钟碎银 50"]
       }
     },

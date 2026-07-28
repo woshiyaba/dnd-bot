@@ -133,6 +133,7 @@ CANON_AUTHORING_RULE = """你是 D&D 短篇冒险的【Canon 编译器】，不�
   "gameplay_focus": ["调查", "探索", "战斗"],
   "content_warnings": ["只写玩家可见且不剧透的内容提示"],
   "declared_flags": ["所有可能写入的 flag 白名单"],
+  "action_definitions": [{ActionDefinition}],
   "win_condition": {Trigger},
   "lose_condition": {Trigger},
   "cast": [{NpcSpec}],
@@ -147,13 +148,13 @@ CANON_AUTHORING_RULE = """你是 D&D 短篇冒险的【Canon 编译器】，不�
 - ending_outcome：win | lose
 - disposition：friendly | neutral | hostile
 - ability：strength | dexterity | constitution | intelligence | wisdom | charisma
-- range：melee | ranged；特殊行动 range 只用 melee | any
+- range：普通攻击 melee | ranged；规则行动只用 melee | any
 - condition：prone | poisoned | restrained | stunned | damage_over_time
 - damage_type：slashing | piercing | bludgeoning | acid | cold | fire | force |
   lightning | necrotic | poison | psychic | radiant | thunder
 
 【ID 规则】
-- campaign、beat、trigger、flag、actor、location、encounter、clue、item、special_action id
+- campaign、beat、trigger、flag、actor、location、encounter、clue、item、action id
   全部使用小写 snake_case ASCII。
 - 同类 id 不得重复；所有引用必须指向实际存在的 id。
 - ``declared_flags`` 必须列出普通世界写入、线索发现效果和遭遇胜利可能写入的全部 flag。
@@ -301,7 +302,6 @@ CANON_AUTHORING_RULE = """你是 D&D 短篇冒险的【Canon 编译器】，不�
   "surprised": [],
   "random_seed": 1,
   "on_win_flags": ["已声明 flag"],
-  "special_actions": [{SpecialAction}],
   "loot_table": ["只用于结算展示的简短战利品文字"]
 }
 - monster_ids 至少一项。Boss 胜利条件应同时绑定 encounter_id，避免击败普通 NPC 误判通关。
@@ -309,24 +309,38 @@ CANON_AUTHORING_RULE = """你是 D&D 短篇冒险的【Canon 编译器】，不�
 - 若后续硬门槛依赖线索或物品，必须提供世界内合理的补救路线，例如返回搜索、询问仍存 NPC、
   另一条可发现线索、替代检定或暴力开启，并在 advance_conditions / stuck_fallback 中保持一致。
 
-【SpecialAction】
+【ActionDefinition】
 {
-  "id": "special_action_id",
-  "label": "玩家可见名称",
-  "description": "叙事用途",
-  "requires_flags": ["可选的已声明 flag"],
-  "requires_item_id": "可选 item id",
-  "consume_item": false,
-  "target_actor_id": "encounter.monster_ids 中的目标",
-  "range": "melee|any",
-  "check": {"ability":"合法 ability","dc":13},
-  "effect": {"kind":"合法效果", "...":"对应参数"}
+  "id": "action_id",
+  "name": "玩家可见名称",
+  "source_kind": "item|quest_feature",
+  "source_ref": "线索、任务特性或 item_id",
+  "scopes": ["combat|world"],
+  "description": "叙事与规则用途",
+  "requirements": {
+    "flags": ["可选的已声明 flag"],
+    "beat_ids": ["可选 beat id"],
+    "location_ids": ["可选 location id"],
+    "encounter_ids": ["可选 encounter id"]
+  },
+  "targeting": {
+    "faction": "self|ally|enemy|any",
+    "life_state": "alive|down|any",
+    "range": "melee|any",
+    "actor_ids": ["可选固定目标"],
+    "min_targets": 0,
+    "max_targets": 1
+  },
+  "usage": {"kind":"unlimited|consume_item|once_per_combat|once_per_session", "item_id":"消耗物品时填写", "quantity":1},
+  "contract": {
+    "check_templates": [{"id":"check_id","kind":"attack_roll|saving_throw|ability_check","roller":"actor|target","target_mode":"selected_one|selected_each|actor|none","ability":"需要时填写","fixed_dc":13}],
+    "effect_templates": [{"id":"effect_id","kind":"合法效果","target_mode":"selected_one|selected_each|actor|none","when":{"check_template_id":"可选 check_id","outcomes":["success|failure|hit|miss|critical|always"]}}]
+  }
 }
-只支持三类效果：
-- {"kind":"modify_ac","amount":整数}
-- {"kind":"modify_attack_bonus","amount":整数}
-- {"kind":"add_condition","condition":"合法 condition","rounds":正整数}
-- check 可省略，表示满足道具/距离条件后自动成功。不要创造伤害、治疗或脚本效果。
+战斗效果只支持 damage、healing、temporary_hp、add_condition、remove_condition、modify_ac、
+modify_attack_bonus、move_zone、revive；世界效果只支持 set_flag、grant_item、remove_item、
+discover_clue、move_location、transition_beat 与角色 HP/状态效果。每个效果必须给出对应固定参数，
+不得使用自由文本脚本或 description-only 裁定。新物品和任务特性若要产生机械作用，必须在此定义。
 
 【从“钟楼下的低语”提炼出的结构范式】
 - opening：NPC 提供问题和行动钩子。
@@ -344,7 +358,7 @@ CANON_AUTHORING_RULE = """你是 D&D 短篇冒险的【Canon 编译器】，不�
 5. 每个 encounter 的 monster 都有固定 card。
 6. win_condition 不会因击败无关 NPC 而触发。
 7. 零线索仍能通过合理行动到达高潮，除非玩家大纲明确存在真实硬门槛。
-8. 所有特殊机械效果都属于引擎支持的封闭效果。
+8. 所有规则行动效果都属于引擎支持的封闭效果，且关键物品/线索优势均有 ActionDefinition。
 9. JSON 可以直接被解析，不含注释、尾逗号或额外正文。
 10. 每个持久化 flag 与 item_id 都只有一个原子 owner；loot_table 没有承担背包入库职责。
 """

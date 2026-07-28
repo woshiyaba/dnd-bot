@@ -97,20 +97,37 @@ class SessionService:
         self._require_playing(room)
         async with self._room_lock(room.room_code):
             current = await self._require_payload(room.room_code)
-            interrupt_request = self.require_pending_interrupt(current, member)
-            if (
-                interrupt_request.get("interrupt_type")
-                != InterruptType.DECLARE_ACTION.value
-            ):
-                raise HTTPException(status_code=409, detail="当前交互不是行动声明")
-            resume_value = self.validate_action_resume(
-                interrupt_request.get("options") or {}, action
-            )
-            payload = await self._get_engine().submit_stream(
-                room.room_code,
-                resume_value,
-                event_sink=self.stream_sink(room),
-            )
+            if current.get("status") == "interrupted":
+                interrupt_request = self.require_pending_interrupt(current, member)
+                if (
+                    interrupt_request.get("interrupt_type")
+                    != InterruptType.DECLARE_ACTION.value
+                ):
+                    raise HTTPException(status_code=409, detail="当前交互不是行动声明")
+                resume_value = self.validate_action_resume(
+                    interrupt_request.get("options") or {}, action
+                )
+                payload = await self._get_engine().submit_stream(
+                    room.room_code,
+                    resume_value,
+                    event_sink=self.stream_sink(room),
+                )
+            else:
+                from src.session.action_nodes import available_world_actions
+
+                state = current.get("state") or {}
+                entries, _ = available_world_actions(
+                    state, actor_id=member.character_id
+                )
+                resume_value = self.validate_world_action(entries, action)
+                payload = await self._get_engine().action_stream(
+                    room.room_code,
+                    resume_value,
+                    user_id=member.user_id,
+                    actor_id=member.character_id,
+                    display_name=member.display_name,
+                    event_sink=self.stream_sink(room),
+                )
             await room_service.bump_revision(room)
         await self._sync_room_status(room, payload)
         return payload
@@ -126,7 +143,10 @@ class SessionService:
             kind = interrupt_request.get("interrupt_type")
             if kind == InterruptType.DECLARE_ACTION.value:
                 raise HTTPException(status_code=409, detail="当前交互需要选择行动")
-            if kind not in _D20_INTERRUPTS | {InterruptType.DAMAGE_ROLL.value}:
+            if kind not in _D20_INTERRUPTS | {
+                InterruptType.DAMAGE_ROLL.value,
+                InterruptType.EFFECT_ROLL.value,
+            }:
                 raise HTTPException(status_code=409, detail="当前交互不支持虚拟骰")
             expression = str(interrupt_request.get("required_dice") or "").strip()
             if not expression:
@@ -149,7 +169,8 @@ class SessionService:
             )
             resume_value = (
                 {"result": result.total, "source": "virtual"}
-                if kind == InterruptType.DAMAGE_ROLL.value
+                if kind
+                in {InterruptType.DAMAGE_ROLL.value, InterruptType.EFFECT_ROLL.value}
                 else {"d20": result.total, "source": "virtual"}
             )
             payload = await self._get_engine().submit_stream(
@@ -237,6 +258,9 @@ class SessionService:
             else self._scene_enemies(safe_state.get("scene") or {})
         )
         scene_data = safe_state.get("scene") or {}
+        from src.session.action_nodes import available_world_actions
+
+        world_actions, _ = available_world_actions(state, actor_id=member.character_id)
         pending = self._pending_view(room, member, interrupt)
         members_by_character = {
             item.character_id: item for item in room.members.values()
@@ -273,6 +297,7 @@ class SessionService:
             enemies=[
                 self._character_view(actor, member, None) for actor in enemies_source
             ],
+            available_actions=world_actions if not combat_view else [],
             timeline=self._timeline(
                 [
                     *(safe_state.get("messages") or []),
@@ -382,51 +407,41 @@ class SessionService:
                         "attack_name": attack_name,
                         "target_id": target_id,
                     }
-        if action_type in {"skill", "item"}:
-            key = "skill_id" if action_type == "skill" else "item_id"
-            value = action.get(key)
-            allowed = {item.get(key) for item in options.get(action_type, [])}
-            if value in allowed:
-                normalized = {"action_type": action_type, key: value}
+        if action_type == "rule_action":
+            value = action.get("action_id")
+            option = next(
+                (
+                    item
+                    for item in options.get("rule_actions", [])
+                    if item.get("action_id") == value and item.get("enabled")
+                ),
+                None,
+            )
+            if option is not None:
+                normalized = {"action_type": "rule_action", "action_id": value}
                 selected_targets = list(action.get("target_ids") or [])
                 if action.get("target_id") and not selected_targets:
                     selected_targets = [str(action["target_id"])]
-                option = next(
-                    item
-                    for item in options.get(action_type, [])
-                    if item.get(key) == value
-                )
                 legal_targets = {
                     target.get("id") for target in option.get("targets", [])
                 }
                 selected_targets = list(dict.fromkeys(map(str, selected_targets)))
-                if action_type == "skill" and not selected_targets:
-                    raise HTTPException(status_code=422, detail="技能必须选择目标")
-                if action_type == "skill" and not (
-                    int(option.get("min_targets", 1))
+                if not (
+                    int(option.get("min_targets", 0))
                     <= len(selected_targets)
                     <= int(option.get("max_targets", 20))
                 ):
-                    raise HTTPException(status_code=422, detail="技能目标数量不合法")
-                if (
-                    action_type == "skill"
-                    and selected_targets
-                    and not set(selected_targets).issubset(legal_targets)
+                    raise HTTPException(
+                        status_code=422, detail="规则行动目标数量不合法"
+                    )
+                if selected_targets and not set(selected_targets).issubset(
+                    legal_targets
                 ):
-                    raise HTTPException(status_code=422, detail="技能目标不合法")
+                    raise HTTPException(status_code=422, detail="规则行动目标不合法")
                 if selected_targets:
                     normalized["target_ids"] = selected_targets
                     normalized["target_id"] = selected_targets[0]
                 return normalized
-        if action_type == "special":
-            special_action_id = action.get("special_action_id")
-            for option in options.get("special", []):
-                if option.get("special_action_id") == special_action_id:
-                    return {
-                        "action_type": "special",
-                        "special_action_id": special_action_id,
-                        "target_id": option.get("target_id"),
-                    }
         if action_type == "natural_language" and options.get("natural_language"):
             description = str(action.get("description") or "").strip()
             if description:
@@ -435,6 +450,40 @@ class SessionService:
                     "description": description,
                 }
         raise HTTPException(status_code=422, detail="行动不在当前合法选项中")
+
+    @staticmethod
+    def validate_world_action(
+        entries: list[dict[str, Any]], action: dict[str, Any]
+    ) -> dict[str, Any]:
+        """校验探索阶段按钮行动必须来自当前角色的可用定义。"""
+        if action.get("action_type") != "rule_action":
+            raise HTTPException(status_code=422, detail="探索阶段只接受规则行动")
+        action_id = str(action.get("action_id") or "")
+        option = next(
+            (
+                item
+                for item in entries
+                if item.get("action_id") == action_id and item.get("enabled")
+            ),
+            None,
+        )
+        if option is None:
+            raise HTTPException(status_code=422, detail="规则行动当前不可用")
+        target_ids = list(dict.fromkeys(map(str, action.get("target_ids") or [])))
+        if action.get("target_id") and not target_ids:
+            target_ids = [str(action["target_id"])]
+        legal_targets = {str(item["id"]) for item in option.get("targets", [])}
+        if not (
+            int(option.get("min_targets", 0))
+            <= len(target_ids)
+            <= int(option.get("max_targets", 20))
+        ) or not set(target_ids).issubset(legal_targets):
+            raise HTTPException(status_code=422, detail="规则行动目标不合法")
+        return {
+            "action_id": action_id,
+            "target_ids": target_ids,
+            "declared_text": action.get("description") or option.get("name"),
+        }
 
     def _get_engine(self) -> SessionEngine:
         self._ensure_canon_loaded()
@@ -620,6 +669,7 @@ class SessionService:
             },
             skills=skills,
             features=list(actor.get("features") or []),
+            inventory=list(actor.get("inventory") or []),
             current_hp=int(actor.get("current_hp") or 0),
             max_hp=max(int(actor.get("max_hp") or 1), 1),
             temporary_hp=int(actor.get("temporary_hp") or 0),

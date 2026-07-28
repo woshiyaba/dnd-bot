@@ -105,13 +105,18 @@ async def _handle_interrupt(engine: SessionEngine, payload: dict) -> dict:
     if itype == "declare_action":
         print("可选行动：\n" + _format_options(req.get("options") or {}))
         action = (
-            _read_line("action_type (attack/skill/item/move/improvise/pass)> ") or ""
+            _read_line("action_type (attack/rule_action/natural_language/move/pass)> ")
+            or ""
         ).strip()
+        action_id = (_read_line("action_id（仅 rule_action）> ") or "").strip()
         target = (_read_line("target_id（没有就直接回车）> ") or "").strip()
         resume: dict = {"action_type": action or "pass"}
+        if action_id:
+            resume["action_id"] = action_id
         if target:
             resume["target_id"] = target
-    elif itype == "damage_roll":
+            resume["target_ids"] = [target]
+    elif itype in {"damage_roll", "effect_roll"}:
         raw = (_read_line("输入伤害总和（按提示掷骰后的合计）> ") or "0").strip()
         resume = {"result": _safe_int(raw, 0)}
     else:  # roll_initiative / attack_roll / saving_throw / ability_check

@@ -85,7 +85,7 @@ def perceive(state: DMState) -> dict:
 # 2. dm_decide（DM 智能体）：决定本回合意图
 # ---------------------------------------------------------------------------
 async def dm_decide(state: DMState) -> dict:
-    """让 DM 读局面决定意图：reply / player_check / start_combat。
+    """让 DM 读局面决定意图：reply / player_check / start_combat / use_action。
 
     昂贵且非确定（可能调 LLM）——必须独立成节点，以便恢复时不重跑（见模块文档）。
     """
@@ -147,6 +147,14 @@ async def dm_decide(state: DMState) -> dict:
             "world_writes": writes,
             "next": "combat",
         }
+    if intent == "use_action":
+        return {
+            "intent": intent,
+            "narrative_intent": narrative_intent,
+            "structured_action": decision["action"],
+            "world_writes": None,
+            "next": "action",
+        }
     # reply
     return {
         "intent": intent,
@@ -164,6 +172,8 @@ def route_after_decide(state: DMState) -> str:
         return "check"
     if intent == "start_combat":
         return "combat"
+    if intent == "use_action":
+        return "action"
     if intent == "guidance":
         return "guidance"
     return "reply"
@@ -349,6 +359,7 @@ def build_dm_subgraph():
             "guidance": "guide_world_state_conflict",
             "check": "await_roll",
             "combat": END,  # 交给会话主图路由进战斗子图（next=combat）
+            "action": END,  # 交给会话主图进入统一世界行动节点
         },
     )
     g.add_edge("guide_world_state_conflict", "narrate_reply")

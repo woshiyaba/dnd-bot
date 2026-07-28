@@ -36,13 +36,15 @@ from src.model.enums import (
 
 from src.combat.nodes import (
     check_end,
+    commit_rule_action,
     declare_action,
     enter_combat,
+    execute_rule_action,
     judge_surprise,
     narrate,
     narrate_opening,
     next_turn,
-    prepare_skill,
+    prepare_rule_action,
     resolve_action,
     roll_initiative,
     route_after_declare,
@@ -110,7 +112,9 @@ def build_combat_graph(checkpointer: Any | None = None, *, embeddable: bool = Fa
     g.add_node("roll_initiative", roll_initiative)
     g.add_node("next_turn", next_turn)
     g.add_node("declare_action", declare_action)
-    g.add_node("prepare_skill", prepare_skill)
+    g.add_node("prepare_rule_action", prepare_rule_action)
+    g.add_node("commit_rule_action", commit_rule_action)
+    g.add_node("execute_rule_action", execute_rule_action)
     g.add_node("resolve_action", resolve_action)
     g.add_node("narrate", narrate)
     g.add_node("check_end", check_end)
@@ -127,11 +131,13 @@ def build_combat_graph(checkpointer: Any | None = None, *, embeddable: bool = Fa
         route_after_declare,
         {
             "retry": "declare_action",
-            "skill": "prepare_skill",
+            "rule_action": "prepare_rule_action",
             "resolve": "resolve_action",
         },
     )
-    g.add_edge("prepare_skill", "resolve_action")
+    g.add_edge("prepare_rule_action", "commit_rule_action")
+    g.add_edge("commit_rule_action", "execute_rule_action")
+    g.add_edge("execute_rule_action", "narrate")
     g.add_edge("resolve_action", "narrate")
     g.add_edge("narrate", "check_end")
 

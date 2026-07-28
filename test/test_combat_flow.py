@@ -202,9 +202,9 @@ def _decide_player_action(options: dict) -> dict:
     """从合法选项里挑玩家这一回合的行动（简单策略：能打就打）。
 
     想测其它行动分支，把返回改成：
-    - 技能：{"action_type": "skill", "skill_id": "skill_second_wind"}
-    - 道具：{"action_type": "item", "item_id": "item_healing_potion", "target_id": "pc_aria"}
-    - 创意：{"action_type": "improvise", "description": "掀翻火盆", "dc": 12, "ability": "strength"}
+    - 技能：{"action_type": "rule_action", "action_id": "skill.skill_second_wind", "target_ids": ["pc_aria"]}
+    - 物品：{"action_type": "rule_action", "action_id": "apply_frost_talisman", "target_ids": ["vermillion_serpent"]}
+    - 自然语言：{"action_type": "natural_language", "description": "我使用寒冰符箓封住敌人的鳞片"}
     - 移动：{"action_type": "move", "target_zone": "后排"}
     """
     print(

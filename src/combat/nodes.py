@@ -52,10 +52,8 @@ from src.model.enums import (
     CombatOutcome,
     CombatPhase,
     ConditionType,
-    DamageType,
     Faction,
     InterruptType,
-    LifeState,
 )
 
 logger = logging.getLogger(__name__)
@@ -111,6 +109,9 @@ def _clear_concentration_effects(
         for condition in removed:
             if condition.stat == "ac":
                 combatant.ac -= condition.amount
+            if condition.stat == "attack_bonus":
+                for attack in combatant.attacks:
+                    attack.attack_bonus -= condition.amount
         combatant.conditions = [
             condition
             for condition in combatant.conditions
@@ -187,12 +188,13 @@ def enter_combat(state: CombatState) -> dict:
         "phase": CombatPhase.SETUP,
         "outcome": CombatOutcome.ONGOING,
         "current_action": None,
-        "pending_skill_plan": None,
+        "pending_action_plan": None,
         "actions_remaining": 0,
         "extra_attacks_remaining": 0,
         "attack_action_started": False,
         "action_feedback": None,
-        "applied_special_actions": [],
+        "used_rule_actions": list(scene.get("used_session_rule_actions", []) or []),
+        "committed_action_plans": [],
         "turn_events": [],
         "combat_log": list(state.get("combat_log", [])),
     }
@@ -408,7 +410,7 @@ def next_turn(state: CombatState) -> dict:
         "current_round": rnd,
         "phase": CombatPhase.IN_TURN,
         "current_action": None,
-        "pending_skill_plan": None,
+        "pending_action_plan": None,
         "actions_remaining": (
             general_action_budget_for(actor.class_id or "", actor.level, actor.features)
             if isinstance(actor, Character)
@@ -443,13 +445,12 @@ async def declare_action(state: CombatState) -> dict:
         options = build_action_options(
             actor,
             combatants,
-            special_actions=list(scene.get("special_actions", []) or []),
+            action_definitions=list(scene.get("action_definitions", []) or []),
+            encounter_id=scene.get("encounter_id"),
             story_flags=[
                 flag for flag, enabled in story_flags.items() if bool(enabled)
             ],
-            applied_special_actions=list(
-                state.get("applied_special_actions", []) or []
-            ),
+            used_rule_actions=list(state.get("used_rule_actions", []) or []),
             actions_remaining=int(state.get("actions_remaining", 1)),
             extra_attacks_remaining=int(state.get("extra_attacks_remaining", 0)),
             attack_action_started=bool(state.get("attack_action_started")),
@@ -563,38 +564,103 @@ def route_after_declare(state: CombatState) -> str:
     action = state.get("current_action") or {}
     if action.get("action_type") == ActionType.REJECTED.value:
         return "retry"
-    if action.get("action_type") == ActionType.SKILL.value:
-        return "skill"
+    if action.get("action_type") == ActionType.RULE_ACTION.value:
+        return "rule_action"
     return "resolve"
 
 
-async def prepare_skill(state: CombatState) -> dict:
-    """调用真实 LLM 生成一次技能计划并写入检查点，后续中断只复用该计划。"""
+async def prepare_rule_action(state: CombatState) -> dict:
+    """调用真实 LLM 生成统一行动计划；本节点前不提交任何成本。"""
     actor = _current_actor(state)
-    if not isinstance(actor, Character):
-        raise ValueError("只有完整角色可以施放技能")
     action = state.get("current_action") or {}
-    skill_id = str(action.get("skill_id") or "")
-    owned = next((skill for skill in actor.skills if skill.skill_id == skill_id), None)
-    if owned is None or not owned.is_available:
-        raise ValueError(f"技能 «{skill_id}» 未掌握或尚不可用")
-    # 旧测试场景中的「回气」是封闭的规则技能，不需要 LLM 解释。
-    if skill_id in _HEALING_SKILLS:
-        return {"pending_skill_plan": None}
+    action_id = str(action.get("action_id") or "")
+    from src.combat.action_compiler import prepare_action_plan
+    from src.combat.action_registry import combat_action_entries
 
-    from src.combat.skill_resolver import prepare_skill_plan
+    scene = state.get("scene_context", {}) or {}
+    _, definitions = combat_action_entries(
+        actor,
+        state["combatants"],
+        canon_definitions=list(scene.get("action_definitions", []) or []),
+        story_flags=dict(scene.get("story_flags", {}) or {}),
+        encounter_id=scene.get("encounter_id"),
+        used_action_ids=list(state.get("used_rule_actions", []) or []),
+    )
+    definition = definitions.get(action_id)
+    if definition is None:
+        raise ValueError(f"规则行动 «{action_id}» 不属于当前合法定义")
 
     target_ids = [str(value) for value in action.get("target_ids", [])]
     if not target_ids and action.get("target_id"):
         target_ids = [str(action["target_id"])]
-    plan = await prepare_skill_plan(
+    plan = await prepare_action_plan(
+        definition=definition,
         actor=actor,
-        skill_id=skill_id,
-        combatants=state["combatants"],
+        targets=state["combatants"],
         selected_target_ids=target_ids,
-        current_round=int(state.get("current_round", 1)),
+        scope="combat",
+        context={
+            "round": int(state.get("current_round", 1)),
+            "encounter_id": scene.get("encounter_id"),
+        },
     )
-    return {"pending_skill_plan": plan}
+    return {"pending_action_plan": plan}
+
+
+def commit_rule_action(state: CombatState) -> dict:
+    """在独立无中断节点提交统一行动成本，保证恢复时只扣除一次。"""
+    from src.combat.action_executor import commit_action_cost
+
+    actor = _current_actor(state)
+    plan = state.get("pending_action_plan")
+    if not isinstance(plan, dict):
+        raise ValueError("规则行动缺少已校验计划")
+    used, committed, event = commit_action_cost(
+        actor,
+        plan,
+        list(state.get("used_rule_actions", []) or []),
+        list(state.get("committed_action_plans", []) or []),
+    )
+    event = _with_round(state, event)
+    return {
+        "combatants": state["combatants"],
+        "used_rule_actions": used,
+        "committed_action_plans": committed,
+        "turn_events": [event],
+        "combat_log": _append_log(state, [event]),
+    }
+
+
+def execute_rule_action(state: CombatState) -> dict:
+    """执行已提交的统一计划并消费本回合通用动作。"""
+    from src.combat.action_executor import execute_combat_plan
+
+    actor = _current_actor(state)
+    plan = state.get("pending_action_plan")
+    if not isinstance(plan, dict):
+        raise ValueError("规则行动缺少已校验计划")
+    events = [
+        _with_round(state, event) for event in execute_combat_plan(state, actor, plan)
+    ]
+    declared_text = (state.get("current_action") or {}).get("declared_text")
+    if declared_text:
+        for event in events:
+            event["declared_text"] = declared_text
+    remaining = max(0, int(state.get("actions_remaining", 1)) - 1)
+    logger.info(
+        "[execute_rule_action] %s action=%s 事件=%s",
+        actor.id,
+        plan.get("definition_id"),
+        [event.get("event") for event in events],
+    )
+    return {
+        "combatants": state["combatants"],
+        "actions_remaining": remaining,
+        "pending_action_plan": None,
+        "action_feedback": None,
+        "turn_events": events,
+        "combat_log": _append_log(state, events),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -609,12 +675,6 @@ def resolve_action(state: CombatState) -> dict:
 
     if action_type == ActionType.ATTACK.value:
         events = _resolve_attack(state, actor, action, combatants)
-    elif action_type == ActionType.SKILL.value:
-        events = _resolve_skill(state, actor, action, combatants)
-    elif action_type == ActionType.ITEM.value:
-        events = _resolve_item(actor, action, combatants)
-    elif action_type == ActionType.SPECIAL.value:
-        events = _resolve_special(state, actor, action, combatants)
     elif action_type == ActionType.MOVE.value:
         events = _resolve_move(actor, action)
     else:
@@ -625,11 +685,6 @@ def resolve_action(state: CombatState) -> dict:
     if declared_text:
         for event in events:
             event["declared_text"] = declared_text
-    applied_special_actions = list(state.get("applied_special_actions", []) or [])
-    for event in events:
-        applied_id = event.get("applied_special_action_id")
-        if applied_id and applied_id not in applied_special_actions:
-            applied_special_actions.append(applied_id)
     logger.info(
         "[resolve_action] %s 事件=%s", actor.id, [e.get("event") for e in events]
     )
@@ -652,9 +707,8 @@ def resolve_action(state: CombatState) -> dict:
         "actions_remaining": remaining,
         "extra_attacks_remaining": extra_attacks,
         "attack_action_started": attack_started,
-        "pending_skill_plan": None,
+        "pending_action_plan": None,
         "action_feedback": None,
-        "applied_special_actions": applied_special_actions,
         "turn_events": events,
         "combat_log": _append_log(state, events),
     }
@@ -785,337 +839,6 @@ def _resolve_attack(
     return events
 
 
-_HEALING_SKILLS = {"skill_second_wind": "1d10"}
-
-
-def _resolve_skill(
-    state: CombatState,
-    actor: Combatant,
-    action: dict,
-    combatants: dict[str, Combatant],
-) -> list[dict]:
-    """执行已校验技能计划；所有随机数和最终状态均由引擎处理。"""
-    skill_id = str(action.get("skill_id", ""))
-    owned = None
-    if isinstance(actor, Character):
-        owned = next(
-            (skill for skill in actor.skills if skill.skill_id == skill_id), None
-        )
-    if owned is None or not owned.is_available:
-        return [{"event": "invalid_skill", "actor": actor.id, "skill_id": skill_id}]
-
-    # 保留旧流程测试里的封闭示例技能；新目录技能必须有 prepare_skill 计划。
-    if skill_id in _HEALING_SKILLS and state.get("pending_skill_plan") is None:
-        if owned.charges is not None:
-            owned.charges -= 1
-        heal_amount = current_engine_dice().roll(
-            _HEALING_SKILLS[skill_id]
-        ).total + getattr(actor, "level", 1)
-        healed = actor.heal(heal_amount)
-        return [
-            {
-                "event": "skill",
-                "actor": actor.id,
-                "skill_id": skill_id,
-                "heal": healed,
-                "target": actor.id,
-                "target_hp": actor.current_hp,
-            }
-        ]
-
-    plan = state.get("pending_skill_plan")
-    if not isinstance(plan, dict) or plan.get("skill_id") != skill_id:
-        raise ValueError(f"技能 «{skill_id}» 缺少已校验执行计划")
-    owned.consume()
-    previous_concentration = actor.concentration_skill_id
-    if plan.get("concentration"):
-        if previous_concentration:
-            _clear_concentration_effects(combatants, previous_concentration, actor.id)
-        actor.concentration_skill_id = skill_id
-    events: list[dict] = [
-        {
-            "event": "skill",
-            "actor": actor.id,
-            "skill_id": skill_id,
-            "skill_name": owned.name or skill_id,
-            "summary": plan.get("summary", ""),
-        }
-    ]
-    roll = plan.get("roll") or {"kind": "none"}
-    attack_hit = True
-    attack_crit = False
-    if roll.get("kind") == "attack_roll":
-        target = combatants[str(roll["target_id"])]
-        attack_bonus = (
-            actor.attacks[0].attack_bonus
-            if skill_id == "feature_divine_smite" and actor.attacks
-            else actor.proficiency_bonus + _spellcasting_modifier(actor)
-        )
-        d20, source = _roll_d20_for(
-            actor,
-            kind=InterruptType.ATTACK_ROLL,
-            prompt=(
-                f"{actor.name} 施放「{owned.name or skill_id}」攻击 {target.name}："
-                f"掷 d20 + {attack_bonus}"
-            ),
-            bonus=attack_bonus,
-            state=state,
-        )
-        result = resolve_attack(d20, attack_bonus, target.ac)
-        attack_hit = result.hit
-        attack_crit = result.crit
-        events.append(
-            {
-                "event": "skill_attack",
-                "actor": actor.id,
-                "target": target.id,
-                "d20": d20,
-                "bonus": attack_bonus,
-                "source": source,
-                "hit": result.hit,
-                "crit": result.crit,
-            }
-        )
-
-    save_results: dict[str, bool] = {}
-    if roll.get("kind") == "saving_throw":
-        ability = Ability(str(roll["ability"]))
-        dc = int(roll.get("dc") or _spell_save_dc(actor))
-        target_ids = {
-            str(effect.get("target_id"))
-            for effect in plan.get("effects", [])
-            if effect.get("target_id")
-        }
-        for target_id in target_ids:
-            target = combatants[target_id]
-            bonus = saving_throw_bonus(target, ability)
-            d20, source = _roll_d20_for(
-                target,
-                kind=InterruptType.SAVING_THROW,
-                prompt=(
-                    f"{target.name} 对「{owned.name or skill_id}」进行 "
-                    f"{ability.value} 豁免：掷 d20 + {bonus}"
-                ),
-                bonus=bonus,
-                state=state,
-            )
-            success = check_success(d20, bonus, dc)
-            save_results[target_id] = success
-            events.append(
-                {
-                    "event": "skill_save",
-                    "actor": target.id,
-                    "skill_id": skill_id,
-                    "ability": ability.value,
-                    "d20": d20,
-                    "bonus": bonus,
-                    "dc": dc,
-                    "source": source,
-                    "success": success,
-                }
-            )
-
-    for effect in plan.get("effects", []):
-        kind = effect["kind"]
-        if kind == "dm_ruling":
-            events.append(
-                {
-                    "event": "skill_dm_ruling",
-                    "actor": actor.id,
-                    "skill_id": skill_id,
-                    "text": effect["text"],
-                }
-            )
-            continue
-        target = combatants[str(effect["target_id"])]
-        saved = save_results.get(target.id, False)
-        if not attack_hit and kind in {"damage", "add_condition", "modify_ac"}:
-            continue
-        if saved and effect.get("on_save") == "none":
-            continue
-        if kind in {"damage", "healing", "temporary_hp"}:
-            amount, source = _roll_skill_amount(
-                actor,
-                expression=effect.get("dice"),
-                fixed=effect.get("amount"),
-                skill_name=owned.name or skill_id,
-                state=state,
-                crit=attack_crit and kind == "damage",
-            )
-            if kind == "damage":
-                if saved and effect.get("on_save") == "half":
-                    amount //= 2
-                applied = target.take_damage(amount)
-                events.append(
-                    {
-                        "event": "skill_damage",
-                        "actor": actor.id,
-                        "target": target.id,
-                        "skill_id": skill_id,
-                        "damage": applied,
-                        "damage_type": effect["damage_type"],
-                        "source": source,
-                        "target_hp": target.current_hp,
-                        "target_alive": target.is_alive,
-                    }
-                )
-                concentration = _check_concentration(state, target, applied, combatants)
-                if concentration:
-                    events.append(concentration)
-            elif kind == "healing":
-                healed = target.heal(amount)
-                events.append(
-                    {
-                        "event": "skill_heal",
-                        "actor": actor.id,
-                        "target": target.id,
-                        "skill_id": skill_id,
-                        "heal": healed,
-                        "source": source,
-                        "target_hp": target.current_hp,
-                    }
-                )
-            else:
-                target.temporary_hp = max(target.temporary_hp, amount)
-                events.append(
-                    {
-                        "event": "temporary_hp",
-                        "actor": actor.id,
-                        "target": target.id,
-                        "skill_id": skill_id,
-                        "temporary_hp": target.temporary_hp,
-                    }
-                )
-        elif kind == "add_condition":
-            condition_kind = ConditionType(str(effect["condition"]))
-            condition_amount = 0
-            condition_damage_type = None
-            if condition_kind == ConditionType.DAMAGE_OVER_TIME:
-                condition_amount, _ = _roll_skill_amount(
-                    actor,
-                    expression=effect.get("dice"),
-                    fixed=effect.get("amount"),
-                    skill_name=owned.name or skill_id,
-                    state=state,
-                )
-                condition_damage_type = DamageType(str(effect["damage_type"]))
-            condition = Condition(
-                kind=condition_kind,
-                rounds_left=int(effect.get("rounds", 1)),
-                amount=condition_amount,
-                damage_type=condition_damage_type,
-                source_skill_id=skill_id,
-                source_actor_id=actor.id,
-            )
-            target.add_condition(condition)
-            events.append(
-                {
-                    "event": "condition_added",
-                    "actor": actor.id,
-                    "target": target.id,
-                    "condition": condition.kind.value,
-                    "rounds": condition.rounds_left,
-                }
-            )
-        elif kind == "remove_condition":
-            condition_value = effect.get("condition")
-            before = len(target.conditions)
-            removed_conditions = [
-                condition
-                for condition in target.conditions
-                if not condition_value or condition.kind.value == condition_value
-            ]
-            for condition in removed_conditions:
-                if condition.stat == "ac":
-                    target.ac -= condition.amount
-            if condition_value:
-                target.conditions = [
-                    condition
-                    for condition in target.conditions
-                    if condition.kind.value != condition_value
-                ]
-            else:
-                target.conditions = []
-            events.append(
-                {
-                    "event": "condition_removed",
-                    "actor": actor.id,
-                    "target": target.id,
-                    "removed": before - len(target.conditions),
-                }
-            )
-        elif kind == "modify_ac":
-            condition = Condition(
-                kind=(
-                    ConditionType.BUFF
-                    if int(effect["amount"]) >= 0
-                    else ConditionType.DEBUFF
-                ),
-                rounds_left=int(effect.get("rounds", 1)),
-                amount=int(effect["amount"]),
-                stat="ac",
-                source_skill_id=skill_id,
-                source_actor_id=actor.id,
-            )
-            target.add_condition(condition)
-            events.append(
-                {
-                    "event": "ac_modified",
-                    "actor": actor.id,
-                    "target": target.id,
-                    "amount": condition.amount,
-                    "ac": target.ac,
-                    "rounds": condition.rounds_left,
-                }
-            )
-        elif kind == "move":
-            old_zone = target.current_zone
-            target.current_zone = str(effect["target_zone"])
-            events.append(
-                {
-                    "event": "skill_move",
-                    "actor": actor.id,
-                    "target": target.id,
-                    "from": old_zone,
-                    "to": target.current_zone,
-                }
-            )
-        elif kind == "revive":
-            amount, source = _roll_skill_amount(
-                actor,
-                expression=effect.get("dice"),
-                fixed=effect.get("amount", 1),
-                skill_name=owned.name or skill_id,
-                state=state,
-            )
-            target.life_state = LifeState.ALIVE
-            target.current_hp = min(target.max_hp, max(1, amount))
-            events.append(
-                {
-                    "event": "revive",
-                    "actor": actor.id,
-                    "target": target.id,
-                    "source": source,
-                    "target_hp": target.current_hp,
-                }
-            )
-    return events
-
-
-def _spellcasting_modifier(actor: Character) -> int:
-    """返回当前开放职业的施法关键属性调整值。"""
-    ability = {
-        "bard": Ability.CHARISMA,
-        "cleric": Ability.WISDOM,
-        "paladin": Ability.CHARISMA,
-    }.get(actor.class_id, Ability.INTELLIGENCE)
-    return actor.modifier(ability)
-
-
-def _spell_save_dc(actor: Character) -> int:
-    return 8 + actor.proficiency_bonus + _spellcasting_modifier(actor)
-
-
 def _roll_d20_for(
     roller: Combatant,
     *,
@@ -1138,246 +861,6 @@ def _roll_d20_for(
         )
         return validate_d20(resume_value), extract_roll_source(resume_value)
     return current_engine_dice().d20(), "engine"
-
-
-def _roll_skill_amount(
-    actor: Combatant,
-    *,
-    expression: str | None,
-    fixed: int | None,
-    skill_name: str,
-    state: CombatState,
-    crit: bool = False,
-) -> tuple[int, str]:
-    """取得技能伤害/治疗数值；玩家掷表达式，固定值无需中断。"""
-    if expression is None:
-        return max(0, int(fixed or 0)), "fixed"
-    if actor.is_player_controlled:
-        resume_value = interrupt(
-            build_interrupt_request(
-                kind=InterruptType.DAMAGE_ROLL,
-                actor=actor,
-                prompt=f"为「{skill_name}」掷 {expression}",
-                required_dice=expression,
-                extra={
-                    "crit": crit,
-                    "combat": build_combat_view(state, actor_id=actor.id),
-                },
-            )
-        )
-        amount = extract_damage(resume_value)
-        if amount is None:
-            raise ValueError("技能骰中断缺少有效结果")
-        return amount, extract_roll_source(resume_value)
-    return current_engine_dice().roll(expression, crit=crit).total, "engine"
-
-
-_HEALING_ITEMS = {"item_healing_potion": "2d4+2"}
-
-
-def _resolve_item(
-    actor: Combatant, action: dict, combatants: dict[str, Combatant]
-) -> list[dict]:
-    """道具结算（v0）：扣数量；已知治疗药水回血，其余仅记事。"""
-    item_id = action.get("item_id", "")
-    owned = None
-    if isinstance(actor, Character):
-        owned = next((i for i in actor.inventory if i.item_id == item_id), None)
-    if owned is None or not owned.is_available:
-        return [{"event": "invalid_item", "actor": actor.id, "item_id": item_id}]
-
-    owned.quantity -= 1
-    target = combatants.get(action.get("target_id", ""), actor)
-    event: dict = {
-        "event": "item",
-        "actor": actor.id,
-        "item_id": item_id,
-        "target": target.id,
-    }
-
-    if item_id in _HEALING_ITEMS:
-        healed = target.heal(current_engine_dice().roll(_HEALING_ITEMS[item_id]).total)
-        event.update({"heal": healed, "target_hp": target.current_hp})
-    return [event]
-
-
-def _resolve_special(
-    state: CombatState,
-    actor: Combatant,
-    action: dict,
-    combatants: dict[str, Combatant],
-) -> list[dict]:
-    """结算 canon 封闭定义的特殊行动，LLM 不参与数值与效果计算。"""
-    scene = state.get("scene_context", {}) or {}
-    action_id = str(action.get("special_action_id", ""))
-    definition = next(
-        (
-            candidate
-            for candidate in scene.get("special_actions", []) or []
-            if candidate.get("id") == action_id
-        ),
-        None,
-    )
-    if definition is None:
-        raise ValueError(f"[combat] 未知特殊行动 «{action_id}»")
-
-    story_flags = scene.get("story_flags", {}) or {}
-    if any(not story_flags.get(flag) for flag in definition.get("requires_flags", [])):
-        raise ValueError(f"[combat] 特殊行动 «{action_id}» 缺少剧情条件")
-    if action_id in (state.get("applied_special_actions", []) or []):
-        raise ValueError(f"[combat] 特殊行动 «{action_id}» 已经生效")
-
-    target_id = str(definition.get("target_actor_id", ""))
-    target = combatants.get(target_id)
-    if target is None or not target.is_alive or target.faction == actor.faction:
-        raise ValueError(f"[combat] 特殊行动 «{action_id}» 的目标无效")
-    if definition.get("range") == "melee" and target.current_zone != actor.current_zone:
-        raise ValueError(f"[combat] 特殊行动 «{action_id}» 的目标不在同一区域")
-
-    required_item_id = definition.get("requires_item_id")
-    owned_item = None
-    if required_item_id and isinstance(actor, Character):
-        owned_item = next(
-            (
-                item
-                for item in actor.inventory
-                if item.item_id == required_item_id and item.is_available
-            ),
-            None,
-        )
-    if required_item_id and owned_item is None:
-        raise ValueError(f"[combat] 特殊行动 «{action_id}» 缺少所需道具")
-
-    event: dict[str, Any] = {
-        "event": "special_action",
-        "actor": actor.id,
-        "target": target.id,
-        "special_action_id": action_id,
-        "label": definition.get("label", action_id),
-    }
-    check = definition.get("check")
-    if isinstance(check, dict):
-        ability = Ability(str(check["ability"]))
-        dc = int(check["dc"])
-        bonus = ability_check_bonus(actor, ability)
-        if actor.is_player_controlled:
-            resume_value = interrupt(
-                build_interrupt_request(
-                    kind=InterruptType.ABILITY_CHECK,
-                    actor=actor,
-                    prompt=(
-                        f"{definition.get('label', action_id)}：掷 "
-                        f"{ability.value} 检定 d20 + {bonus}，对抗 DC {dc}"
-                    ),
-                    required_dice="d20",
-                    bonus=bonus,
-                    extra={"combat": build_combat_view(state, actor_id=actor.id)},
-                )
-            )
-            d20 = validate_d20(resume_value)
-            roll_source = extract_roll_source(resume_value)
-        else:
-            d20 = current_engine_dice().d20()
-            roll_source = "engine"
-        success = check_success(d20, bonus, dc)
-        event.update(
-            {
-                "ability": ability.value,
-                "d20": d20,
-                "bonus": bonus,
-                "dc": dc,
-                "source": roll_source,
-                "success": success,
-            }
-        )
-        if not success:
-            return [event]
-    else:
-        event["success"] = True
-
-    effect = definition["effect"]
-    effect_kind = effect["kind"]
-    amount = int(effect.get("amount", 0))
-    if effect_kind == "modify_ac":
-        old_value = target.ac
-        target.ac += amount
-        event["effect"] = {
-            "kind": effect_kind,
-            "before": old_value,
-            "after": target.ac,
-        }
-    elif effect_kind == "modify_attack_bonus":
-        before = {attack.name: attack.attack_bonus for attack in target.attacks}
-        for attack in target.attacks:
-            attack.attack_bonus += amount
-        event["effect"] = {
-            "kind": effect_kind,
-            "before": before,
-            "after": {attack.name: attack.attack_bonus for attack in target.attacks},
-        }
-    elif effect_kind == "add_condition":
-        condition = Condition(
-            kind=ConditionType(str(effect["condition"])),
-            rounds_left=int(effect.get("rounds", 1)),
-        )
-        target.add_condition(condition)
-        event["effect"] = {
-            "kind": effect_kind,
-            "condition": condition.kind.value,
-            "rounds": condition.rounds_left,
-        }
-    else:
-        raise ValueError(f"[combat] 不支持的特殊行动效果 «{effect_kind}»")
-
-    if definition.get("consume_item"):
-        if owned_item is None:
-            raise ValueError(f"[combat] 特殊行动 «{action_id}» 没有可消耗道具")
-        owned_item.quantity -= 1
-        event["consumed_item_id"] = owned_item.item_id
-    event["applied_special_action_id"] = action_id
-    return [event]
-
-
-def _resolve_improvise(
-    state: CombatState,
-    actor: Combatant,
-    action: dict,
-    combatants: dict[str, Combatant],
-) -> list[dict]:
-    """创意动作（v0）：DM 给 DC（默认 12），行动者掷敏捷检定；引擎只判成败，效果交 DM 叙述。"""
-    dc = int(action.get("dc", 12))
-    ability = Ability(action.get("ability", Ability.DEXTERITY))
-    bonus = ability_check_bonus(actor, ability)
-
-    if actor.is_player_controlled:
-        resume_value = interrupt(
-            build_interrupt_request(
-                kind=InterruptType.ABILITY_CHECK,
-                actor=actor,
-                prompt=f"创意动作「{action.get('description', '')}」：掷 {ability.value}检定 d20 + {bonus}，对抗 DC {dc}",
-                required_dice="d20",
-                bonus=bonus,
-                extra={"combat": build_combat_view(state, actor_id=actor.id)},
-            )
-        )
-        d20 = validate_d20(resume_value)
-        roll_source = extract_roll_source(resume_value)
-    else:
-        d20 = current_engine_dice().d20()
-        roll_source = "engine"
-
-    success = check_success(d20, bonus, dc)
-    return [
-        {
-            "event": "improvise",
-            "actor": actor.id,
-            "description": action.get("description", ""),
-            "d20": d20,
-            "source": roll_source,
-            "dc": dc,
-            "success": success,
-        }
-    ]
 
 
 def _resolve_move(actor: Combatant, action: dict) -> list[dict]:

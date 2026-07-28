@@ -667,15 +667,15 @@ class LockedCombatIntentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(decisions.await_count, 3)
 
 
-class SpecialActionTests(unittest.TestCase):
-    """验证线索只解锁优势，不成为进入战斗的空气墙。"""
+class RuleActionOptionTests(unittest.TestCase):
+    """验证线索只解锁统一规则行动，不成为进入战斗的空气墙。"""
 
     def setUp(self) -> None:
         get_registry().load_all()
         canon = get_registry().get("whispers_bell_tower")
-        self.special_actions = list(
-            canon.beat("bell_tower_summit").encounter.special_actions
-        )
+        self.action_definitions = [
+            action.to_dict() for action in canon.action_definitions
+        ]
         self.player = PlayerCharacter.from_card(
             {
                 "id": "pc_aldous",
@@ -710,50 +710,32 @@ class SpecialActionTests(unittest.TestCase):
             ],
         )
 
-    def _state(self, special_action_id: str) -> dict:
-        return {
-            "combatants": {
-                self.player.id: self.player,
-                self.boss.id: self.boss,
-            },
-            "initiative_order": [self.player.id, self.boss.id],
-            "current_index": 0,
-            "current_round": 1,
-            "current_action": {
-                "action_type": "special",
-                "special_action_id": special_action_id,
-                "target_id": self.boss.id,
-            },
-            "combat_log": [],
-            "applied_special_actions": [],
-            "scene_context": {
-                "special_actions": self.special_actions,
-                "story_flags": {
-                    "clue_bell_crack": True,
-                    "clue_spirit_name": True,
-                    "clue_holy_water": True,
-                },
-            },
-        }
-
-    def test_no_clues_still_has_normal_actions_but_no_special_actions(self):
+    def test_no_clues_still_has_normal_actions_but_rule_actions_are_disabled(self):
         self.player.inventory.clear()
         options = build_action_options(
             self.player,
             {self.player.id: self.player, self.boss.id: self.boss},
-            special_actions=self.special_actions,
+            action_definitions=self.action_definitions,
+            encounter_id="boss_bell_spirit",
             story_flags=[],
         )
 
         self.assertTrue(options["natural_language"])
         self.assertTrue(options["pass"])
-        self.assertEqual(options["special"], [])
+        canon_actions = [
+            item
+            for item in options["rule_actions"]
+            if item["source_kind"] in {"item", "quest_feature"}
+        ]
+        self.assertTrue(canon_actions)
+        self.assertTrue(all(not item["enabled"] for item in canon_actions))
 
-    def test_all_three_preparations_unlock_their_fixed_actions(self):
+    def test_all_three_preparations_unlock_their_fixed_rule_actions(self):
         options = build_action_options(
             self.player,
             {self.player.id: self.player, self.boss.id: self.boss},
-            special_actions=self.special_actions,
+            action_definitions=self.action_definitions,
+            encounter_id="boss_bell_spirit",
             story_flags=[
                 "clue_bell_crack",
                 "clue_spirit_name",
@@ -762,25 +744,13 @@ class SpecialActionTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            {item["special_action_id"] for item in options["special"]},
+            {
+                item["action_id"]
+                for item in options["rule_actions"]
+                if item["enabled"] and item["source_kind"] in {"item", "quest_feature"}
+            },
             {"exploit_bell_crack", "invoke_true_name", "apply_holy_water"},
         )
-
-    def test_crack_true_name_and_holy_water_apply_engine_effects(self):
-        with patch("src.combat.nodes.interrupt", return_value={"d20": 20}):
-            crack = resolve_action(self._state("exploit_bell_crack"))
-        self.assertEqual(self.boss.ac, 11)
-        self.assertIn("exploit_bell_crack", crack["applied_special_actions"])
-
-        with patch("src.combat.nodes.interrupt", return_value={"d20": 20}):
-            true_name = resolve_action(self._state("invoke_true_name"))
-        self.assertTrue(self.boss.has_condition(ConditionType.STUNNED))
-        self.assertIn("invoke_true_name", true_name["applied_special_actions"])
-
-        holy_water = resolve_action(self._state("apply_holy_water"))
-        self.assertEqual(self.boss.attacks[0].attack_bonus, 2)
-        self.assertEqual(self.player.inventory[0].quantity, 0)
-        self.assertIn("apply_holy_water", holy_water["applied_special_actions"])
 
 
 class NaturalLanguageActionTests(unittest.TestCase):
@@ -823,7 +793,7 @@ class NaturalLanguageActionTests(unittest.TestCase):
         self.assertEqual(accepted["target_id"], enemy.id)
         self.assertIsNone(rejected)
 
-    def test_api_accepts_natural_language_and_special_only_when_offered(self):
+    def test_api_accepts_natural_language_and_rule_action_only_when_offered(self):
         natural = session_service.validate_action_resume(
             {"natural_language": True},
             {
@@ -831,23 +801,27 @@ class NaturalLanguageActionTests(unittest.TestCase):
                 "description": "我压低身形，用长剑横扫它的膝盖",
             },
         )
-        special = session_service.validate_action_resume(
+        rule_action = session_service.validate_action_resume(
             {
-                "special": [
+                "rule_actions": [
                     {
-                        "special_action_id": "invoke_true_name",
-                        "target_id": "bell_spirit",
+                        "action_id": "invoke_true_name",
+                        "enabled": True,
+                        "min_targets": 1,
+                        "max_targets": 1,
+                        "targets": [{"id": "bell_spirit"}],
                     }
                 ]
             },
             {
-                "action_type": "special",
-                "special_action_id": "invoke_true_name",
+                "action_type": "rule_action",
+                "action_id": "invoke_true_name",
+                "target_ids": ["bell_spirit"],
             },
         )
 
         self.assertEqual(natural["action_type"], "natural_language")
-        self.assertEqual(special["target_id"], "bell_spirit")
+        self.assertEqual(rule_action["target_id"], "bell_spirit")
 
     def test_combat_feed_contains_only_declarations_and_dm_narration(self):
         view = build_combat_view(

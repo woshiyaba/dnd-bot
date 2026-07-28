@@ -115,10 +115,7 @@ class ActionType(StrEnum):
     """声明行动节点产出的动作种类。"""
 
     ATTACK = "attack"  # 攻击
-    SKILL = "skill"  # 技能
-    ITEM = "item"  # 道具
-    IMPROVISE = "improvise"  # 创意
-    SPECIAL = "special"  # canon 封闭定义的特殊行动
+    RULE_ACTION = "rule_action"  # 技能 / 道具 / 任务特性的统一规则行动
     NATURAL_LANGUAGE = "natural_language"  # 玩家自然语言行动，交真实 DM 映射
     REJECTED = "rejected"  # DM 无法映射，保持当前回合重新声明
     MOVE = "move"  # 移动
@@ -134,3 +131,4 @@ class InterruptType(StrEnum):
     DAMAGE_ROLL = "damage_roll"  # 伤害掷骰
     SAVING_THROW = "saving_throw"  # 豁免检定
     ABILITY_CHECK = "ability_check"  # 属性检定
+    EFFECT_ROLL = "effect_roll"  # 统一效果计划中的数值骰

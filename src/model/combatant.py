@@ -143,6 +143,9 @@ class Combatant:
             ):
                 if s.stat == "ac" or effect.stat == "ac":
                     self.ac += effect.amount - s.amount
+                if s.stat == "attack_bonus" or effect.stat == "attack_bonus":
+                    for attack in self.attacks:
+                        attack.attack_bonus += effect.amount - s.amount
                 s.rounds_left = max(s.rounds_left, effect.rounds_left)
                 s.amount = effect.amount
                 s.damage_type = effect.damage_type
@@ -150,6 +153,9 @@ class Combatant:
                 return
         if effect.stat == "ac":
             self.ac += effect.amount
+        if effect.stat == "attack_bonus":
+            for attack in self.attacks:
+                attack.attack_bonus += effect.amount
         self.conditions.append(effect)
 
     def tick_conditions(self) -> list[Condition]:
@@ -160,6 +166,9 @@ class Combatant:
         for effect in expired:
             if effect.stat == "ac":
                 self.ac -= effect.amount
+            if effect.stat == "attack_bonus":
+                for attack in self.attacks:
+                    attack.attack_bonus -= effect.amount
         self.conditions = [s for s in self.conditions if not s.is_expired]
         return expired
 

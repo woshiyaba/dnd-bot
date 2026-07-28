@@ -190,13 +190,13 @@ async def adjudicate_player_action_llm(
         f"引擎给出的全部合法选项：{_dump(options)}\n"
         f"场景提示：{_dump({'location': scene.get('location'), 'reason': scene.get('reason')})}\n"
         "你的职责只是解释玩家意图并选择一个合法选项，不能创造新规则、DC、效果、"
-        "攻击、目标或移动区域。表达能清楚对应攻击、移动、技能、道具、特殊行动或"
+        "攻击、目标或移动区域。表达能清楚对应攻击、移动、规则行动或"
         "放弃时，输出 accepted=true 以及对应 action；否则 accepted=false，并用简短"
         "中文说明当前可行的改法。不要结算命中、伤害或 HP。\n"
         "只输出 JSON：\n"
-        '{"accepted":true,"action":{"action_type":"attack|move|skill|item|special|pass",'
+        '{"accepted":true,"action":{"action_type":"attack|move|rule_action|pass",'
         '"attack_name":"可选","target_id":"可选","target_zone":"可选",'
-        '"skill_id":"可选","item_id":"可选","special_action_id":"可选"}}\n'
+        '"action_id":"规则行动时填写","target_ids":["可选目标"]}}\n'
         '或 {"accepted":false,"reason":"简短中文反馈"}'
     )
     data = await dm_complete_json(task)
@@ -250,61 +250,44 @@ def validate_player_action(
                 "target_zone": str(target_zone),
             }
         return None
-    if action_type in {ActionType.SKILL.value, ActionType.ITEM.value}:
-        key = "skill_id" if action_type == ActionType.SKILL.value else "item_id"
-        entries = options.get(action_type, []) or []
-        legal_ids = {entry.get(key) for entry in entries}
-        selected_id = raw_action.get(key)
-        if selected_id not in legal_ids:
+    if action_type == ActionType.RULE_ACTION.value:
+        entries = options.get("rule_actions", []) or []
+        selected_id = raw_action.get("action_id")
+        selected_entry = next(
+            (
+                entry
+                for entry in entries
+                if entry.get("action_id") == selected_id and entry.get("enabled")
+            ),
+            None,
+        )
+        if selected_entry is None:
             return None
-        normalized = {"action_type": action_type, key: str(selected_id)}
+        normalized = {
+            "action_type": ActionType.RULE_ACTION.value,
+            "action_id": str(selected_id),
+        }
         target_ids = list(raw_action.get("target_ids") or [])
         if raw_action.get("target_id") is not None and not target_ids:
             target_ids = [raw_action["target_id"]]
-        if action_type == ActionType.SKILL.value and not target_ids:
+        normalized_targets = list(dict.fromkeys(map(str, target_ids)))
+        if not (
+            int(selected_entry.get("min_targets", 0))
+            <= len(normalized_targets)
+            <= int(selected_entry.get("max_targets", 20))
+        ):
             return None
-        if target_ids:
-            normalized_targets: list[str] = []
-            selected_entry = next(
-                entry for entry in entries if entry.get(key) == selected_id
-            )
-            if action_type == ActionType.SKILL.value and not (
-                int(selected_entry.get("min_targets", 1))
-                <= len(set(map(str, target_ids)))
-                <= int(selected_entry.get("max_targets", 20))
-            ):
-                return None
-            legal_targets = {
-                str(target.get("id"))
-                for target in selected_entry.get("targets", [])
-                if target.get("id")
-            }
-            for target_id in target_ids:
-                target = combatants.get(str(target_id))
-                if not target:
-                    return None
-                if (
-                    action_type == ActionType.SKILL.value
-                    and target.id not in legal_targets
-                ):
-                    return None
-                if action_type == ActionType.ITEM.value and not target.is_alive:
-                    return None
-                if target.id not in normalized_targets:
-                    normalized_targets.append(target.id)
-            normalized["target_ids"] = normalized_targets
+        legal_targets = {
+            str(target.get("id"))
+            for target in selected_entry.get("targets", [])
+            if target.get("id")
+        }
+        if not set(normalized_targets).issubset(legal_targets):
+            return None
+        normalized["target_ids"] = normalized_targets
+        if normalized_targets:
             normalized["target_id"] = normalized_targets[0]
         return normalized
-    if action_type == ActionType.SPECIAL.value:
-        selected_id = raw_action.get("special_action_id")
-        for special in options.get("special", []) or []:
-            if special.get("special_action_id") == selected_id:
-                return {
-                    "action_type": ActionType.SPECIAL.value,
-                    "special_action_id": str(selected_id),
-                    "target_id": str(special["target_id"]),
-                }
-        return None
     if action_type == ActionType.PASS.value and options.get("pass"):
         return {"action_type": ActionType.PASS.value}
     return None

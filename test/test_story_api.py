@@ -105,17 +105,12 @@ class StoryApiTests(unittest.TestCase):
             any("flag «clue_holy_water»" in error for error in generation_errors)
         )
 
-    def test_legacy_canon_keeps_loading_without_authored_validation(self):
+    def test_bundled_canon_has_single_atomic_item_and_flag_owners(self):
         path = Path("canon/prodigal_return_quest.json")
         canon = Canon.from_dict(json.loads(path.read_text(encoding="utf-8")))
 
         self.assertEqual(validate_canon(canon), [])
-        self.assertTrue(
-            any(
-                "flag «key_obtained»" in error
-                for error in validate_authored_canon(canon)
-            )
-        )
+        self.assertEqual(validate_authored_canon(canon), [])
 
 
 class StoryGeneratorTests(unittest.IsolatedAsyncioTestCase):

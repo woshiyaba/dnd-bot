@@ -18,6 +18,108 @@
     "key_obtained",
     "boss_defeated"
   ],
+  "action_definitions": [
+    {
+      "id": "use_copper_key",
+      "name": "使用铜钥打开铜门",
+      "source_kind": "item",
+      "source_ref": "item_copper_key",
+      "scopes": ["world"],
+      "description": "用探子身上的铜钥打开铭文厅通往藏宝室的铜门。",
+      "requirements": {
+        "beat_ids": ["gate_exploration"],
+        "location_ids": ["inscription_hall"]
+      },
+      "targeting": { "min_targets": 0, "max_targets": 0 },
+      "usage": { "kind": "unlimited" },
+      "contract": {
+        "check_templates": [],
+        "effect_templates": [
+          {
+            "id": "open_chamber",
+            "kind": "transition_beat",
+            "target_mode": "none",
+            "beat_id": "chamber_climax",
+            "when": { "outcomes": ["always"] }
+          }
+        ]
+      }
+    },
+    {
+      "id": "invoke_elder_shock",
+      "name": "呼唤风老震慑",
+      "source_kind": "quest_feature",
+      "source_ref": "clue_elder_weakness",
+      "scopes": ["combat"],
+      "description": "借助风老的灵力发出灵魂震波，让火蟒短暂昏眩。",
+      "requirements": {
+        "flags": ["clue_elder_weakness"],
+        "encounter_ids": ["boss_vermillion_serpent"]
+      },
+      "targeting": {
+        "faction": "enemy",
+        "life_state": "alive",
+        "range": "any",
+        "actor_ids": ["vermillion_serpent"],
+        "min_targets": 1,
+        "max_targets": 1
+      },
+      "usage": { "kind": "once_per_combat" },
+      "contract": {
+        "check_templates": [
+          {
+            "id": "elder_call",
+            "kind": "ability_check",
+            "roller": "actor",
+            "target_mode": "selected_one",
+            "ability": "charisma",
+            "fixed_dc": 13
+          }
+        ],
+        "effect_templates": [
+          {
+            "id": "stun_serpent",
+            "kind": "add_condition",
+            "target_mode": "selected_one",
+            "condition": "stunned",
+            "rounds": 1,
+            "when": { "check_template_id": "elder_call", "outcomes": ["success"] }
+          }
+        ]
+      }
+    },
+    {
+      "id": "apply_frost_talisman",
+      "name": "激活寒冰符箓",
+      "source_kind": "item",
+      "source_ref": "item_frost_talisman",
+      "scopes": ["combat"],
+      "description": "将寒冰符箓拍向火蟒，以冰霜瓦解它的鳞甲。",
+      "requirements": { "encounter_ids": ["boss_vermillion_serpent"] },
+      "targeting": {
+        "faction": "enemy",
+        "life_state": "alive",
+        "range": "melee",
+        "actor_ids": ["vermillion_serpent"],
+        "min_targets": 1,
+        "max_targets": 1
+      },
+      "usage": { "kind": "consume_item", "item_id": "item_frost_talisman", "quantity": 1 },
+      "contract": {
+        "check_templates": [],
+        "effect_templates": [
+          {
+            "id": "weaken_scales",
+            "kind": "modify_ac",
+            "target_mode": "selected_one",
+            "amount": -3,
+            "rounds": 100,
+            "when": { "outcomes": ["always"] }
+          }
+        ]
+      }
+    }
+  ],
   "win_condition": {
     "id": "win_boss_defeated",
     "kind": "combat_outcome",
@@ -337,10 +439,7 @@
         ],
         "surprised": [],
         "random_seed": 20240801,
-        "on_win_flags": [
-          "key_obtained"
-        ],
-        "special_actions": [],
+        "on_win_flags": [],
         "loot_table": [
           "黑风宗密信",
           "铜钥匙"
@@ -403,40 +502,6 @@
         "random_seed": 20240802,
         "on_win_flags": [
           "boss_defeated"
-        ],
-        "special_actions": [
-          {
-            "id": "invoke_elder_shock",
-            "label": "呼唤风老震慑",
-            "description": "借助风老的灵力发出一道灵魂震波，让火蟒瞬间昏眩。",
-            "requires_flags": [
-              "clue_elder_weakness"
-            ],
-            "target_actor_id": "vermillion_serpent",
-            "range": "any",
-            "check": {
-              "ability": "charisma",
-              "dc": 13
-            },
-            "effect": {
-              "kind": "add_condition",
-              "condition": "stunned",
-              "rounds": 1
-            }
-          },
-          {
-            "id": "apply_frost_talisman",
-            "label": "激活寒冰符箓",
-            "description": "将拓印的寒冰符箓拍向火蟒，冰霜迅速蔓延其躯体，大幅降低防护。",
-            "requires_item_id": "item_frost_talisman",
-            "consume_item": true,
-            "target_actor_id": "vermillion_serpent",
-            "range": "melee",
-            "effect": {
-              "kind": "modify_ac",
-              "amount": -3
-            }
-          }
         ],
         "loot_table": [
           "龙血玉",

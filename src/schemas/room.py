@@ -131,9 +131,7 @@ class RoomActionRequest(BaseModel):
     action_type: Literal[
         "attack",
         "move",
-        "skill",
-        "item",
-        "special",
+        "rule_action",
         "natural_language",
         "pass",
     ]
@@ -141,9 +139,7 @@ class RoomActionRequest(BaseModel):
     target_id: str | None = None
     target_ids: list[str] | None = Field(default=None, max_length=20)
     target_zone: str | None = None
-    skill_id: str | None = None
-    item_id: str | None = None
-    special_action_id: str | None = None
+    action_id: str | None = None
     description: str | None = Field(default=None, max_length=500)
 
 
@@ -198,6 +194,7 @@ class CharacterView(BaseModel):
     ability_modifiers: dict[str, int] = Field(default_factory=dict)
     skills: list[dict[str, Any]] = Field(default_factory=list)
     features: list[str] = Field(default_factory=list)
+    inventory: list[dict[str, Any]] = Field(default_factory=list)
     current_hp: int
     max_hp: int
     temporary_hp: int = 0
@@ -271,6 +268,7 @@ class SessionView(BaseModel):
     scene: SceneView
     party: list[CharacterView]
     enemies: list[CharacterView]
+    available_actions: list[dict[str, Any]] = Field(default_factory=list)
     timeline: list[TimelineEntry]
     pending_interaction: PendingInteractionView | None = None
     recent_resolution: RecentResolutionView = Field(
