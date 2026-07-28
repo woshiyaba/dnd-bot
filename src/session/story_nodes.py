@@ -64,7 +64,20 @@ def stuck_hint_for(state: DMState) -> str | None:
         return None
     fb = beat.stuck_fallback or {}
     parts: list[str] = []
-    if fb.get("hint"):
+    critical_deaths = set(story.get("critical_npc_deaths", []))
+    death_hints: list[str] = []
+    for actor in beat.entry_state.get("actors", []):
+        actor_id = actor.get("actor_id") or actor.get("npc_ref", "")
+        if actor_id not in critical_deaths:
+            continue
+        spec = canon.npc(actor_id)
+        if spec is not None and spec.death_fallback is not None:
+            death_hints.append(
+                spec.death_fallback.stuck_hint or spec.death_fallback.guidance
+            )
+    if death_hints:
+        parts.extend(death_hints)
+    elif fb.get("hint"):
         parts.append(str(fb["hint"]))
     if fb.get("reveal_clue"):
         delivered = set(story.get("delivered_clues", []))
@@ -445,14 +458,14 @@ def transition_to_beat(
     canon = current_canon(state)
     story = dict(state.get("story") or {})
     from_beat_id = story.get("current_beat_id")
-    previous_scene = state.get("scene")
+    previous_scene = dict(state.get("scene") or {})
     transition = dict(state.get("story_transition") or {"type": "advance"})
     beat = canon.beat(next_id) if canon else None
     if beat is None:  # 兜底：目标拍不存在 → 不切，留在原地
         raise ValueError(f"[enter_beat] 目标拍 «{next_id}» 不存在")
 
     if beat.entry_state.get("preserve_current_scene"):
-        scene = dict(previous_scene or {})
+        scene = dict(previous_scene)
         scene["beat_id"] = beat.id
         if beat.entry_state.get("description"):
             scene["description"] = beat.entry_state["description"]
@@ -462,7 +475,9 @@ def transition_to_beat(
             beat,
             removed_actor_ids=story.get("removed_actor_ids", []),
         )
-    scene["dm_mode"] = (state.get("scene") or {}).get("dm_mode")  # 沿用本局 DM 模式
+    scene["dm_mode"] = previous_scene.get("dm_mode")  # 沿用本局 DM 模式
+    if previous_scene.get("random_seed") is not None:
+        scene.setdefault("random_seed", previous_scene["random_seed"])
 
     visited_beats = list(story.get("visited_beats", []))
     if beat.id not in visited_beats:
@@ -516,10 +531,12 @@ async def final_narrate_turn(state: DMState) -> dict:
     text = await world_bridge.narrate_turn_final(
         user_input=state.get("user_input"),
         reply_brief=state.get("reply_brief"),
+        narrative_intent=state.get("narrative_intent"),
         last_check=state.get("last_check"),
         last_combat=last_combat,
         previous_scene=state.get("previous_scene"),
         scene=state.get("scene") or {},
+        beat_brief=beat_brief_for(state),
         story_transition=state.get("story_transition"),
         messages=state.get("messages"),
         use_llm=llm_enabled(state),

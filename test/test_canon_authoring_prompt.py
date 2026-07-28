@@ -45,6 +45,8 @@ class CanonAuthoringPromptTests(unittest.TestCase):
             "modify_attack_bonus",
             "add_condition",
             "零线索",
+            "story_critical",
+            "death_fallback",
         ):
             self.assertIn(required, CANON_AUTHORING_RULE)
 

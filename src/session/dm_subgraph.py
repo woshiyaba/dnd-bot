@@ -68,6 +68,7 @@ def perceive(state: DMState) -> dict:
         "intent": "",
         "say": "",
         "reply_brief": "",
+        "narrative_intent": "",
         "previous_scene": None,
         "story_transition": None,
         "pending_check": None,
@@ -109,11 +110,13 @@ async def dm_decide(state: DMState) -> dict:
     writes = (
         decision.get("world_writes") or {}
     )  # DM 声明的世界写入，留给 evaluate_advancement 消费
+    narrative_intent = decision.get("narrative_intent", "")
     logger.info("[dm_decide] 意图=%s 世界写入=%s", intent, list(writes.keys()) or "无")
 
     if intent == "player_check":
         return {
             "intent": intent,
+            "narrative_intent": narrative_intent,
             "pending_check": decision["check"],
             "pending_effects": decision.get("effects") or {},
             "world_writes": writes,
@@ -122,6 +125,7 @@ async def dm_decide(state: DMState) -> dict:
     if intent == "start_combat":
         return {
             "intent": intent,
+            "narrative_intent": narrative_intent,
             "combat_request": decision["encounter"],
             "world_writes": writes,
             "next": "combat",
@@ -130,6 +134,7 @@ async def dm_decide(state: DMState) -> dict:
     return {
         "intent": intent,
         "reply_brief": decision.get("reply_brief", ""),
+        "narrative_intent": narrative_intent,
         "world_writes": writes,
         "next": "wait",
     }

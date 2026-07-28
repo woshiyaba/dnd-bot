@@ -41,6 +41,7 @@ class DMState(TypedDict, total=False):
     intent: str  # dm_decide 产出的意图：reply | player_check | start_combat
     say: str  # reply 文本：DM 面向玩家要说的话
     reply_brief: str  # reply 分支的叙述计划，由 DM 决策产生，玩家不可见
+    narrative_intent: str  # DM 本回合的一句受控叙事巧思，玩家不可见
     previous_scene: dict | None  # 本回合切拍前的场景，仅供最终叙述承接
     story_transition: dict | None  # 本回合故事推进摘要，仅供最终叙述使用
     pending_check: (
@@ -64,7 +65,8 @@ class DMState(TypedDict, total=False):
     campaign_id: str  # 本局 canon 的注册表 key（canon 本体不入 state，按引用存）
     story: dict  # 进度工作区：current_beat_id/visited_beats/flags/delivered_clues/
     #   visited_locations/current_location_id/beat_entered_turn/idle_turns/
-    #   turn_index/pending_next_beat_id（纯 dict，JSON 可序列化，规避 serde）
+    #   turn_index/pending_next_beat_id/removed_actor_ids/critical_npc_deaths
+    #   （纯 dict，JSON 可序列化，规避 serde）
     world_writes: (
         dict | None
     )  # DM 本回合声明的世界写入：{flags_set, moved_to, clues_delivered}，引擎校验后消费
@@ -278,5 +280,6 @@ def init_story(canon: Canon) -> tuple[dict, dict]:
         "turn_index": 0,  # 全局回合计数
         "pending_next_beat_id": None,  # 待切入的下一拍（evaluate_advancement 命中时写）
         "removed_actor_ids": [],  # 已战败/离场的 actor，重建场景时不得复活
+        "critical_npc_deaths": [],  # 已死亡关键 NPC id，供 DM 持续承接后果
     }
     return story, scene

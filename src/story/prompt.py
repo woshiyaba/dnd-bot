@@ -161,10 +161,20 @@ CANON_AUTHORING_RULE = """你是 D&D 短篇冒险的【Canon 编译器】，不�
   "goal": "推动即兴行为的目标",
   "secret": "仅供 DM 使用、不可直接泄露的秘密",
   "disposition": "friendly|neutral|hostile",
+  "story_critical": false,
+  "death_fallback": {
+    "guidance": "该 NPC 死亡后必须保住的故事方向与替代线索载体",
+    "consequence": "后续叙述持续体现的非数值后果",
+    "stuck_hint": "可选：卡关时替代该 NPC 出面的自然提示"
+  },
   "card": {CombatCard}
 }
 - 任何会出现在场景中、可能被玩家攻击或进入遭遇的 actor 都必须有固定 card。
 - 不得在运行时临时编造 HP、AC、攻击或能力值。
+- 若某 NPC 死亡可能阻断委托、关键线索或主线出口，必须设置 story_critical=true，并填写非空的
+  death_fallback.guidance 与 consequence。替代载体可以是 canon 授权的遗物、环境痕迹或仍存人物，
+  但死亡本身不得自动授予线索 flag、物品或完成推进条件。
+- 非关键 NPC 可省略 story_critical 与 death_fallback，缺省即 story_critical=false。
 
 【CombatCard】
 {

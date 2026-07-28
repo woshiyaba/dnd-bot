@@ -95,6 +95,7 @@ class CombatFreedomTests(unittest.TestCase):
         self.assertEqual(update["scene"]["location_id"], "bell_tower_summit")
         self.assertIn("bell_spirit", combatants)
         self.assertEqual(context["encounter_id"], "boss_bell_spirit")
+        self.assertEqual(context["random_seed"], 20240626)
         self.assertEqual(update["story"].get("discovered_clues", []), [])
 
     def test_dm_context_exposes_reachable_encounter_and_closed_ids(self):

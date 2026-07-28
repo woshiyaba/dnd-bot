@@ -109,6 +109,24 @@ class KeyInfo:
 
 
 @dataclass(slots=True)
+class DeathFallback:
+    """关键 NPC 死亡后的剧情续接约束，由 DM 负责自然呈现。"""
+
+    guidance: str = ""  # 必须保住的故事方向与替代线索载体
+    consequence: str = ""  # 后续叙述应持续体现的非数值后果
+    stuck_hint: str = ""  # 当前拍卡关时替代依赖该 NPC 的提示
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "DeathFallback":
+        """从字典构造关键 NPC 死亡续接约束。"""
+        return cls(
+            guidance=str(data.get("guidance", "")).strip(),
+            consequence=str(data.get("consequence", "")).strip(),
+            stuck_hint=str(data.get("stuck_hint", "")).strip(),
+        )
+
+
+@dataclass(slots=True)
 class NpcSpec:
     """重要 NPC / Boss 的册页：带目标与秘密，必要时附可转战斗的卡面。"""
 
@@ -119,10 +137,13 @@ class NpcSpec:
     secret: str = ""  # 秘密（仅 DM 可见，不可直接抖给玩家）
     disposition: str = "neutral"  # 态度：hostile | neutral | friendly
     card: dict | None = None  # 可选：转战斗时用的英文键卡面
+    story_critical: bool = False  # 死亡时必须启用剧情续接约束
+    death_fallback: DeathFallback | None = None  # 死亡后的方向、后果与卡关替代
 
     @classmethod
     def from_dict(cls, data: dict) -> "NpcSpec":
         """从字典构造 NPC 册页。"""
+        fallback = data.get("death_fallback")
         return cls(
             id=data["id"],
             name=str(data.get("name", data["id"])),
@@ -131,6 +152,12 @@ class NpcSpec:
             secret=str(data.get("secret", "")),
             disposition=str(data.get("disposition", "neutral")),
             card=data.get("card"),
+            story_critical=bool(data.get("story_critical", False)),
+            death_fallback=(
+                DeathFallback.from_dict(fallback)
+                if isinstance(fallback, dict)
+                else None
+            ),
         )
 
 
@@ -376,7 +403,7 @@ def evaluate_trigger(
 # 喂给 DM 的当前拍骨架（让叙述「长在骨架上」，§4.2）
 # ---------------------------------------------------------------------------
 def beat_brief(canon: Canon, story: dict) -> dict | None:
-    """把当前拍的骨架压成喂给 DM 的最小画像：本拍目标、未传达线索、在场 NPC 的目标/秘密、可用出口提示。
+    """把当前拍骨架压成 DM 画像：目标、线索、在场 NPC、死亡续接与出口提示。
 
     返回 None 表示当前拍找不到（异常局面，调用方回落到无骨架叙述）。
     """
@@ -386,20 +413,49 @@ def beat_brief(canon: Canon, story: dict) -> dict | None:
 
     delivered = set(story.get("delivered_clues", []))
     undelivered = [k.text for k in beat.key_info if k.id not in delivered]
+    discovered = set(story.get("discovered_clues", []))
+    remaining_clues = [
+        {"id": clue.id, "text": clue.text}
+        for clue in beat.key_info
+        if (
+            clue.id not in discovered
+            and (clue.discovery_effects or clue.id not in delivered)
+        )
+    ]
+    removed = set(story.get("removed_actor_ids", []))
 
     # 在场 NPC：entry_state.actors 里能在 cast 中找到册页的，连同目标/秘密一并给 DM（仅供把控方向）
     on_stage = []
     for actor in beat.entry_state.get("actors", []):
-        spec = canon.npc(actor.get("actor_id") or actor.get("npc_ref", ""))
+        actor_id = actor.get("actor_id") or actor.get("npc_ref", "")
+        if actor_id in removed:
+            continue
+        spec = canon.npc(actor_id)
         if spec is not None:
             on_stage.append(
                 {
+                    "actor_id": spec.id,
                     "name": spec.name,
                     "role": spec.role,
                     "goal": spec.goal,
                     "secret": spec.secret,
                 }
             )
+
+    critical_deaths = []
+    for actor_id in story.get("critical_npc_deaths", []):
+        spec = canon.npc(actor_id)
+        if spec is None or not spec.story_critical or spec.death_fallback is None:
+            continue
+        critical_deaths.append(
+            {
+                "actor_id": spec.id,
+                "name": spec.name,
+                "role": spec.role,
+                "guidance": spec.death_fallback.guidance,
+                "consequence": spec.death_fallback.consequence,
+            }
+        )
 
     locations = [
         {"id": loc.id, "name": loc.name, "description": loc.description}
@@ -416,7 +472,9 @@ def beat_brief(canon: Canon, story: dict) -> dict | None:
         "beat_kind": str(beat.kind.value),
         "locations": locations,
         "undelivered_clues": undelivered,
+        "remaining_key_clues": remaining_clues,
         "npcs": on_stage,
+        "critical_npc_deaths": critical_deaths,
         "advance_hints": [
             t.description for t in beat.advance_conditions if t.description
         ],
@@ -478,13 +536,25 @@ def validate_canon(canon: Canon) -> list[str]:
     """校验剧情圣经的结构闭合，返回错误信息列表（空列表表示通过）。
 
     校验项：起始拍存在；每拍从起始拍可达；非结局拍至少一个出口；存在可达的结局拍；
-    出口 / 地点引用无悬空；flag 类触发器与战斗胜利写入的 flag 都在白名单内；胜负条件已定义。
+    出口 / 地点引用无悬空；关键 NPC 有死亡续接；flag 类触发器与战斗胜利写入的 flag
+    都在白名单内；胜负条件已定义。
     """
     errors: list[str] = []
     beat_ids = {b.id for b in canon.beats}
     location_ids = {loc.id for loc in canon.locations}
     declared = set(canon.declared_flags)
     encounter_ids: set[str] = set()
+
+    for npc in canon.cast:
+        if not npc.story_critical:
+            continue
+        if npc.death_fallback is None:
+            errors.append(f"关键 NPC «{npc.id}» 缺少 death_fallback")
+            continue
+        if not npc.death_fallback.guidance:
+            errors.append(f"关键 NPC «{npc.id}» 的 death_fallback.guidance 不能为空")
+        if not npc.death_fallback.consequence:
+            errors.append(f"关键 NPC «{npc.id}» 的 death_fallback.consequence 不能为空")
 
     # 起始拍
     if not canon.start_beat_id:

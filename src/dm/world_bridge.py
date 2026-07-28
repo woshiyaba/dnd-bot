@@ -117,7 +117,8 @@ async def decide_turn(
          "encounter": {"monster_ids": [...], "surprised": [...], "reason": "..."}}
 
     任一意图都可附带可选的世界写入声明 ``flags_set`` / ``moved_to`` / ``clues_delivered``
-    （白名单校验由引擎在 evaluate_advancement 做）。
+    （白名单校验由引擎在 evaluate_advancement 做），以及不改变世界状态的可选
+    ``narrative_intent``，供最终叙述使用。
 
     :param beat_brief: 当前剧情拍骨架（目标/未传达线索/在场 NPC 目标秘密/出口提示），让叙述长在骨架上。
     :param stuck_hint: 卡关兜底指令（空转太久时注入），提示 DM 主动抛线索或指向出口。
@@ -259,6 +260,8 @@ async def _decide_llm(
         '"effects":{"on_success":{...},"on_failure":{...}}，不可提前写入。\n'
         "如果一次行动在检定成功后立即开战，可在 on_success 里同时给出 "
         '"start_combat":{"encounter_id":"...","target_actor_ids":[...],"reason":"..."}。\n'
+        "每种意图都可附带可选 narrative_intent：用一句话规划一处伏笔、意象、潜台词或细微反应；"
+        "不得借此新增关键事实、人物、道具、线索或规则结果。\n"
         "不确定 DC 时可 kb_read ability_check / 即兴伤害表。只输出 JSON，不要额外文字。"
     )
     return await dm_complete_json(task)
@@ -385,6 +388,11 @@ def _normalize_decision(
     intent = data.get("intent")
     if intent not in _INTENTS:
         raise ValueError(f"[dm] 非法 DM 意图：{intent!r}")
+    narrative_intent = (
+        data.get("narrative_intent", "").strip()
+        if isinstance(data.get("narrative_intent"), str)
+        else ""
+    )
 
     if intent == "reply":
         reply_brief = str(data.get("reply_brief") or "").strip()
@@ -393,6 +401,7 @@ def _normalize_decision(
         return {
             "intent": "reply",
             "reply_brief": reply_brief,
+            "narrative_intent": narrative_intent,
             "world_writes": writes,
         }
 
@@ -423,6 +432,7 @@ def _normalize_decision(
         )
         return {
             "intent": "player_check",
+            "narrative_intent": narrative_intent,
             "world_writes": writes,
             "effects": _normalize_check_effects(
                 data.get("effects"), scene, party_ids, decision_context
@@ -452,6 +462,7 @@ def _normalize_decision(
     )
     return {
         "intent": "start_combat",
+        "narrative_intent": narrative_intent,
         "world_writes": writes,
         "encounter": encounter,
     }
@@ -621,10 +632,12 @@ async def narrate_turn_final(
     *,
     user_input: str | None,
     reply_brief: str | None,
+    narrative_intent: str | None,
     last_check: dict | None,
     last_combat: dict | None,
     previous_scene: dict | None,
     scene: dict,
+    beat_brief: dict | None,
     story_transition: dict | None,
     messages: list[dict] | None,
     use_llm: bool,
@@ -633,6 +646,7 @@ async def narrate_turn_final(
     """统一叙述一个玩家回合的最终结果，确保本回合只产生一条玩家可见 DM 消息。
 
     参数里的事实均由上游节点裁定或结算完成；本函数只负责把它们讲成玩家可见叙述。
+    ``narrative_intent`` 只允许影响表达，``beat_brief`` 提供 canon 与关键 NPC 死亡续接边界。
     ``use_llm`` 参数保留给调用签名一致性；DM 叙述始终强制使用真实 LLM。
     """
     transition = story_transition or {"type": "stay"}
@@ -643,6 +657,12 @@ async def narrate_turn_final(
     check_line = f"本回合检定结果：{_dump(last_check)}\n" if last_check else ""
     combat_line = f"最近战斗结果：{_dump(last_combat)}\n" if last_combat else ""
     reply_line = f"DM 回应计划：{reply_brief}\n" if reply_brief else ""
+    intent_line = f"DM 隐藏叙事意图：{narrative_intent}\n" if narrative_intent else ""
+    beat_line = (
+        f"当前剧情拍骨架（只供把控方向，不得直接泄露秘密）：{_dump(beat_brief)}\n"
+        if beat_brief
+        else ""
+    )
     action_line = f"玩家最新这步言行：{user_input}\n" if user_input else ""
 
     if transition_type == "advance":
@@ -661,15 +681,21 @@ async def narrate_turn_final(
         "请统一生成本回合唯一一段玩家可见叙述。\n"
         f"{action_line}"
         f"{reply_line}"
+        f"{intent_line}"
         f"{check_line}"
         f"{combat_line}"
         f"{previous_line}"
         f"当前场景：{_dump(_scene_brief(scene))}\n"
+        f"{beat_line}"
         f"故事推进摘要：{_dump(transition)}\n"
         f"最近对话：{_dump(_history_brief(messages or []))}\n"
         f"叙述策略：{instruction}\n"
         "要求：用 2-4 句自然中文，少铺陈，不替玩家行动；只描述既定事实，不新增规则数字，"
-        "不改写检定、战斗或剧情推进结果。最后一句必须以「你可以」开头，给 2-3 个自然后续方向。"
+        "不改写检定、战斗或剧情推进结果。可以加入最多一处不改变世界状态的伏笔、意象、潜台词或"
+        "细微反应；不得泄露 NPC 秘密，也不得凭空创造关键人物、可交互道具或关键线索。"
+        "若剧情骨架列出 critical_npc_deaths，死者不得重新行动或说话；应在相关时刻体现 consequence，"
+        "并按 guidance 给出继续调查的入口，但不能仅靠叙述自动授予线索 flag、物品或剧情推进。"
+        "最后一句必须以「你可以」开头，给 2-3 个自然后续方向。"
         "只输出玩家可见叙述，不要输出 JSON，不要罗列字段。"
     )
     return await dm_narrate(task, node_name=node_name)

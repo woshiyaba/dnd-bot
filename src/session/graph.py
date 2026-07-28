@@ -90,7 +90,6 @@ def resolve_engagement(state: DMState) -> dict:
                 "encounter_id": encounter.id,
                 "monster_ids": monster_ids,
                 "target_actor_ids": monster_ids,
-                "random_seed": encounter.random_seed,
                 "loot_table": list(encounter.loot_table),
                 "xp_reward": encounter.xp_reward,
                 "special_actions": [
@@ -98,6 +97,10 @@ def resolve_engagement(state: DMState) -> dict:
                 ],
             }
         )
+        if encounter.random_seed is not None:
+            request["random_seed"] = encounter.random_seed
+        else:
+            request.pop("random_seed", None)
     else:
         request["encounter_id"] = (
             f"ad_hoc:{story.get('current_beat_id', 'scene')}:"
@@ -178,8 +181,11 @@ def _build_combat_input(state: DMState) -> tuple[dict, dict]:
     if len(combatants) <= len(party):
         raise ValueError("[run_combat] 战斗缺少合法对立方")
 
+    random_seed = request.get("random_seed")
+    if random_seed is None:
+        random_seed = scene.get("random_seed")
+
     scene_context = {
-        "random_seed": request.get("random_seed", scene.get("random_seed")),
         "surprised": request.get("surprised", []),
         "loot_table": request.get("loot_table", scene.get("loot_table", [])),
         "xp_reward": int(request.get("xp_reward", scene.get("xp_reward", 0))),
@@ -194,6 +200,8 @@ def _build_combat_input(state: DMState) -> tuple[dict, dict]:
         "location": scene.get("location"),
         "dm_mode": "llm",
     }
+    if random_seed is not None:
+        scene_context["random_seed"] = random_seed
     return combatants, scene_context
 
 
@@ -206,7 +214,7 @@ async def run_combat(state: DMState) -> dict:
 
     **纯而廉价**（每次恢复都会重跑本节点，但只做状态映射）；战斗中断冒泡到主图，
     战斗本身从自身检查点续跑。战斗结束后：把 HP/存活折回队伍、记录战利品/伤亡、
-    从场景里清除已被击败的敌意在场者。
+    从场景里清除已被击败的非玩家在场者，并登记关键 NPC 死亡。
 
     用 ``ainvoke`` 调战斗子图（其 DM 节点为 async），中断同样冒泡到会话主图。
     """
@@ -228,25 +236,14 @@ async def run_combat(state: DMState) -> dict:
     last_combat["xp_reward"] = int(scene_context.get("xp_reward", 0))
     last_combat["growth"] = growth
 
-    # 从场景里移除已被击败的敌人（保持世界一致）
     casualty_ids = {c["id"] for c in last_combat.get("casualties", [])}
-    scene = dict(state.get("scene") or {})
-    scene["actors"] = [
-        a for a in scene.get("actors", []) if a.get("actor_id") not in casualty_ids
-    ]
-    scene.pop("threat", None)  # 战斗已发生，清掉「潜在威胁」提示
+    scene, story, death_events = _fold_world_casualties(state, casualty_ids)
 
     logger.info(
         "[run_combat] 战斗结束 | outcome=%s 伤亡=%d",
         last_combat.get("outcome"),
         len(casualty_ids),
     )
-    story = dict(state.get("story") or {})
-    removed = list(story.get("removed_actor_ids", []))
-    for actor_id in casualty_ids:
-        if actor_id not in party and actor_id not in removed:
-            removed.append(actor_id)
-    story["removed_actor_ids"] = removed
     messages = _append_combat_messages(
         state.get("messages", []), combat_state.get("combat_log", [])
     )
@@ -272,6 +269,9 @@ async def run_combat(state: DMState) -> dict:
                 ),
             }
         )
+    campaign_log = log_event(state, {"event": "combat", **last_combat})
+    for event in death_events:
+        campaign_log = log_event({"campaign_log": campaign_log}, event)
     return {
         "party": party,
         "scene": scene,
@@ -280,8 +280,48 @@ async def run_combat(state: DMState) -> dict:
         "last_combat": last_combat,
         "combat_request": None,
         "next": "wait",
-        "campaign_log": log_event(state, {"event": "combat", **last_combat}),
+        "campaign_log": campaign_log,
     }
+
+
+def _fold_world_casualties(
+    state: DMState, casualty_ids: set[str]
+) -> tuple[dict, dict, list[dict]]:
+    """把非玩家伤亡写回世界，并记录关键 NPC 死亡供 DM 后续承接。"""
+    party = state.get("party") or {}
+    scene = dict(state.get("scene") or {})
+    scene["actors"] = [
+        actor
+        for actor in scene.get("actors", [])
+        if actor.get("actor_id") not in casualty_ids
+    ]
+    scene.pop("threat", None)  # 战斗已发生，清掉「潜在威胁」提示
+
+    story = dict(state.get("story") or {})
+    removed = list(story.get("removed_actor_ids", []))
+    critical_deaths = list(story.get("critical_npc_deaths", []))
+    death_events: list[dict] = []
+    canon = story_nodes.current_canon(state)
+    for actor_id in casualty_ids:
+        if actor_id in party:
+            continue
+        if actor_id not in removed:
+            removed.append(actor_id)
+        spec = canon.npc(actor_id) if canon else None
+        if spec is None or not spec.story_critical or actor_id in critical_deaths:
+            continue
+        critical_deaths.append(actor_id)
+        death_events.append(
+            {
+                "event": "critical_npc_death",
+                "actor_id": spec.id,
+                "name": spec.name,
+                "role": spec.role,
+            }
+        )
+    story["removed_actor_ids"] = removed
+    story["critical_npc_deaths"] = critical_deaths
+    return scene, story, death_events
 
 
 def route_after_combat(state: DMState) -> str:

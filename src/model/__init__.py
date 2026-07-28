@@ -9,6 +9,7 @@ from src.model.canon import (
     Beat,
     BeatKind,
     Canon,
+    DeathFallback,
     Encounter,
     EndingOutcome,
     Exit,
@@ -80,6 +81,7 @@ __all__ = [
     "load_combatants",
     # 剧情圣经（故事系统）
     "Canon",
+    "DeathFallback",
     "Beat",
     "Trigger",
     "Exit",

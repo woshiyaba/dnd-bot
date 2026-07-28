@@ -172,8 +172,9 @@ def _check_concentration(
 def enter_combat(state: CombatState) -> dict:
     """初始化战斗：加载参战者、摆好区域、清空工作区。"""
     scene = state.get("scene_context", {}) or {}
-    if "random_seed" in scene:
-        reset_engine_dice(int(scene["random_seed"]))
+    random_seed = scene.get("random_seed")
+    if random_seed is not None:
+        reset_engine_dice(int(random_seed))
 
     combatants = state.get("combatants") or load_combatants(scene)
 
