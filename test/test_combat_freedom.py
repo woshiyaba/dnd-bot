@@ -21,6 +21,8 @@ from src.model.enums import ConditionType, DamageType, Faction, Range
 from src.services.room_service import GameRoom, RoomMember
 from src.services.session_service import session_service
 from src.session import story_nodes
+from src.session.dm_subgraph import build_dm_subgraph
+from src.session.engine import SessionEngine
 from src.session.graph import _build_combat_input, resolve_engagement
 from src.story.loader import get_registry
 
@@ -104,15 +106,60 @@ class CombatFreedomTests(unittest.TestCase):
             self.canon,
             {
                 "current_beat_id": ruined.id,
+                "flags": {"accepted_quest": True},
                 "delivered_clues": [],
+                "discovered_clues": [],
             },
         )
 
         self.assertIn("accepted_quest", brief["allowed_flags"])
-        self.assertIn("clue_holy_water", brief["allowed_clue_ids"])
+        self.assertIn(
+            "clue_holy_water",
+            brief["allowed_discovery_clue_ids"],
+        )
+        holy_water = next(
+            item
+            for item in brief["available_discoveries"]
+            if item["id"] == "clue_holy_water"
+        )
+        self.assertEqual(
+            holy_water["discovery_effects"]["grant_items"][0]["item_id"],
+            "item_holy_water",
+        )
+        self.assertTrue(brief["current_flags"]["accepted_quest"])
+        self.assertEqual(
+            brief["managed_flag_sources"]["boss_dead"][0]["kind"],
+            "encounter_win",
+        )
         self.assertEqual(
             brief["reachable_encounters"][0]["encounter_id"],
             "boss_bell_spirit",
+        )
+
+        player = self._player()
+        player.inventory.append(InventoryItem(item_id="item_map", quantity=1))
+        party_brief = world_bridge._party_brief({player.id: player})
+        self.assertEqual(
+            party_brief[0]["inventory"],
+            [{"item_id": "item_map", "quantity": 1}],
+        )
+
+        discovered_brief = beat_brief(
+            self.canon,
+            {
+                "current_beat_id": ruined.id,
+                "flags": {"clue_holy_water": True},
+                "delivered_clues": ["clue_holy_water"],
+                "discovered_clues": ["clue_holy_water"],
+            },
+        )
+        self.assertNotIn(
+            "clue_holy_water",
+            discovered_brief["allowed_discovery_clue_ids"],
+        )
+        self.assertNotIn(
+            "clue_holy_water",
+            {item["id"] for item in discovered_brief["available_discoveries"]},
         )
 
     def test_discovery_atomically_sets_flag_and_grants_item(self):
@@ -147,6 +194,82 @@ class CombatFreedomTests(unittest.TestCase):
         state["world_writes"] = {"flags_set": {"clue_spirit_name": True}}
         with self.assertRaises(ValueError):
             story_nodes._apply_world_writes(self.canon, story, state)
+
+        summit = self.canon.beat("bell_tower_summit")
+        summit_brief = beat_brief(
+            self.canon,
+            {
+                "current_beat_id": summit.id,
+                "flags": {},
+                "delivered_clues": [],
+                "discovered_clues": [],
+            },
+        )
+        with self.assertRaises(world_bridge.WorldStateDecisionError):
+            world_bridge._world_writes(
+                {"flags_set": {"boss_dead": True}},
+                summit_brief,
+            )
+
+    def test_legacy_win_flag_does_not_hide_undiscovered_key_source(self):
+        legacy = get_registry().get("prodigal_return_quest")
+        brief = beat_brief(
+            legacy,
+            {
+                "current_beat_id": "gate_exploration",
+                "flags": {"key_obtained": True},
+                "delivered_clues": [],
+                "discovered_clues": [],
+            },
+        )
+
+        corpse_note = next(
+            clue
+            for clue in brief["available_discoveries"]
+            if clue["id"] == "clue_corpse_note"
+        )
+        self.assertEqual(
+            corpse_note["discovery_effects"]["grant_items"][0]["item_id"],
+            "item_copper_key",
+        )
+        self.assertEqual(
+            world_bridge._world_writes(
+                {
+                    "discoveries": ["clue_corpse_note"],
+                    "moved_to": "inscription_hall",
+                },
+                brief,
+            ),
+            {
+                "discoveries": ["clue_corpse_note"],
+                "moved_to": "inscription_hall",
+            },
+        )
+
+        player = self._player()
+        story = {
+            "current_beat_id": "gate_exploration",
+            "current_location_id": "ruined_gate",
+            "visited_locations": ["ruined_gate"],
+            "flags": {"key_obtained": True},
+            "delivered_clues": [],
+            "discovered_clues": [],
+        }
+        updated_story, _scene, _party, _events = story_nodes._apply_world_writes(
+            legacy,
+            story,
+            {
+                "scene": build_beat_scene(
+                    legacy,
+                    legacy.beat("gate_exploration"),
+                ),
+                "party": {player.id: player},
+                "active_actor_id": player.id,
+                "world_writes": {"discoveries": ["clue_corpse_note"]},
+            },
+        )
+        self.assertIn("clue_corpse_note", updated_story["discovered_clues"])
+        self.assertEqual(player.inventory[0].item_id, "item_copper_key")
 
 
 class TransitionWriteValidationTests(unittest.IsolatedAsyncioTestCase):
@@ -190,7 +313,6 @@ class TransitionWriteValidationTests(unittest.IsolatedAsyncioTestCase):
                 {},
                 beat_brief=brief,
             )
-
         self.assertEqual(decisions.await_count, 2)
         self.assertEqual(
             result["world_writes"],
@@ -293,6 +415,209 @@ class TransitionWriteValidationTests(unittest.IsolatedAsyncioTestCase):
                 [],
                 decision_context=context,
             )
+
+
+class WorldStateGuidanceTests(unittest.IsolatedAsyncioTestCase):
+    """确认连续世界写入冲突会进入真实 LLM 引导，而不是令会话返回 500。"""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        registry = get_registry()
+        registry.load_all()
+        cls.canon = registry.get("whispers_bell_tower")
+
+    def _state(self) -> dict:
+        ruined = self.canon.beat("ruined_village")
+        scene = build_beat_scene(self.canon, ruined)
+        player = CombatFreedomTests()._player()
+        return {
+            "campaign_id": self.canon.campaign_id,
+            "story": {
+                "current_beat_id": ruined.id,
+                "current_location_id": scene["location_id"],
+                "visited_beats": [ruined.id],
+                "visited_locations": [scene["location_id"]],
+                "flags": {"accepted_quest": True},
+                "delivered_clues": [],
+                "discovered_clues": [],
+                "removed_actor_ids": [],
+                "turn_index": 0,
+                "idle_turns": 0,
+            },
+            "scene": scene,
+            "party": {player.id: player},
+            "active_actor_id": player.id,
+            "active_user_id": player.controller,
+            "messages": [],
+            "campaign_log": [],
+            "user_input": "我直接拿起圣水",
+        }
+
+    async def test_retry_hint_contains_discovery_effect_mapping(self):
+        state = self._state()
+        brief = beat_brief(self.canon, state["story"])
+        decisions = AsyncMock(
+            side_effect=[
+                {
+                    "intent": "reply",
+                    "reply_brief": "拿起圣水。",
+                    "discoveries": ["clue_holy_water"],
+                },
+                {
+                    "intent": "reply",
+                    "reply_brief": "再次拿起圣水。",
+                    "discoveries": ["clue_holy_water"],
+                },
+                {
+                    "intent": "reply",
+                    "reply_brief": "仍然重复拿取。",
+                    "discoveries": ["clue_holy_water"],
+                },
+            ]
+        )
+        brief["discovered_clue_ids"] = ["clue_holy_water"]
+        brief["allowed_discovery_clue_ids"] = []
+        brief["available_discoveries"] = []
+
+        with patch("src.dm.world_bridge._decide_llm", decisions):
+            with self.assertRaises(world_bridge.WorldStateDecisionExhausted):
+                await world_bridge.decide_turn(
+                    "我再次拿起圣水",
+                    state["scene"],
+                    state["party"],
+                    beat_brief=brief,
+                )
+
+        correction = decisions.await_args_list[1].kwargs["correction_hint"]
+        self.assertIn("合法 discoveries id 与原子效果", correction)
+        self.assertIn("已经发现的线索 id", correction)
+        self.assertIn("clue_holy_water", correction)
+
+    async def test_dm_subgraph_routes_world_conflict_to_guidance(self):
+        state = self._state()
+        with (
+            patch(
+                "src.session.dm_subgraph.world_bridge.decide_turn",
+                new=AsyncMock(
+                    side_effect=world_bridge.WorldStateDecisionExhausted(
+                        "[dm] discoveries 含非法线索"
+                    )
+                ),
+            ),
+            patch(
+                "src.session.dm_subgraph.world_bridge.plan_world_state_guidance",
+                new=AsyncMock(
+                    return_value={
+                        "reply_brief": "提示玩家去墓园调查圣水，或寻找其它可行路线。",
+                        "narrative_intent": "让远处墓园的钟声成为方向提示。",
+                    }
+                ),
+            ),
+        ):
+            result = await build_dm_subgraph().ainvoke(state)
+
+        self.assertEqual(result["intent"], "reply")
+        self.assertIn("墓园", result["reply_brief"])
+        self.assertIsNone(result.get("world_writes"))
+        self.assertEqual(result["story"]["flags"], {"accepted_quest": True})
+        self.assertEqual(result["party"]["pc_aldous"].inventory, [])
+
+    async def test_guidance_plan_rejects_world_writes_and_retries(self):
+        completions = AsyncMock(
+            side_effect=[
+                {
+                    "reply_brief": "直接把圣水给玩家。",
+                    "discoveries": ["clue_holy_water"],
+                },
+                {
+                    "reply_brief": "提示玩家调查墓园无名碑。",
+                    "narrative_intent": "让潮湿石碑反射微光。",
+                },
+            ]
+        )
+        state = self._state()
+
+        with patch("src.dm.world_bridge.dm_complete_json", completions):
+            result = await world_bridge.plan_world_state_guidance(
+                state["user_input"],
+                state["scene"],
+                state["party"],
+                issue="非法 discovery",
+                beat_brief=beat_brief(self.canon, state["story"]),
+            )
+
+        self.assertEqual(completions.await_count, 2)
+        self.assertIn("墓园", result["reply_brief"])
+        self.assertNotIn("discoveries", result)
+
+    async def test_unparseable_decisions_remain_nonrecoverable(self):
+        state = self._state()
+        decisions = AsyncMock(return_value=None)
+
+        with patch("src.dm.world_bridge._decide_llm", decisions):
+            with self.assertRaises(RuntimeError) as raised:
+                await world_bridge.decide_turn(
+                    state["user_input"],
+                    state["scene"],
+                    state["party"],
+                    beat_brief=beat_brief(self.canon, state["story"]),
+                )
+
+        self.assertNotIsInstance(
+            raised.exception,
+            world_bridge.WorldStateDecisionExhausted,
+        )
+
+    async def test_session_engine_finishes_guidance_turn_without_error(self):
+        player = CombatFreedomTests()._player()
+        scene_context = {
+            "campaign_id": self.canon.campaign_id,
+            "active_actor_id": player.id,
+            "active_user_id": player.controller,
+            "party": [
+                {
+                    "type": "player",
+                    "controller": player.controller,
+                    "card": player.to_card(),
+                }
+            ],
+        }
+        with (
+            patch(
+                "src.session.dm_subgraph.world_bridge.decide_turn",
+                new=AsyncMock(
+                    side_effect=world_bridge.WorldStateDecisionExhausted(
+                        "[dm] discoveries 含非法线索"
+                    )
+                ),
+            ),
+            patch(
+                "src.session.dm_subgraph.world_bridge.plan_world_state_guidance",
+                new=AsyncMock(
+                    return_value={
+                        "reply_brief": "提示玩家先调查酒馆里的委托线索。",
+                        "narrative_intent": "让桌上的旧地图成为行动钩子。",
+                    }
+                ),
+            ),
+            patch(
+                "src.dm.world_bridge.judge_trigger",
+                new=AsyncMock(return_value=False),
+            ),
+            patch(
+                "src.dm.world_bridge.narrate_turn_final",
+                new=AsyncMock(return_value="你可以先从桌上的旧地图和委托内容查起。"),
+            ),
+        ):
+            payload = await SessionEngine().start_session(
+                "guidance-test",
+                scene_context,
+                opening="我直接去拿还没发现的关键物品",
+            )
+
+        self.assertEqual(payload["status"], "awaiting_input")
+        self.assertIn("旧地图", payload["say"])
+        self.assertIsNone(payload["state"].get("world_writes"))
 
 
 class LockedCombatIntentTests(unittest.IsolatedAsyncioTestCase):

@@ -47,6 +47,11 @@ class CanonAuthoringPromptTests(unittest.TestCase):
             "零线索",
             "story_critical",
             "death_fallback",
+            "recommended_player_count",
+            "content_warnings",
+            "唯一原子入口",
+            "loot_table 只是战斗结算时展示",
+            "补救路线",
         ):
             self.assertIn(required, CANON_AUTHORING_RULE)
 
@@ -97,6 +102,15 @@ class CanonAuthoringPromptTests(unittest.TestCase):
             "whispers_bell_tower",
         )
 
+    def test_reserved_campaign_ids_are_given_to_author(self):
+        prompt = build_canon_authoring_prompt(
+            confirmed_brief=_CONFIRMED_BRIEF,
+            reserved_campaign_ids=["existing_story"],
+        )
+
+        self.assertIn("existing_story", prompt)
+        self.assertIn("不得使用", prompt)
+
     def test_repair_prompt_includes_errors_and_complete_draft(self):
         prompt = build_canon_repair_prompt(
             {"campaign_id": "demo"},
@@ -106,6 +120,8 @@ class CanonAuthoringPromptTests(unittest.TestCase):
         self.assertIn("缺少 win_condition", prompt)
         self.assertIn('"campaign_id": "demo"', prompt)
         self.assertIn("完整 JSON", prompt)
+        self.assertIn("唯一原子 owner", prompt)
+        self.assertIn("loot_table 只作文字展示", prompt)
 
 
 if __name__ == "__main__":

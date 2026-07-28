@@ -12,6 +12,7 @@ from fastapi import HTTPException
 
 from src.character.creation import build_character_card, character_creation_catalog
 from src.schemas.room import CharacterDraft, CharacterSummary, MemberView, RoomLobbyView
+from src.story.loader import get_registry
 
 _ROOM_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 _ROOM_CODE_LENGTH = 6
@@ -76,6 +77,11 @@ class RoomService:
         self, *, display_name: str, character: CharacterDraft, campaign_id: str
     ) -> tuple[GameRoom, RoomMember]:
         """创建房间并用角色草稿登记房主。"""
+        registry = get_registry()
+        if registry.get(campaign_id) is None:
+            registry.load_all()
+        if registry.get(campaign_id) is None:
+            raise HTTPException(status_code=404, detail="选择的剧本不存在")
         async with self._registry_lock:
             room_code = self._new_room_code()
             room = GameRoom(room_code=room_code, campaign_id=campaign_id)

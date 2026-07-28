@@ -3,8 +3,10 @@ import './App.css'
 import { DiceAnimator } from './components/DiceAnimator'
 import { GameScreen } from './components/GameScreen'
 import { LobbyScreen } from './components/LobbyScreen'
+import { StorySquare } from './components/StorySquare'
+import { StoryStudio } from './components/StoryStudio'
 import { useGameRoom } from './hooks/useGameRoom'
-import type { RoomAuthResponse, RoomCredential } from './types/game'
+import type { RoomAuthResponse, RoomCredential, StorySummary } from './types/game'
 
 const STORAGE_KEY = 'dnd-bot-room-credential'
 
@@ -19,6 +21,10 @@ function readCredential(): RoomCredential | null {
 
 function App() {
   const [credential, setCredential] = useState<RoomCredential | null>(readCredential)
+  const [view, setView] = useState<'square' | 'studio' | 'lobby'>('square')
+  const [lobbyMode, setLobbyMode] = useState<'create' | 'join'>('create')
+  const [selectedStory, setSelectedStory] = useState<StorySummary | null>(null)
+  const [highlightCampaignId, setHighlightCampaignId] = useState<string>()
 
   function authenticate(response: RoomAuthResponse) {
     const next: RoomCredential = {
@@ -33,12 +39,49 @@ function App() {
   function leaveRoom() {
     localStorage.removeItem(STORAGE_KEY)
     setCredential(null)
+    setView('square')
   }
 
-  return credential ? (
-    <AuthenticatedGame credential={credential} onLeave={leaveRoom} />
-  ) : (
-    <LobbyScreen onAuthenticated={authenticate} />
+  if (credential) {
+    return <AuthenticatedGame credential={credential} onLeave={leaveRoom} />
+  }
+  if (view === 'studio') {
+    return (
+      <StoryStudio
+        onBack={() => setView('square')}
+        onPublished={(story) => {
+          setHighlightCampaignId(story.campaign_id)
+          setSelectedStory(story)
+          setView('square')
+        }}
+      />
+    )
+  }
+  if (view === 'lobby') {
+    return (
+      <LobbyScreen
+        campaign={selectedStory}
+        initialMode={lobbyMode}
+        onAuthenticated={authenticate}
+        onBack={() => setView('square')}
+      />
+    )
+  }
+  return (
+    <StorySquare
+      highlightCampaignId={highlightCampaignId}
+      onCreateStory={() => setView('studio')}
+      onJoinRoom={() => {
+        setLobbyMode('join')
+        setSelectedStory(null)
+        setView('lobby')
+      }}
+      onSelectStory={(story) => {
+        setSelectedStory(story)
+        setLobbyMode('create')
+        setView('lobby')
+      }}
+    />
   )
 }
 

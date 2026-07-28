@@ -61,6 +61,7 @@ STORY_INTERVIEW_RULE = """你是 D&D 短篇冒险的【故事策划】，负责�
     "gameplay_focus": ["按优先级排列"],
     "tone": "基调或 null",
     "content_boundaries": ["需要避开的内容"],
+    "content_warnings": ["允许出现但需要提前告知的敏感内容"],
     "duration_minutes": 20,
     "player_count": 1,
     "ending_direction": "结局取向或 null",
@@ -127,6 +128,10 @@ CANON_AUTHORING_RULE = """你是 D&D 短篇冒险的【Canon 编译器】，不�
   "premise": "一句话主线",
   "theme": "主题",
   "tone": "基调",
+  "duration_minutes": 20,
+  "recommended_player_count": 1,
+  "gameplay_focus": ["调查", "探索", "战斗"],
+  "content_warnings": ["只写玩家可见且不剧透的内容提示"],
   "declared_flags": ["所有可能写入的 flag 白名单"],
   "win_condition": {Trigger},
   "lose_condition": {Trigger},
@@ -152,6 +157,14 @@ CANON_AUTHORING_RULE = """你是 D&D 短篇冒险的【Canon 编译器】，不�
   全部使用小写 snake_case ASCII。
 - 同类 id 不得重复；所有引用必须指向实际存在的 id。
 - ``declared_flags`` 必须列出普通世界写入、线索发现效果和遭遇胜利可能写入的全部 flag。
+
+【故事广场公开信息】
+- duration_minutes 必须原样采用玩家确认的时长，且只能是 10～30 的整数。
+- recommended_player_count 必须原样采用玩家确认的人数，且只能是 1～6 的整数。
+- gameplay_focus 必须按 design_brief 中的优先级填写，不得擅自替换玩法方向。
+- content_warnings 优先原样采用 design_brief.content_warnings；只能补充玩家明确允许出现的敏感元素，
+  不得把 must_avoid 或 content_boundaries 中明确禁止出现的内容反写成剧本警告；没有则为空数组。
+- title、premise、theme、tone 和以上四项会公开展示，严禁泄露 NPC 秘密、幕后真相、结局或解谜答案。
 
 【NpcSpec】
 {
@@ -260,6 +273,19 @@ CANON_AUTHORING_RULE = """你是 D&D 短篇冒险的【Canon 编译器】，不�
 - ``discovery_effects`` 可省略。线索 flag 和物品只能在玩家真正发现线索后由引擎写入。
 - 不要把 ``DM 已经讲过`` 与 ``玩家已经发现/取得`` 混为一谈。
 
+【持久化效果的唯一原子入口】
+- 每个持久化 flag 与关键物品必须先选定唯一 owner，整个 Canon 中只能有一个原子写入入口。
+- 玩家通过搜索、交谈、调查或拾取得到的 flag/物品，只能由对应 KeyInfo.discovery_effects 管理；
+  同一个 discovery 可以同时设置关联 flag 并通过 grant_items 发放物品，这属于一次合法原子写入。
+- 战斗胜利本身立即成立的 flag 只能写在对应 Encounter.on_win_flags；同一 flag 不得同时出现在
+  discovery_effects.flags_set 与 on_win_flags，也不得由多个线索或多个遭遇重复管理。
+- 不绑定线索或战斗、只由玩家自由行动触发的普通世界 flag，可以仅列入 declared_flags，作为 DM 受限
+  直接写入的唯一入口；一旦选择 discovery 或 encounter 作为 owner，就不得再按普通 flag 直接写入。
+- 同一个 item_id 不得由多个 KeyInfo 重复 grant。钥匙、符箓、任务物等需要实际进入角色背包的物品，
+  必须由唯一 discovery 的 grant_items 发放。
+- Encounter.loot_table 只是战斗结算时展示给玩家的文字摘要，不会把物品加入角色背包；不得把它当成
+  持久化物品入口，也不要在其中重复声明承担主线门槛的关键物品。
+
 【Trigger 与 predicate】
 - flag：{"flag":"flag_id","equals":true}，或 {"all":["flag_a"]}，或 {"any":["flag_a"]}
 - item：{"item_id":"item_id"}
@@ -276,10 +302,12 @@ CANON_AUTHORING_RULE = """你是 D&D 短篇冒险的【Canon 编译器】，不�
   "random_seed": 1,
   "on_win_flags": ["已声明 flag"],
   "special_actions": [{SpecialAction}],
-  "loot_table": ["简短战利品"]
+  "loot_table": ["只用于结算展示的简短战利品文字"]
 }
 - monster_ids 至少一项。Boss 胜利条件应同时绑定 encounter_id，避免击败普通 NPC 误判通关。
 - 遭遇只引用卡面，不复制或现场生成卡面。
+- 若后续硬门槛依赖线索或物品，必须提供世界内合理的补救路线，例如返回搜索、询问仍存 NPC、
+  另一条可发现线索、替代检定或暴力开启，并在 advance_conditions / stuck_fallback 中保持一致。
 
 【SpecialAction】
 {
@@ -318,6 +346,7 @@ CANON_AUTHORING_RULE = """你是 D&D 短篇冒险的【Canon 编译器】，不�
 7. 零线索仍能通过合理行动到达高潮，除非玩家大纲明确存在真实硬门槛。
 8. 所有特殊机械效果都属于引擎支持的封闭效果。
 9. JSON 可以直接被解析，不含注释、尾逗号或额外正文。
+10. 每个持久化 flag 与 item_id 都只有一个原子 owner；loot_table 没有承担背包入库职责。
 """
 
 
@@ -359,14 +388,14 @@ def validate_confirmed_design_brief(design_brief: dict[str, Any]) -> list[str]:
         errors.append("content_boundaries 必须是数组，可为空数组")
     if (
         not isinstance(design_brief.get("duration_minutes"), int)
-        or int(design_brief.get("duration_minutes") or 0) <= 0
+        or not 10 <= int(design_brief.get("duration_minutes") or 0) <= 30
     ):
-        errors.append("duration_minutes 必须是正整数")
+        errors.append("duration_minutes 必须是 10 到 30 之间的整数")
     if (
         not isinstance(design_brief.get("player_count"), int)
-        or int(design_brief.get("player_count") or 0) <= 0
+        or not 1 <= int(design_brief.get("player_count") or 0) <= 6
     ):
-        errors.append("player_count 必须是正整数")
+        errors.append("player_count 必须是 1 到 6 之间的整数")
     return errors
 
 
@@ -374,6 +403,7 @@ def build_canon_authoring_prompt(
     *,
     confirmed_brief: dict[str, Any],
     reference_canon: dict[str, Any] | None = None,
+    reserved_campaign_ids: list[str] | None = None,
 ) -> str:
     """构造 Canon 编译任务；没有玩家明确确认的设计稿时拒绝进入编译阶段。"""
     errors = validate_confirmed_design_brief(confirmed_brief)
@@ -395,6 +425,12 @@ def build_canon_authoring_prompt(
             "不得无故复制其剧情内容、专有名词或数值：\n"
             f"<reference_canon>{example}</reference_canon>"
         )
+    if reserved_campaign_ids:
+        sections.append(
+            "【已占用的 campaign_id】新剧本不得使用以下任何 id；请根据标题生成另一个"
+            "有辨识度的 snake_case id：\n"
+            f"<reserved_campaign_ids>{json.dumps(reserved_campaign_ids, ensure_ascii=False)}</reserved_campaign_ids>"
+        )
     return "\n\n".join(sections)
 
 
@@ -405,7 +441,9 @@ def build_canon_repair_prompt(
     """构造校验失败后的修复任务；仍要求只返回完整 Canon JSON。"""
     return (
         "下面的 Canon 草稿未通过确定性校验。只修复列出的结构问题，保留玩家的主题、"
-        "角色关系和核心冲突；返回修复后的完整 JSON 对象，不要解释。\n"
+        "角色关系和核心冲突。修复持久化效果冲突时，必须为每个 flag/item_id 保留唯一原子 owner："
+        "调查所得放在唯一 discovery_effects，战斗胜利所得放在唯一 on_win_flags，"
+        "loot_table 只作文字展示、不能代替 grant_items。返回修复后的完整 JSON 对象，不要解释。\n"
         f"<validation_errors>{json.dumps(validation_errors, ensure_ascii=False)}</validation_errors>\n"
         f"<canon_draft>{json.dumps(draft, ensure_ascii=False)}</canon_draft>"
     )

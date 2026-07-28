@@ -4,6 +4,10 @@
   "premise": "北境山村灰岩村连月来夜夜响起本该锈死的钟声，钟声过后便有孩子失踪，至今已失踪三人。声音来自村外一座废弃古村的钟楼——冒险者须循声前往那座废村，查明真相，平息被诅咒的古钟之灵。",
   "theme": "执念与救赎",
   "tone": "阴郁、悬疑、带一线希望",
+  "duration_minutes": 20,
+  "recommended_player_count": 1,
+  "gameplay_focus": ["调查", "探索", "战斗"],
+  "content_warnings": ["儿童失踪", "灵异恐怖"],
   "declared_flags": [
     "accepted_quest",
     "clue_bell_crack",

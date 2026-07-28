@@ -7,6 +7,10 @@ import type {
   RoomCredential,
   RoomLobbyView,
   SessionView,
+  StoryConversationMessage,
+  StoryDraftResponse,
+  StoryInterviewResponse,
+  StorySummary,
 } from '../types/game'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:32388'
@@ -59,11 +63,15 @@ export const gameApi = {
     requestJson<CharacterCreationCatalog>('/api/rooms/character-options'),
   lobby: (roomCode: string) =>
     requestJson<RoomLobbyView>(`/api/rooms/${roomCode}/lobby`),
-  createRoom: (displayName: string, character: CharacterDraft) =>
+  createRoom: (
+    displayName: string,
+    character: CharacterDraft,
+    campaignId: string,
+  ) =>
     post<RoomAuthResponse>('/api/rooms', {
       display_name: displayName,
       character,
-      campaign_id: 'whispers_bell_tower',
+      campaign_id: campaignId,
     }),
   joinRoom: (
     roomCode: string,
@@ -83,7 +91,7 @@ export const gameApi = {
   start: (credential: RoomCredential) =>
     post<SessionView>(
       `/api/rooms/${credential.roomCode}/start`,
-      { opening: '我们推开破钟酒馆的门，走向等候已久的村长。' },
+      { opening: '冒险者们已经集结，准备踏入这段未知的旅程。' },
       credential.accessToken,
     ),
   message: (credential: RoomCredential, content: string) =>
@@ -118,6 +126,24 @@ export const gameApi = {
       `/api/rooms/${credential.roomCode}/dice/roll`,
       { dice_type: diceType },
       credential.accessToken,
+    ),
+  stories: () => requestJson<StorySummary[]>('/api/stories'),
+  interviewStory: (
+    conversation: StoryConversationMessage[],
+    designBrief: Record<string, unknown>,
+  ) =>
+    post<StoryInterviewResponse>('/api/stories/interview', {
+      conversation,
+      design_brief: designBrief,
+    }),
+  createStoryDraft: (designBrief: Record<string, unknown>) =>
+    post<StoryDraftResponse>('/api/stories/drafts', {
+      design_brief: designBrief,
+    }),
+  publishStory: (draftId: string) =>
+    post<{ story: StorySummary }>(
+      `/api/stories/drafts/${encodeURIComponent(draftId)}/publish`,
+      {},
     ),
 }
 

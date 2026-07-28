@@ -32,6 +32,26 @@ _ABILITY_VALUES = {a.value for a in Ability}
 _CHECK_KINDS = {"ability_check", "saving_throw"}
 _INTENTS = {"reply", "player_check", "start_combat"}
 _DECISION_ATTEMPTS = 3
+_GUIDANCE_ATTEMPTS = 2
+_WORLD_WRITE_FIELDS = {
+    "flags_set",
+    "moved_to",
+    "clues_delivered",
+    "discoveries",
+    "transition_to_beat_id",
+}
+
+
+class WorldStateDecisionError(ValueError):
+    """DM 决策引用了当前世界不允许写入的 flag、线索、地点或出口。"""
+
+
+class WorldStateDecisionExhausted(RuntimeError):
+    """真实 LLM 连续给出世界状态冲突，可交给会话图生成玩家引导。"""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
 
 
 # ---------------------------------------------------------------------------
@@ -58,6 +78,13 @@ def _party_brief(party: dict[str, Combatant]) -> list[dict]:
                 if "exploration" in skill.types
             ],
             "features": list(getattr(c, "features", [])),
+            "inventory": [
+                {
+                    "item_id": item.item_id,
+                    "quantity": item.quantity,
+                }
+                for item in getattr(c, "inventory", [])
+            ],
         }
         for c in party.values()
     ]
@@ -128,6 +155,8 @@ async def decide_turn(
     correction_hint = None
     last_error = ""
     locked_intent: str | None = None
+    saw_recoverable_world_error = False
+    saw_nonrecoverable_error = False
     for attempt in range(1, _DECISION_ATTEMPTS + 1):
         data = await _decide_llm(
             user_input,
@@ -142,6 +171,7 @@ async def decide_turn(
         )
         if data is None:
             last_error = "LLM 未返回可解析 JSON"
+            saw_nonrecoverable_error = True
             correction_hint = _decision_correction_hint(
                 last_error,
                 scene,
@@ -159,6 +189,7 @@ async def decide_turn(
                 f"已锁定语义意图 {locked_intent!r}，不能降级为 "
                 f"{data.get('intent')!r}"
             )
+            saw_nonrecoverable_error = True
             correction_hint = _decision_correction_hint(
                 last_error,
                 scene,
@@ -183,6 +214,10 @@ async def decide_turn(
             )
         except ValueError as exc:
             last_error = str(exc)
+            if isinstance(exc, WorldStateDecisionError):
+                saw_recoverable_world_error = True
+            else:
+                saw_nonrecoverable_error = True
             if data.get("intent") == "start_combat":
                 locked_intent = "start_combat"
             correction_hint = _decision_correction_hint(
@@ -199,6 +234,8 @@ async def decide_turn(
                 last_error,
                 _dump(data),
             )
+    if saw_recoverable_world_error and not saw_nonrecoverable_error:
+        raise WorldStateDecisionExhausted(last_error)
     raise RuntimeError(f"[dm] decide_turn LLM 连续输出非法决策：{last_error}")
 
 
@@ -253,6 +290,9 @@ async def _decide_llm(
         '  "moved_to":"地点id" —— 玩家移动到的当前拍内地点；\n'
         '  "clues_delivered":["你这步已讲给玩家的关键线索id"]；\n'
         '  "discoveries":["玩家这步真正发现/取得的线索id"] —— 线索对应 flag 与物品只能用此字段触发；\n'
+        "discoveries 只能填写 available_discoveries 中仍可发现的线索 id，绝不能填写 flag 名；"
+        "managed_flag_sources 中的 flag 由引擎写入，不能放进 flags_set。"
+        "若 current_flags、discovered_clue_ids 或角色 inventory 已表明状态完成，不要重复声明写入。\n"
         '  "transition_to_beat_id":"玩家已经完成的合法跨拍行动目标" —— 只能从 '
         'reachable_transitions 中 trigger_kind="action" 的目标选择；semantic 等其它出口由引擎判定，'
         "不得直接写入。\n"
@@ -287,6 +327,11 @@ def _decision_correction_hint(
     ]
     reachable = (decision_context or {}).get("reachable_encounters", [])
     action_transitions = sorted(_allowed_action_transition_ids(decision_context))
+    context = decision_context or {}
+    available_discoveries = context.get("available_discoveries", [])
+    allowed_delivery_ids = context.get("allowed_delivery_clue_ids", [])
+    allowed_discovery_ids = context.get("allowed_discovery_clue_ids", [])
+    managed_sources = context.get("managed_flag_sources", {})
     intent_line = (
         "上次已确认玩家明确开战，本次 intent 必须保持 start_combat，只修正引用和字段；"
         if locked_intent == "start_combat"
@@ -299,12 +344,91 @@ def _decision_correction_hint(
         f"当前场景合法敌意 actor_id：{_dump(hostiles)}。"
         f"可达预置遭遇：{_dump(reachable)}。"
         f"可显式写入的 action 跨拍目标：{_dump(action_transitions)}。"
+        f"当前世界 flags：{_dump(context.get('current_flags', {}))}。"
+        f"已经发现的线索 id：{_dump(context.get('discovered_clue_ids', []))}。"
+        f"合法 clues_delivered id：{_dump(allowed_delivery_ids)}。"
+        f"合法 discoveries id 与原子效果：{_dump(available_discoveries)}。"
+        f"本次 discoveries 只能从 {_dump(allowed_discovery_ids)} 选择。"
+        f"引擎管理 flag 及来源：{_dump(managed_sources)}。"
         f"{intent_line}"
         "start_combat 只能引用当前有卡面的 actor 或可达预置遭遇；"
         "semantic 等非 action 出口必须交给引擎判定，不得写 transition_to_beat_id；"
+        "discoveries 绝不能填写 flag 名；引擎管理 flag 绝不能放入 flags_set；"
+        "若状态已完成或玩家本步没有形成新的合法写入，就省略对应字段；"
         "如果错误是 reply_brief 缺失，请补上一句不可见回应计划，说明该传达什么和应引导玩家做什么。"
         "不要编造不存在的 actor_id。只输出修正后的 JSON。"
     )
+
+
+async def plan_world_state_guidance(
+    user_input: str,
+    scene: dict,
+    party: dict[str, Combatant],
+    *,
+    issue: str,
+    messages: list[dict] | None = None,
+    beat_brief: dict | None = None,
+    stuck_hint: str | None = None,
+) -> dict:
+    """由真实 LLM 为无法落地的玩家行动规划一段不写世界状态的引导。"""
+    correction = ""
+    for attempt in range(1, _GUIDANCE_ATTEMPTS + 1):
+        task = (
+            "你在主持一场有预定剧本的 D&D 冒险。玩家本步行动与当前世界状态发生冲突，"
+            "不能照原计划提交世界变化。请给后续叙述节点一条自然、可执行的引导计划，"
+            "帮助玩家通过自己的下一步行动继续冒险。\n"
+            f"当前场景：{_dump(_scene_brief(scene))}\n"
+            f"玩家队伍与背包：{_dump(_party_brief(party))}\n"
+            f"当前剧情拍与合法候选：{_dump(beat_brief or {})}\n"
+            f"最近对话：{_dump(_history_brief(messages or []))}\n"
+            f"玩家本步言行：{user_input}\n"
+            f"内部冲突原因（只供裁定，不得向玩家展示字段名或技术错误）：{issue}\n"
+            f"额外推进提示：{stuck_hint or '无'}\n"
+            "只可依据 available_discoveries、当前地点、advance_hints、合法出口和玩家现有背包提出办法。"
+            "若某个尚未发现的线索能补齐所需物品，应自然提示玩家去对应人物、遗体或地点调查；"
+            "若 Canon 已给出另一条合法路线，也可以提示尝试该路线。"
+            "不要声称玩家已经拿到物品、发现线索、移动成功或完成推进；本回合只提示，"
+            "真正的 discoveries 和其它世界写入必须等待玩家下一次明确行动。"
+            "不得编造新钥匙、新 NPC、新入口或未授权规则。\n"
+            "只输出 JSON："
+            '{"reply_brief":"一句话说明该告诉玩家什么、可尝试哪些下一步",'
+            '"narrative_intent":"可选的一句意象或潜台词"}。'
+            f"{correction}"
+        )
+        data = await dm_complete_json(task)
+        if data is None:
+            correction = "\n上次输出不可解析；请严格只返回指定 JSON。"
+        else:
+            illegal_writes = sorted(_WORLD_WRITE_FIELDS & set(data))
+            reply_brief = (
+                str(data.get("reply_brief") or "").strip()
+                if isinstance(data, dict)
+                else ""
+            )
+            if reply_brief and not illegal_writes:
+                narrative_intent = (
+                    str(data.get("narrative_intent") or "").strip()
+                    if isinstance(data, dict)
+                    else ""
+                )
+                return {
+                    "reply_brief": reply_brief,
+                    "narrative_intent": narrative_intent,
+                }
+            correction = (
+                "\n上次引导计划不合法："
+                + (
+                    f"不得包含世界写入字段 {illegal_writes}；"
+                    if illegal_writes
+                    else "缺少非空 reply_brief；"
+                )
+                + "请只规划提示，不修改世界状态。"
+            )
+        logger.warning(
+            "[dm_guidance] 第 %d 次引导计划不合法，交回真实 LLM 重评",
+            attempt,
+        )
+    raise RuntimeError("[dm] 世界状态冲突引导 LLM 连续输出非法计划")
 
 
 def _allowed_action_transition_ids(
@@ -324,48 +448,67 @@ def _world_writes(data: dict, decision_context: dict | None = None) -> dict:
     """抽取并校验 DM 世界写入，只接受当前拍明确提供的候选 id。"""
     context = decision_context or {}
     allowed_flags = set(context.get("allowed_flags", []))
-    discovery_managed_flags = set(context.get("discovery_managed_flags", []))
-    allowed_clues = set(context.get("allowed_clue_ids", []))
+    managed_flags = set((context.get("managed_flag_sources") or {}).keys())
+    allowed_delivery_clues = set(context.get("allowed_delivery_clue_ids", []))
+    allowed_discovery_clues = set(context.get("allowed_discovery_clue_ids", []))
     allowed_locations = {item.get("id") for item in context.get("locations", [])}
     allowed_transitions = _allowed_action_transition_ids(context)
     writes: dict = {}
     flags_set = data.get("flags_set")
     if isinstance(flags_set, dict) and flags_set:
         normalized_flags = {str(k): v for k, v in flags_set.items()}
-        invalid = set(normalized_flags) - allowed_flags if allowed_flags else set()
+        invalid = (
+            set(normalized_flags) - allowed_flags
+            if "allowed_flags" in context
+            else set()
+        )
         if invalid:
-            raise ValueError(f"[dm] flags_set 含非法 flag：{sorted(invalid)}")
-        managed = set(normalized_flags) & discovery_managed_flags
+            raise WorldStateDecisionError(
+                f"[dm] flags_set 含非法 flag：{sorted(invalid)}"
+            )
+        managed = set(normalized_flags) & managed_flags
         if managed:
-            raise ValueError(
-                f"[dm] 线索 flag 必须通过 discoveries 触发：{sorted(managed)}"
+            raise WorldStateDecisionError(
+                f"[dm] 引擎管理 flag 不能由 DM 直接写入：{sorted(managed)}"
             )
         writes["flags_set"] = normalized_flags
     moved_to = data.get("moved_to")
     if isinstance(moved_to, str) and moved_to:
-        if allowed_locations and moved_to not in allowed_locations:
-            raise ValueError(f"[dm] moved_to 不在当前拍地点中：{moved_to!r}")
+        if "locations" in context and moved_to not in allowed_locations:
+            raise WorldStateDecisionError(
+                f"[dm] moved_to 不在当前拍地点中：{moved_to!r}"
+            )
         writes["moved_to"] = moved_to
     clues = data.get("clues_delivered")
     if isinstance(clues, list) and clues:
         normalized_clues = [str(c) for c in clues]
-        invalid = set(normalized_clues) - allowed_clues if allowed_clues else set()
+        invalid = (
+            set(normalized_clues) - allowed_delivery_clues
+            if "allowed_delivery_clue_ids" in context
+            else set()
+        )
         if invalid:
-            raise ValueError(f"[dm] clues_delivered 含非法线索：{sorted(invalid)}")
+            raise WorldStateDecisionError(
+                f"[dm] clues_delivered 含非法线索：{sorted(invalid)}"
+            )
         writes["clues_delivered"] = normalized_clues
     discoveries = data.get("discoveries")
     if isinstance(discoveries, list) and discoveries:
         normalized_discoveries = [str(c) for c in discoveries]
         invalid = (
-            set(normalized_discoveries) - allowed_clues if allowed_clues else set()
+            set(normalized_discoveries) - allowed_discovery_clues
+            if "allowed_discovery_clue_ids" in context
+            else set()
         )
         if invalid:
-            raise ValueError(f"[dm] discoveries 含非法线索：{sorted(invalid)}")
+            raise WorldStateDecisionError(
+                f"[dm] discoveries 含非法线索：{sorted(invalid)}"
+            )
         writes["discoveries"] = normalized_discoveries
     transition_to = data.get("transition_to_beat_id")
     if isinstance(transition_to, str) and transition_to:
         if transition_to not in allowed_transitions:
-            raise ValueError(
+            raise WorldStateDecisionError(
                 f"[dm] transition_to_beat_id 不是合法 action 出口：{transition_to!r}"
             )
         writes["transition_to_beat_id"] = transition_to
@@ -412,7 +555,7 @@ def _normalize_decision(
             "discoveries",
         }
         if premature:
-            raise ValueError(
+            raise WorldStateDecisionError(
                 "[dm] player_check 的移动、跨拍和发现效果必须放入 "
                 f"effects.on_success/on_failure：{sorted(premature)}"
             )
@@ -556,7 +699,9 @@ def _normalize_encounter(
     if candidate and candidate.get("beat_id") != context.get("beat_id"):
         transition_to = transition_to or candidate.get("beat_id")
     if transition_to and transition_to not in allowed_transitions:
-        raise ValueError(f"[dm] 开战前迁移不是合法 action 出口：{transition_to!r}")
+        raise WorldStateDecisionError(
+            f"[dm] 开战前迁移不是合法 action 出口：{transition_to!r}"
+        )
 
     participants = set(chosen) | set(party_ids)
     surprised = [

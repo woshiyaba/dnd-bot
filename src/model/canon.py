@@ -13,10 +13,13 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass, field
+import re
 from typing import Any
 
 from src.model.combatant import Combatant
 from src.model.enums import Ability, ConditionType, StrEnum
+
+_CANON_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
 # ---------------------------------------------------------------------------
@@ -283,6 +286,10 @@ class Canon:
     premise: str = ""  # 一句话主线
     theme: str = ""  # 主题
     tone: str = ""  # 基调
+    duration_minutes: int = 20  # 预计单局时长（故事广场公开元数据）
+    recommended_player_count: int = 1  # 推荐玩家人数，仅展示、不限制开局
+    gameplay_focus: list[str] = field(default_factory=list)  # 玩法侧重
+    content_warnings: list[str] = field(default_factory=list)  # 玩家可见内容提示
     win_condition: Trigger | None = None  # 整局胜利条件
     lose_condition: Trigger | None = None  # 整局失败条件
     declared_flags: list[str] = field(
@@ -325,11 +332,15 @@ class Canon:
         win = data.get("win_condition")
         lose = data.get("lose_condition")
         return cls(
-            campaign_id=data["campaign_id"],
+            campaign_id=str(data["campaign_id"]),
             title=str(data.get("title", data["campaign_id"])),
             premise=str(data.get("premise", "")),
             theme=str(data.get("theme", "")),
             tone=str(data.get("tone", "")),
+            duration_minutes=int(data.get("duration_minutes", 20)),
+            recommended_player_count=int(data.get("recommended_player_count", 1)),
+            gameplay_focus=[str(item) for item in data.get("gameplay_focus", [])],
+            content_warnings=[str(item) for item in data.get("content_warnings", [])],
             win_condition=Trigger.from_dict(win) if win else None,
             lose_condition=Trigger.from_dict(lose) if lose else None,
             declared_flags=list(data.get("declared_flags", [])),
@@ -402,6 +413,36 @@ def evaluate_trigger(
 # ---------------------------------------------------------------------------
 # 喂给 DM 的当前拍骨架（让叙述「长在骨架上」，§4.2）
 # ---------------------------------------------------------------------------
+def managed_flag_sources(canon: Canon) -> dict[str, list[dict[str, str]]]:
+    """汇总由确定性引擎管理的 flag 及其原子写入来源。
+
+    discovery flag 只能在玩家真正发现线索时写入；遭遇胜利 flag 只能在对应战斗
+    结算时写入。未出现在结果中的普通 flag 才允许 DM 通过 ``flags_set`` 声明。
+    """
+    sources: dict[str, list[dict[str, str]]] = {}
+    for beat in canon.beats:
+        for clue in beat.key_info:
+            for flag in clue.discovery_effects.get("flags_set") or {}:
+                sources.setdefault(str(flag), []).append(
+                    {
+                        "kind": "discovery",
+                        "beat_id": beat.id,
+                        "clue_id": clue.id,
+                    }
+                )
+        if beat.encounter is None:
+            continue
+        for flag in beat.encounter.on_win_flags:
+            sources.setdefault(str(flag), []).append(
+                {
+                    "kind": "encounter_win",
+                    "beat_id": beat.id,
+                    "encounter_id": beat.encounter.id,
+                }
+            )
+    return sources
+
+
 def beat_brief(canon: Canon, story: dict) -> dict | None:
     """把当前拍骨架压成 DM 画像：目标、线索、在场 NPC、死亡续接与出口提示。
 
@@ -414,13 +455,14 @@ def beat_brief(canon: Canon, story: dict) -> dict | None:
     delivered = set(story.get("delivered_clues", []))
     undelivered = [k.text for k in beat.key_info if k.id not in delivered]
     discovered = set(story.get("discovered_clues", []))
-    remaining_clues = [
-        {"id": clue.id, "text": clue.text}
+    available_discoveries = [
+        {
+            "id": clue.id,
+            "text": clue.text,
+            "discovery_effects": dict(clue.discovery_effects or {}),
+        }
         for clue in beat.key_info
-        if (
-            clue.id not in discovered
-            and (clue.discovery_effects or clue.id not in delivered)
-        )
+        if clue.id not in discovered
     ]
     removed = set(story.get("removed_actor_ids", []))
 
@@ -472,20 +514,23 @@ def beat_brief(canon: Canon, story: dict) -> dict | None:
         "beat_kind": str(beat.kind.value),
         "locations": locations,
         "undelivered_clues": undelivered,
-        "remaining_key_clues": remaining_clues,
+        "available_discoveries": available_discoveries,
+        "current_flags": dict(story.get("flags", {})),
+        "delivered_clue_ids": sorted(delivered),
+        "discovered_clue_ids": sorted(discovered),
         "npcs": on_stage,
         "critical_npc_deaths": critical_deaths,
         "advance_hints": [
             t.description for t in beat.advance_conditions if t.description
         ],
         "allowed_flags": list(canon.declared_flags),
-        "allowed_clue_ids": [k.id for k in beat.key_info],
-        "discovery_managed_flags": [
-            flag
-            for candidate_beat in canon.beats
-            for clue in candidate_beat.key_info
-            for flag in (clue.discovery_effects.get("flags_set") or {})
+        "allowed_delivery_clue_ids": [
+            clue.id for clue in beat.key_info if clue.id not in delivered
         ],
+        "allowed_discovery_clue_ids": [
+            clue.id for clue in beat.key_info if clue.id not in discovered
+        ],
+        "managed_flag_sources": managed_flag_sources(canon),
         "reachable_transitions": [
             {
                 "trigger_id": ex.trigger_id,
@@ -540,12 +585,41 @@ def validate_canon(canon: Canon) -> list[str]:
     都在白名单内；胜负条件已定义。
     """
     errors: list[str] = []
+
+    if not 10 <= canon.duration_minutes <= 30:
+        errors.append("duration_minutes 必须在 10 到 30 之间")
+    if not 1 <= canon.recommended_player_count <= 6:
+        errors.append("recommended_player_count 必须在 1 到 6 之间")
+    if not canon.gameplay_focus:
+        errors.append("gameplay_focus 至少需要一项")
+
+    _validate_ids("campaign", [canon.campaign_id], errors)
+    _validate_ids("beat", [beat.id for beat in canon.beats], errors)
+    _validate_ids("location", [location.id for location in canon.locations], errors)
+    _validate_ids("actor", [npc.id for npc in canon.cast], errors)
+    _validate_ids("flag", canon.declared_flags, errors)
+    trigger_ids_all = [
+        trigger.id for beat in canon.beats for trigger in beat.advance_conditions
+    ]
+    trigger_ids_all.extend(
+        condition.id
+        for condition in (canon.win_condition, canon.lose_condition)
+        if condition is not None
+    )
+    _validate_ids("trigger", trigger_ids_all, errors)
+    _validate_ids(
+        "clue",
+        [clue.id for beat in canon.beats for clue in beat.key_info],
+        errors,
+    )
     beat_ids = {b.id for b in canon.beats}
     location_ids = {loc.id for loc in canon.locations}
     declared = set(canon.declared_flags)
     encounter_ids: set[str] = set()
 
     for npc in canon.cast:
+        if npc.card is not None and npc.card.get("id") != npc.id:
+            errors.append(f"NPC «{npc.id}» 的 card.id 必须与 actor id 相同")
         if not npc.story_critical:
             continue
         if npc.death_fallback is None:
@@ -575,6 +649,13 @@ def validate_canon(canon: Canon) -> list[str]:
         errors.append("缺少 ending_outcome=lose 的结局拍")
 
     # 出口 / 触发器 / 地点 / flag 的逐拍校验
+    for location in canon.locations:
+        for destination_id in location.intra_exits:
+            if destination_id not in location_ids:
+                errors.append(
+                    f"地点 «{location.id}» 的 intra_exits 引用了不存在的地点 «{destination_id}»"
+                )
+
     for beat in canon.beats:
         trigger_ids = {t.id for t in beat.advance_conditions}
         for ex in beat.exits:
@@ -589,6 +670,31 @@ def validate_canon(canon: Canon) -> list[str]:
         for lid in beat.location_ids:
             if lid not in location_ids:
                 errors.append(f"拍 «{beat.id}» 引用了不存在的 location_id «{lid}»")
+        entry_location_id = beat.entry_state.get("location_id")
+        preserve_current_scene = beat.entry_state.get("preserve_current_scene") is True
+        if entry_location_id is not None and entry_location_id not in location_ids:
+            errors.append(
+                f"拍 «{beat.id}» 的 entry_state 引用了不存在的 location_id «{entry_location_id}»"
+            )
+        if entry_location_id is not None and entry_location_id not in beat.location_ids:
+            errors.append(
+                f"拍 «{beat.id}» 的 entry_state.location_id 不在本拍 location_ids 中"
+            )
+        if entry_location_id is None and not (
+            beat.is_ending and preserve_current_scene
+        ):
+            errors.append(f"拍 «{beat.id}» 缺少 entry_state.location_id")
+        for actor in beat.entry_state.get("actors", []):
+            actor_id = actor.get("actor_id") or actor.get("npc_ref")
+            actor_location_id = actor.get("location_id")
+            if actor_id and canon.npc(actor_id) is None:
+                errors.append(
+                    f"拍 «{beat.id}» 的 entry_state 引用了不存在的 actor «{actor_id}»"
+                )
+            if actor_location_id not in beat.location_ids:
+                errors.append(
+                    f"拍 «{beat.id}» 的 actor «{actor_id}» 位于本拍之外的地点 «{actor_location_id}»"
+                )
         for t in beat.advance_conditions:
             if t.kind == TriggerKind.FLAG:
                 referenced = _flag_trigger_names(t)
@@ -653,6 +759,61 @@ def validate_canon(canon: Canon) -> list[str]:
             errors.append(f"拍 «{beat.id}» 从 start_beat_id 不可达（孤岛）")
 
     return errors
+
+
+def validate_authored_canon(canon: Canon) -> list[str]:
+    """严格校验新生成 Canon 的持久化效果是否只有一个原子写入入口。
+
+    该校验服务于故事生成、修复与发布；已有磁盘 Canon 仍只走
+    :func:`validate_canon`，避免历史玩家副本因新增创作规则而无法加载。
+    """
+    errors: list[str] = []
+    for flag, sources in managed_flag_sources(canon).items():
+        if len(sources) <= 1:
+            continue
+        owners = [
+            (
+                f"线索 {source['beat_id']}/{source['clue_id']}"
+                if source["kind"] == "discovery"
+                else f"遭遇 {source['beat_id']}/{source['encounter_id']}"
+            )
+            for source in sources
+        ]
+        errors.append(f"flag «{flag}» 存在多个原子写入入口：{'、'.join(owners)}")
+
+    item_sources: dict[str, list[str]] = {}
+    for beat in canon.beats:
+        for clue in beat.key_info:
+            for grant in clue.discovery_effects.get("grant_items", []) or []:
+                item_id = str(grant.get("item_id") or "")
+                if not item_id:
+                    continue
+                item_sources.setdefault(item_id, []).append(f"线索 {beat.id}/{clue.id}")
+        if beat.encounter is None:
+            continue
+        for loot in beat.encounter.loot_table:
+            if isinstance(loot, dict) and loot.get("item_id"):
+                errors.append(
+                    f"遭遇 «{beat.encounter.id}» 的 loot_table 不能作为持久化物品 "
+                    f"«{loot['item_id']}» 的入库入口；请改用唯一线索的 grant_items"
+                )
+
+    for item_id, owners in item_sources.items():
+        if len(owners) > 1:
+            errors.append(f"物品 «{item_id}» 存在多个原子发放入口：{'、'.join(owners)}")
+    return errors
+
+
+def _validate_ids(kind: str, values: list[Any], errors: list[str]) -> None:
+    """校验同类 Canon ID 非空、snake_case 且全局唯一。"""
+    seen: set[str] = set()
+    for raw_value in values:
+        if not isinstance(raw_value, str) or not _CANON_ID_PATTERN.fullmatch(raw_value):
+            errors.append(f"{kind} id «{raw_value}» 必须是 lowercase snake_case")
+            continue
+        if raw_value in seen:
+            errors.append(f"{kind} id «{raw_value}» 重复")
+        seen.add(raw_value)
 
 
 def _validate_special_actions(canon: Canon, beat: Beat, errors: list[str]) -> None:

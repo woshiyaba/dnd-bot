@@ -69,6 +69,7 @@ def perceive(state: DMState) -> dict:
         "say": "",
         "reply_brief": "",
         "narrative_intent": "",
+        "decision_issue": None,
         "previous_scene": None,
         "story_transition": None,
         "pending_check": None,
@@ -95,17 +96,33 @@ async def dm_decide(state: DMState) -> dict:
         scene.get("location") or "未知",
         user_input[:200],
     )
-    decision = await world_bridge.decide_turn(
-        user_input,
-        scene,
-        state.get("party", {}),
-        messages=state.get("messages", []),
-        use_llm=llm_enabled(state),
-        beat_brief=story_nodes.beat_brief_for(state),  # 当前拍骨架：让叙述长在骨架上
-        stuck_hint=story_nodes.stuck_hint_for(state),  # 卡关兜底：空转太久时注入提示
-        active_actor_id=state.get("active_actor_id"),
-        active_display_name=state.get("active_display_name"),
-    )
+    try:
+        decision = await world_bridge.decide_turn(
+            user_input,
+            scene,
+            state.get("party", {}),
+            messages=state.get("messages", []),
+            use_llm=llm_enabled(state),
+            beat_brief=story_nodes.beat_brief_for(
+                state
+            ),  # 当前拍骨架：让叙述长在骨架上
+            stuck_hint=story_nodes.stuck_hint_for(
+                state
+            ),  # 卡关兜底：空转太久时注入提示
+            active_actor_id=state.get("active_actor_id"),
+            active_display_name=state.get("active_display_name"),
+        )
+    except world_bridge.WorldStateDecisionExhausted as exc:
+        logger.warning(
+            "[dm_decide] 连续世界状态冲突，转入真实 LLM 引导 | error=%s",
+            exc.reason,
+        )
+        return {
+            "intent": "guidance",
+            "decision_issue": exc.reason,
+            "world_writes": None,
+            "next": "wait",
+        }
     intent = decision["intent"]
     writes = (
         decision.get("world_writes") or {}
@@ -147,6 +164,8 @@ def route_after_decide(state: DMState) -> str:
         return "check"
     if intent == "start_combat":
         return "combat"
+    if intent == "guidance":
+        return "guidance"
     return "reply"
 
 
@@ -156,6 +175,35 @@ def route_after_decide(state: DMState) -> str:
 async def narrate_reply(state: DMState) -> dict:
     """保留 reply_brief，玩家可见叙述交给主图末尾的 final_narrate_turn。"""
     return {}
+
+
+async def guide_world_state_conflict(state: DMState) -> dict:
+    """用真实 LLM 把内部世界状态冲突转成玩家可执行的下一步提示。"""
+    guidance = await world_bridge.plan_world_state_guidance(
+        state.get("user_input", "") or "",
+        state.get("scene", {}) or {},
+        state.get("party", {}),
+        issue=state.get("decision_issue") or "当前行动无法形成合法世界写入",
+        messages=state.get("messages", []),
+        beat_brief=story_nodes.beat_brief_for(state),
+        stuck_hint=story_nodes.stuck_hint_for(state),
+    )
+    logger.info("[dm_guidance] 已生成世界状态冲突引导")
+    return {
+        "intent": "reply",
+        "reply_brief": guidance["reply_brief"],
+        "narrative_intent": guidance.get("narrative_intent", ""),
+        "decision_issue": None,
+        "world_writes": None,
+        "next": "wait",
+        "campaign_log": log_event(
+            state,
+            {
+                "event": "world_state_guidance",
+                "reason": state.get("decision_issue"),
+            },
+        ),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -286,6 +334,7 @@ def build_dm_subgraph():
     g.add_node("perceive", perceive)
     g.add_node("dm_decide", dm_decide)
     g.add_node("narrate_reply", narrate_reply)
+    g.add_node("guide_world_state_conflict", guide_world_state_conflict)
     g.add_node("await_roll", await_roll)
     g.add_node("resolve_check", resolve_check)
     g.add_node("narrate_result", narrate_result)
@@ -297,10 +346,12 @@ def build_dm_subgraph():
         route_after_decide,
         {
             "reply": "narrate_reply",
+            "guidance": "guide_world_state_conflict",
             "check": "await_roll",
             "combat": END,  # 交给会话主图路由进战斗子图（next=combat）
         },
     )
+    g.add_edge("guide_world_state_conflict", "narrate_reply")
     g.add_edge("narrate_reply", END)
     g.add_edge("await_roll", "resolve_check")
     g.add_edge("resolve_check", "narrate_result")

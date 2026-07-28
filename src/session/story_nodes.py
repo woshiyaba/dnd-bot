@@ -24,6 +24,7 @@ from src.model.canon import (
     Trigger,
     beat_brief,
     evaluate_trigger,
+    managed_flag_sources,
 )
 from src.model.dm_state import DMState, build_beat_scene
 from src.model.effects import InventoryItem
@@ -246,19 +247,14 @@ def _apply_world_writes(
     writes = state.get("world_writes") or {}
     scene = dict(state.get("scene") or {})
     party = dict(state.get("party") or {})
-    discovery_managed_flags = {
-        flag
-        for candidate_beat in canon.beats
-        for clue in candidate_beat.key_info
-        for flag in (clue.discovery_effects.get("flags_set") or {})
-    }
+    engine_managed_flags = set(managed_flag_sources(canon))
 
     flags = dict(story.get("flags", {}))
     for key, value in (writes.get("flags_set") or {}).items():
         if key not in declared:
             raise ValueError(f"[story] DM 尝试写入白名单外 flag «{key}»")
-        if key in discovery_managed_flags:
-            raise ValueError(f"[story] 线索 flag «{key}» 必须通过 discoveries 写入")
+        if key in engine_managed_flags:
+            raise ValueError(f"[story] 引擎管理 flag «{key}» 不能由 DM 直接写入")
         flags[key] = value
         events.append({"event": "flag_set", "flag": key, "value": value, "by": "dm"})
 

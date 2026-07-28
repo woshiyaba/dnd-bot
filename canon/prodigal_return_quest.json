@@ -1,0 +1,490 @@
+{
+  "campaign_id": "prodigal_return_quest",
+  "title": "风云再起·夺宝逆袭",
+  "premise": "被家族驱逐的旁系子弟意外获得奇遇，在与敌对宗门争夺异宝的战斗闯关冒险中一路逆袭，证明自己。",
+  "theme": "逆袭与证明",
+  "tone": "轻松、爽快、轻度热血",
+  "duration_minutes": 25,
+  "recommended_player_count": 1,
+  "gameplay_focus": [
+    "战斗",
+    "探索"
+  ],
+  "content_warnings": [],
+  "declared_flags": [
+    "accepted_quest",
+    "clue_elder_weakness",
+    "clue_sigil_frost",
+    "key_obtained",
+    "boss_defeated"
+  ],
+  "win_condition": {
+    "id": "win_boss_defeated",
+    "kind": "combat_outcome",
+    "predicate": {
+      "encounter_id": "boss_vermillion_serpent",
+      "outcome": "players_win"
+    },
+    "description": "击败玄天火蟒，夺取龙血玉，证明自己。"
+  },
+  "lose_condition": {
+    "id": "lose_party_defeated",
+    "kind": "combat_outcome",
+    "predicate": {
+      "outcome": "players_lose"
+    },
+    "description": "冒险者在战斗中倒下，夺宝失败。"
+  },
+  "cast": [
+    {
+      "id": "elder_feng",
+      "name": "风老",
+      "role": "随身老爷爷（灵体）",
+      "goal": "帮助主角成长，了却自身执念",
+      "secret": "风老曾是玄天秘境守护者，因擅用龙血玉被封印，如今灵魂寄宿于玉佩中",
+      "disposition": "friendly",
+      "story_critical": true,
+      "death_fallback": {
+        "guidance": "若风老灵魂消散，其遗言和玉佩碎片仍指向玄天秘境入口及守护兽弱点；玩家必须主动检查玉佩才能获得线索。",
+        "consequence": "主角失去了最重要的指导者，后续无法获得风老的额外提示，但已获得的信息不会丢失。",
+        "stuck_hint": "玉佩微微发烫，似乎想传递最后的信息——仔细聆听残留在玉佩中的断语。"
+      },
+      "card": {
+        "id": "elder_feng",
+        "name": "风老",
+        "strength": 8,
+        "dexterity": 8,
+        "constitution": 8,
+        "intelligence": 16,
+        "wisdom": 14,
+        "charisma": 12,
+        "current_hp": 1,
+        "max_hp": 1,
+        "ac": 8,
+        "initiative_bonus": -1,
+        "attacks": [
+          {
+            "name": "灵体冲击",
+            "attack_bonus": 0,
+            "damage_dice": "0",
+            "damage_type": "force",
+            "range": "melee"
+          }
+        ]
+      }
+    },
+    {
+      "id": "blackwind_scout",
+      "name": "黑风宗探子",
+      "role": "敌对宗门先遣弟子",
+      "goal": "先行夺取龙血玉钥匙并阻挠主角",
+      "secret": "他腰间系着藏宝室铜钥，身上有宗主的密信（只言片语揭示黑风宗也觊觎龙血玉）",
+      "disposition": "hostile",
+      "card": {
+        "id": "blackwind_scout",
+        "name": "黑风宗探子",
+        "strength": 12,
+        "dexterity": 14,
+        "constitution": 10,
+        "intelligence": 10,
+        "wisdom": 10,
+        "charisma": 10,
+        "current_hp": 10,
+        "max_hp": 10,
+        "ac": 14,
+        "initiative_bonus": 2,
+        "attacks": [
+          {
+            "name": "铁剑",
+            "attack_bonus": 4,
+            "damage_dice": "1d6+2",
+            "damage_type": "slashing",
+            "range": "melee"
+          },
+          {
+            "name": "暗镖",
+            "attack_bonus": 4,
+            "damage_dice": "1d4+2",
+            "damage_type": "piercing",
+            "range": "ranged"
+          }
+        ]
+      }
+    },
+    {
+      "id": "vermillion_serpent",
+      "name": "玄天火蟒",
+      "role": "龙血玉守护兽",
+      "goal": "守护龙血玉，驱逐入侵者",
+      "secret": "火蟒心脏封印着龙血玉的真正力量，击败它才能取出玉髓",
+      "disposition": "hostile",
+      "card": {
+        "id": "vermillion_serpent",
+        "name": "玄天火蟒",
+        "strength": 15,
+        "dexterity": 13,
+        "constitution": 14,
+        "intelligence": 6,
+        "wisdom": 12,
+        "charisma": 8,
+        "current_hp": 25,
+        "max_hp": 25,
+        "ac": 14,
+        "initiative_bonus": 1,
+        "attacks": [
+          {
+            "name": "毒牙撕咬",
+            "attack_bonus": 5,
+            "damage_dice": "1d8+3",
+            "damage_type": "piercing",
+            "range": "melee"
+          },
+          {
+            "name": "烈焰吐息",
+            "attack_bonus": 5,
+            "damage_dice": "2d6+2",
+            "damage_type": "fire",
+            "range": "ranged"
+          }
+        ]
+      }
+    }
+  ],
+  "locations": [
+    {
+      "id": "mountain_trail",
+      "name": "流亡山道",
+      "description": "一条荒僻的山道，两旁乱石嶙峋，风穿过树梢发出呜咽。你腰间玉佩微微发热。",
+      "intra_exits": []
+    },
+    {
+      "id": "ruined_gate",
+      "name": "玄天秘境·石门入口",
+      "description": "两扇布满藤蔓的石门半掩着，门缝里透出幽蓝微光。旁边躺着一具黑风宗弟子的尸体，地上有打斗痕迹。",
+      "intra_exits": [
+        "inscription_hall"
+      ]
+    },
+    {
+      "id": "inscription_hall",
+      "name": "玄天秘境·铭文厅",
+      "description": "一座宽阔的石室，墙壁上刻满古文字和火焰纹样。正中央立着一块寒冰浮雕，触之冰凉刺骨。墙角有一扇紧闭的铜门。",
+      "intra_exits": [
+        "ruined_gate"
+      ]
+    },
+    {
+      "id": "treasure_chamber",
+      "name": "玄天秘境·藏宝室",
+      "description": "石室中央的高台上悬浮着一枚赤红如血的玉石——龙血玉。一条巨大的火蟒盘绕在高台四周，双目灼灼。",
+      "intra_exits": []
+    }
+  ],
+  "start_beat_id": "trail_opening",
+  "beats": [
+    {
+      "id": "trail_opening",
+      "title": "山道奇遇·老爷爷现身",
+      "kind": "opening",
+      "location_ids": [
+        "mountain_trail"
+      ],
+      "entry_state": {
+        "location_id": "mountain_trail",
+        "actors": [],
+        "exits": [
+          "前方隐约可见一座石门（通往玄天秘境）"
+        ],
+        "threat": null
+      },
+      "key_info": [
+        {
+          "id": "hook_elder_summon",
+          "text": "你腰间的玉佩突然绽放青光，一位白发老者的虚影浮现——风老自述曾为玄天秘境守护者，现在秘境中藏有龙血玉可助你脱胎换骨、重返家族。他催促你尽快前往，因为黑风宗也已派人动身。",
+          "discovery_effects": {
+            "flags_set": {
+              "accepted_quest": true
+            }
+          }
+        }
+      ],
+      "advance_conditions": [
+        {
+          "id": "t_proceed_to_gate",
+          "kind": "semantic",
+          "predicate": {
+            "prompt": "玩家是否接受风老的指引，决定前往玄天秘境石门？"
+          },
+          "description": "主角动身前往秘境入口"
+        }
+      ],
+      "exits": [
+        {
+          "trigger_id": "t_proceed_to_gate",
+          "next_beat_id": "gate_exploration"
+        }
+      ],
+      "stuck_fallback": {
+        "hint": "风老再次低语，指向山路尽头隐约的石门，说‘迈出第一步才能改变宿命。’",
+        "point_to_exit": "前方隐约可见一座石门（通往玄天秘境）"
+      }
+    },
+    {
+      "id": "gate_exploration",
+      "title": "秘境入口·探子阻击",
+      "kind": "exploration",
+      "location_ids": [
+        "ruined_gate",
+        "inscription_hall"
+      ],
+      "entry_state": {
+        "location_id": "ruined_gate",
+        "actors": [
+          {
+            "actor_id": "blackwind_scout",
+            "name": "黑风宗探子",
+            "disposition": "hostile",
+            "location_id": "ruined_gate",
+            "type": "monster"
+          }
+        ],
+        "exits": [
+          "石门内通道（通往铭文厅）",
+          "搜索尸体"
+        ],
+        "threat": "黑风宗探子发现了你，拔出武器——必须击败他才能继续深入。"
+      },
+      "key_info": [
+        {
+          "id": "clue_elder_weakness",
+          "text": "风老通过玉佩传音：‘火蟒畏寒，若能找到铭文厅的寒冰符箓，可重创它的防御。’",
+          "discovery_effects": {
+            "flags_set": {
+              "clue_elder_weakness": true
+            }
+          }
+        },
+        {
+          "id": "clue_sigil_frost",
+          "text": "你仔细研究铭文厅墙壁上的寒冰浮雕，发现其中隐藏着‘寒冰符箓’的绘制方法——只需注入灵力即可激活。你将符箓拓印在掌心（获得寒冰符箓）。",
+          "discovery_effects": {
+            "flags_set": {
+              "clue_sigil_frost": true
+            },
+            "grant_items": [
+              {
+                "item_id": "item_frost_talisman",
+                "quantity": 1,
+                "recipient": "active_actor"
+              }
+            ]
+          }
+        },
+        {
+          "id": "clue_corpse_note",
+          "text": "你在探子尸体上搜到一封黑风宗密信，内容显示他们打算用火攻压制火蟒，但不知道寒冰弱点。此外，你在他腰间找到一把铜钥。",
+          "discovery_effects": {
+            "flags_set": {
+              "key_obtained": true
+            },
+            "grant_items": [
+              {
+                "item_id": "item_copper_key",
+                "quantity": 1,
+                "recipient": "active_actor"
+              }
+            ]
+          }
+        }
+      ],
+      "advance_conditions": [
+        {
+          "id": "t_enter_treasure",
+          "kind": "action",
+          "predicate": {
+            "action": "use_copper_key_on_chamber_door"
+          },
+          "description": "玩家使用铜钥打开铭文厅的铜门进入藏宝室"
+        },
+        {
+          "id": "t_enter_treasure_force",
+          "kind": "action",
+          "predicate": {
+            "action": "break_down_chamber_door"
+          },
+          "description": "玩家尝试暴力破门（DC 18力量），若成功也可进入（作为备用）"
+        }
+      ],
+      "exits": [
+        {
+          "trigger_id": "t_enter_treasure",
+          "next_beat_id": "chamber_climax"
+        },
+        {
+          "trigger_id": "t_enter_treasure_force",
+          "next_beat_id": "chamber_climax"
+        }
+      ],
+      "stuck_fallback": {
+        "hint": "风老提醒你：‘铜门需要钥匙——探子身上应该有一把，或者试试强行撞开。’",
+        "reveal_clue": false,
+        "point_to_exit": "铭文厅的铜门"
+      },
+      "encounter": {
+        "id": "blackwind_scout_fight",
+        "monster_ids": [
+          "blackwind_scout"
+        ],
+        "surprised": [],
+        "random_seed": 20240801,
+        "on_win_flags": [
+          "key_obtained"
+        ],
+        "special_actions": [],
+        "loot_table": [
+          "黑风宗密信",
+          "铜钥匙"
+        ]
+      }
+    },
+    {
+      "id": "chamber_climax",
+      "title": "藏宝室·决战火蟒",
+      "kind": "climax",
+      "location_ids": [
+        "treasure_chamber"
+      ],
+      "entry_state": {
+        "location_id": "treasure_chamber",
+        "description": "铜门轰然打开，滚烫的热浪扑面而来。龙血玉悬浮在高台之上，一条周身赤鳞的玄天火蟒盘踞其间，它昂起头颅，口中烈焰翻涌——最终一战！",
+        "actors": [
+          {
+            "actor_id": "vermillion_serpent",
+            "name": "玄天火蟒",
+            "disposition": "hostile",
+            "location_id": "treasure_chamber",
+            "type": "monster"
+          }
+        ],
+        "exits": [],
+        "threat": "玄天火蟒已进入战斗姿态"
+      },
+      "key_info": [
+        {
+          "id": "climax_final_hint",
+          "text": "火蟒的弱点已被你掌握：寒冰符箓可瓦解其鳞甲，风老的震慑灵音能短暂定住它的行动。"
+        }
+      ],
+      "advance_conditions": [
+        {
+          "id": "t_boss_win",
+          "kind": "combat_outcome",
+          "predicate": {
+            "outcome": "players_win"
+          },
+          "description": "击败玄天火蟒，获得龙血玉"
+        }
+      ],
+      "exits": [
+        {
+          "trigger_id": "t_boss_win",
+          "next_beat_id": "ending_win"
+        }
+      ],
+      "stuck_fallback": {
+        "hint": "火蟒的烈焰逼得你连退数步，这时你感到玉佩震动——风老的声音回荡：‘用你知道的！寒冰符箓，或者我的真名！’"
+      },
+      "encounter": {
+        "id": "boss_vermillion_serpent",
+        "monster_ids": [
+          "vermillion_serpent"
+        ],
+        "surprised": [],
+        "random_seed": 20240802,
+        "on_win_flags": [
+          "boss_defeated"
+        ],
+        "special_actions": [
+          {
+            "id": "invoke_elder_shock",
+            "label": "呼唤风老震慑",
+            "description": "借助风老的灵力发出一道灵魂震波，让火蟒瞬间昏眩。",
+            "requires_flags": [
+              "clue_elder_weakness"
+            ],
+            "target_actor_id": "vermillion_serpent",
+            "range": "any",
+            "check": {
+              "ability": "charisma",
+              "dc": 13
+            },
+            "effect": {
+              "kind": "add_condition",
+              "condition": "stunned",
+              "rounds": 1
+            }
+          },
+          {
+            "id": "apply_frost_talisman",
+            "label": "激活寒冰符箓",
+            "description": "将拓印的寒冰符箓拍向火蟒，冰霜迅速蔓延其躯体，大幅降低防护。",
+            "requires_item_id": "item_frost_talisman",
+            "consume_item": true,
+            "target_actor_id": "vermillion_serpent",
+            "range": "melee",
+            "effect": {
+              "kind": "modify_ac",
+              "amount": -3
+            }
+          }
+        ],
+        "loot_table": [
+          "龙血玉",
+          "火蟒鳞片×3",
+          "古玄晶×2"
+        ]
+      }
+    },
+    {
+      "id": "ending_win",
+      "title": "结局·夺宝归来",
+      "kind": "ending",
+      "ending_outcome": "win",
+      "location_ids": [
+        "treasure_chamber"
+      ],
+      "entry_state": {
+        "location_id": "treasure_chamber",
+        "description": "火蟒嘶鸣倒地，龙血玉从高台坠落，被你稳稳接住。玉佩中传来风老欣慰的笑声：‘好小子，没让我失望！现在，带着它杀回家族，让那些驱逐你的人好好看看。’你紧握宝玉，心中燃起熊熊斗志——逆袭之路，才刚刚开始。",
+        "actors": [],
+        "exits": [],
+        "threat": null
+      },
+      "key_info": [],
+      "advance_conditions": [],
+      "exits": [],
+      "stuck_fallback": {}
+    },
+    {
+      "id": "ending_lose",
+      "title": "结局·暂败不馁",
+      "kind": "ending",
+      "ending_outcome": "lose",
+      "location_ids": [
+        "treasure_chamber"
+      ],
+      "entry_state": {
+        "location_id": null,
+        "preserve_current_scene": true,
+        "description": "你被火蟒或黑风宗探子击倒，意识逐渐模糊。风老的最后一丝力量护住你的心脉，你被抛出了秘境，龙血玉依然遥不可及。但玉佩中的声音依然坚定：‘休息一下，我们下次再来。’——冒险虽败，精神未灭。",
+        "actors": [],
+        "exits": [],
+        "threat": null
+      },
+      "key_info": [],
+      "advance_conditions": [],
+      "exits": [],
+      "stuck_fallback": {}
+    }
+  ]
+}

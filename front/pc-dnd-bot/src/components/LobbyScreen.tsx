@@ -6,6 +6,7 @@ import type {
   CharacterDraft,
   RoomAuthResponse,
   RoomLobbyView,
+  StorySummary,
 } from '../types/game'
 
 const ABILITY_ORDER: AbilityId[] = [
@@ -35,11 +36,17 @@ function signed(value: number) {
 }
 
 export function LobbyScreen({
+  campaign,
+  initialMode,
+  onBack,
   onAuthenticated,
 }: {
+  campaign: StorySummary | null
+  initialMode: 'create' | 'join'
+  onBack: () => void
   onAuthenticated: (response: RoomAuthResponse) => void
 }) {
-  const [mode, setMode] = useState<'create' | 'join'>('create')
+  const [mode, setMode] = useState<'create' | 'join'>(initialMode)
   const [catalog, setCatalog] = useState<CharacterCreationCatalog | null>(null)
   const [remoteLobby, setRemoteLobby] = useState<RoomLobbyView | null>(null)
   const [displayName, setDisplayName] = useState('')
@@ -141,6 +148,10 @@ export function LobbyScreen({
   async function submit(event: React.FormEvent) {
     event.preventDefault()
     if (!displayName.trim() || !raceId || !classId || remaining !== 0 || !race) return
+    if (mode === 'create' && !campaign) {
+      setError('请先从故事广场选择一个剧本')
+      return
+    }
     if (racialChoices.length !== race.choice_count) return
     const character: CharacterDraft = {
       race_id: raceId,
@@ -153,7 +164,11 @@ export function LobbyScreen({
     try {
       const response =
         mode === 'create'
-          ? await gameApi.createRoom(displayName.trim(), character)
+          ? await gameApi.createRoom(
+              displayName.trim(),
+              character,
+              campaign!.campaign_id,
+            )
           : await gameApi.joinRoom(
               roomCode.trim().toUpperCase(),
               displayName.trim(),
@@ -168,7 +183,8 @@ export function LobbyScreen({
   }
 
   const canContinueIdentity =
-    Boolean(displayName.trim()) && (mode === 'create' || Boolean(remoteLobby))
+    Boolean(displayName.trim()) &&
+    ((mode === 'create' && Boolean(campaign)) || Boolean(remoteLobby))
   const canFinish =
     remaining === 0 && Boolean(race) && racialChoices.length === (race?.choice_count ?? 0)
 
@@ -176,6 +192,9 @@ export function LobbyScreen({
     <main className="lobby-screen character-builder-screen">
       <div className="lobby-atmosphere" />
       <section className="lobby-card character-builder-card">
+        <button className="lobby-back text-button" onClick={onBack} type="button">
+          ← 故事广场
+        </button>
         <div className="lobby-brand">
           <div className="brand-rune">20</div>
           <div>
@@ -229,6 +248,20 @@ export function LobbyScreen({
         <form onSubmit={submit} className="lobby-form character-builder-form">
           {step === 0 ? (
             <div className="builder-step">
+              {mode === 'create' ? (
+                campaign ? (
+                  <article className="selected-campaign">
+                    <small>本次冒险剧本</small>
+                    <strong>{campaign.title}</strong>
+                    <p>{campaign.premise}</p>
+                    <button className="text-button" onClick={onBack} type="button">更换剧本</button>
+                  </article>
+                ) : (
+                  <button className="choose-campaign-empty" onClick={onBack} type="button">
+                    请先从故事广场选择剧本
+                  </button>
+                )
+              ) : null}
               {mode === 'join' ? (
                 <label>
                   <span>房间码</span>

@@ -181,10 +181,7 @@ class SessionEngine:
         else:
             # 无 canon：退化为纯对话开局
             if campaign_id:
-                logger.warning(
-                    "[session] campaign_id «%s» 未在注册表中找到，退化为纯对话开局",
-                    campaign_id,
-                )
+                raise ValueError(f"campaign_id «{campaign_id}» 未在 Canon 注册表中找到")
             scene = dict(scene_context.get("scene", {}))
             scene.setdefault("dm_mode", dm_mode)
             scene.setdefault("random_seed", scene_context.get("random_seed"))

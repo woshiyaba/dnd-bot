@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.api.invoke import router as invoke_router
 from src.api.rooms import router as rooms_router
 from src.api.sessions import router as sessions_router
+from src.api.stories import router as stories_router
 from src.api.websocket import router as websocket_router
 from src.common.utils.log_util import ensure_logging_config
 
@@ -28,6 +29,7 @@ app.add_middleware(
 app.include_router(invoke_router)
 app.include_router(rooms_router)
 app.include_router(sessions_router)
+app.include_router(stories_router)
 app.include_router(websocket_router)
 
 

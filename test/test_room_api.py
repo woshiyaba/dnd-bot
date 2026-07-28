@@ -85,6 +85,18 @@ class RoomApiTests(unittest.TestCase):
         response = self.client.get(f"/api/rooms/{created['room']['room_code']}")
         self.assertEqual(response.status_code, 401)
 
+    def test_unknown_campaign_is_rejected(self):
+        response = self.client.post(
+            "/api/rooms",
+            json={
+                "display_name": "甲",
+                "character": _character(),
+                "campaign_id": "missing_campaign",
+            },
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertIn("剧本不存在", response.json()["detail"])
+
     def test_character_creation_catalog_has_six_races_and_five_classes(self):
         response = self.client.get("/api/rooms/character-options")
         self.assertEqual(response.status_code, 200)

@@ -261,3 +261,42 @@ export type RoomEvent = {
     content?: string
   }
 }
+
+export type StorySummary = {
+  campaign_id: string
+  title: string
+  premise: string
+  theme: string
+  tone: string
+  duration_minutes: number
+  recommended_player_count: number
+  gameplay_focus: string[]
+  content_warnings: string[]
+  beat_count: number
+}
+
+export type StoryConversationMessage = {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export type StoryQuestion = {
+  id: string
+  question: string
+  why_it_matters: string
+  suggested_options: string[]
+  allow_free_text: boolean
+}
+
+export type StoryInterviewResponse = {
+  status: 'needs_clarification' | 'ready_for_confirmation' | 'confirmed'
+  assistant_message: string
+  design_brief: Record<string, unknown>
+  questions: StoryQuestion[]
+}
+
+export type StoryDraftResponse = {
+  draft_id: string
+  expires_at: string
+  story: StorySummary
+}

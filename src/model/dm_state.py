@@ -38,10 +38,11 @@ class DMState(TypedDict, total=False):
     ]  # 玩家角色册：pc_id -> 角色对象（HP/物品跨场景延续，唯一真相源）
 
     # —— DM 决策工作区（每回合刷新）——
-    intent: str  # dm_decide 产出的意图：reply | player_check | start_combat
+    intent: str  # dm_decide 产出的意图：reply | player_check | start_combat | guidance
     say: str  # reply 文本：DM 面向玩家要说的话
     reply_brief: str  # reply 分支的叙述计划，由 DM 决策产生，玩家不可见
     narrative_intent: str  # DM 本回合的一句受控叙事巧思，玩家不可见
+    decision_issue: str | None  # 连续世界状态冲突的内部原因，仅供 DM 引导节点使用
     previous_scene: dict | None  # 本回合切拍前的场景，仅供最终叙述承接
     story_transition: dict | None  # 本回合故事推进摘要，仅供最终叙述使用
     pending_check: (
@@ -69,7 +70,7 @@ class DMState(TypedDict, total=False):
     #   （纯 dict，JSON 可序列化，规避 serde）
     world_writes: (
         dict | None
-    )  # DM 本回合声明的世界写入：{flags_set, moved_to, clues_delivered}，引擎校验后消费
+    )  # DM 本回合声明：{flags_set, moved_to, clues_delivered, discoveries, transition_to_beat_id}
     next_story: str  # 推进路由信号：advance（切到下一拍）| stay（留在本拍）
     story_status: str  # ongoing | finished（结局拍叙述完置 finished）
 

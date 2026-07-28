@@ -104,7 +104,7 @@ class StartRoomRequest(BaseModel):
     """房主启动冒险时的首句。"""
 
     opening: str = Field(
-        default="我们推开破钟酒馆的门，走向等候已久的村长。",
+        default="冒险者们已经集结，准备踏入这段未知的旅程。",
         min_length=1,
         max_length=500,
     )

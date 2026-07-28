@@ -59,6 +59,11 @@ class CanonRegistry:
         """按 campaign_id 取 canon，缺失返回 None。"""
         return self._by_id.get(campaign_id)
 
+    def all(self) -> list[Canon]:
+        """返回按标题排序的 canon 快照，供故事广场读取。"""
+        with self._lock:
+            return sorted(self._by_id.values(), key=lambda item: item.title)
+
     def load_all(self, directory: str | Path = DEFAULT_CANON_DIR) -> dict[str, Canon]:
         """扫描目录下所有 ``*.json``，逐个加载+校验并登记，返回 ``campaign_id → Canon``。
 
