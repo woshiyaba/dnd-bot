@@ -31,6 +31,7 @@ from src.combat.dice import current_engine_dice, reset_engine_dice
 from src.combat.graph import build_combat_graph, build_serde
 from src.dm.tools import set_dice_provider
 from src.model.combat_state import load_combatant
+from src.model.combatant import Character
 from src.model.dm_state import DMState, fold_combat_writeback
 from src.session import story_nodes
 from src.session.dm_subgraph import build_dm_subgraph, log_event
@@ -91,6 +92,7 @@ def resolve_engagement(state: DMState) -> dict:
                 "target_actor_ids": monster_ids,
                 "random_seed": encounter.random_seed,
                 "loot_table": list(encounter.loot_table),
+                "xp_reward": encounter.xp_reward,
                 "special_actions": [
                     dict(action) for action in encounter.special_actions
                 ],
@@ -180,6 +182,7 @@ def _build_combat_input(state: DMState) -> tuple[dict, dict]:
         "random_seed": request.get("random_seed", scene.get("random_seed")),
         "surprised": request.get("surprised", []),
         "loot_table": request.get("loot_table", scene.get("loot_table", [])),
+        "xp_reward": int(request.get("xp_reward", scene.get("xp_reward", 0))),
         "encounter_id": request.get("encounter_id"),
         "special_actions": list(request.get("special_actions", [])),
         "story_flags": dict(request.get("story_flags", {})),
@@ -220,6 +223,10 @@ async def run_combat(state: DMState) -> dict:
     party = dict(state.get("party") or {})
     last_combat = fold_combat_writeback(party, combat_state)
     last_combat["encounter_id"] = scene_context.get("encounter_id")
+    settled_scene = combat_state.get("scene_context", {}) or {}
+    growth = dict(settled_scene.get("growth", {}) or {})
+    last_combat["xp_reward"] = int(scene_context.get("xp_reward", 0))
+    last_combat["growth"] = growth
 
     # 从场景里移除已被击败的敌人（保持世界一致）
     casualty_ids = {c["id"] for c in last_combat.get("casualties", [])}
@@ -243,6 +250,28 @@ async def run_combat(state: DMState) -> dict:
     messages = _append_combat_messages(
         state.get("messages", []), combat_state.get("combat_log", [])
     )
+    for actor_id, summary in growth.items():
+        gained = int(summary.get("experience_gained", 0))
+        if gained <= 0:
+            continue
+        actor = party[actor_id]
+        level_text = (
+            f"，升至 {summary['new_level']} 级"
+            if summary.get("new_level") != summary.get("old_level")
+            else ""
+        )
+        unlock_count = len(summary.get("unlocked", []))
+        unlock_text = f"，解锁 {unlock_count} 项能力" if unlock_count else ""
+        messages.append(
+            {
+                "role": "system",
+                "character_id": actor_id,
+                "content": (
+                    f"{actor.name} 获得 {gained} XP（累计 {summary['experience']}）"
+                    f"{level_text}{unlock_text}。"
+                ),
+            }
+        )
     return {
         "party": party,
         "scene": scene,
@@ -253,6 +282,15 @@ async def run_combat(state: DMState) -> dict:
         "next": "wait",
         "campaign_log": log_event(state, {"event": "combat", **last_combat}),
     }
+
+
+def route_after_combat(state: DMState) -> str:
+    """属性提升未完成时先在图边界停下，完成后再接受下一次剧情命令。"""
+    pending = any(
+        isinstance(actor, Character) and actor.pending_ability_points > 0
+        for actor in (state.get("party") or {}).values()
+    )
+    return "level_up" if pending else "continue"
 
 
 def _append_combat_messages(messages: list[dict], combat_log: list[dict]) -> list[dict]:
@@ -304,7 +342,11 @@ def build_session_graph(checkpointer: Any | None = None):
         },
     )
     g.add_edge("resolve_engagement", "run_combat")
-    g.add_edge("run_combat", "evaluate_advancement")
+    g.add_conditional_edges(
+        "run_combat",
+        route_after_combat,
+        {"level_up": END, "continue": "evaluate_advancement"},
+    )
     # 推进判定：命中切拍，否则把控制权交回玩家（END，等下一条消息）
     g.add_conditional_edges(
         "evaluate_advancement",

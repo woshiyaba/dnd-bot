@@ -92,7 +92,12 @@ async def judge_surprise_llm(
 # ---------------------------------------------------------------------------
 # 2. 怪物/NPC 行动决策
 # ---------------------------------------------------------------------------
-async def decide_action_llm(actor: Combatant, combatants: dict[str, Combatant]) -> dict:
+async def decide_action_llm(
+    actor: Combatant,
+    combatants: dict[str, Combatant],
+    *,
+    attack_only: bool = False,
+) -> dict:
     """让 DM 替怪物/NPC 决定本回合动作，返回规范化的 action 字典。
 
     仅允许从"行动者已有的攻击 + 存活敌人"中选择；攻击需目标存活且够得着，
@@ -108,18 +113,31 @@ async def decide_action_llm(actor: Combatant, combatants: dict[str, Combatant]) 
         a.name: [t.id for t in enemies if in_reach(actor, t, a.is_ranged)]
         for a in actor.attacks
     }
+    output_choices = (
+        "最终只输出 JSON，二选一：\n"
+        '{"action_type":"attack","attack_name":"...","target_id":"..."}\n'
+        '{"action_type":"pass"}'
+        if attack_only
+        else (
+            "最终只输出 JSON，三选一：\n"
+            '{"action_type":"attack","attack_name":"...","target_id":"..."}\n'
+            '{"action_type":"move","target_zone":"..."}\n'
+            '{"action_type":"pass"}'
+        )
+    )
     task = (
         f"轮到你操控的「{actor.name}」行动，请为它选择本回合的动作。\n"
         f"行动者：{_dump(_brief(actor))}\n"
         f"存活敌人：{_dump([_brief(e) for e in enemies])}\n"
         f"各攻击当前可直接命中的敌人 id：{_dump(reachable)}\n"
         "规则：只能用上面列出的攻击；攻击目标必须在该攻击的可命中列表里；"
-        "够不着任何人就移动到某个敌人的区域；没有敌人就放弃。\n"
-        "可 kb_read 查这个怪物的打法倾向来决定目标与风格。\n"
-        "最终只输出 JSON，三选一：\n"
-        '{"action_type":"attack","attack_name":"...","target_id":"..."}\n'
-        '{"action_type":"move","target_zone":"..."}\n'
-        '{"action_type":"pass"}'
+        + (
+            "当前只剩额外攻击，不能移动，只能攻击或放弃。\n"
+            if attack_only
+            else "够不着任何人就移动到某个敌人的区域；没有敌人就放弃。\n"
+        )
+        + "可 kb_read 查这个怪物的打法倾向来决定目标与风格。\n"
+        + output_choices
     )
     data = await dm_complete_json(task)
     if not isinstance(data, dict):
@@ -136,7 +154,11 @@ async def decide_action_llm(actor: Combatant, combatants: dict[str, Combatant]) 
                 "target_id": target_id,
             }
         raise ValueError("[combat.dm] DM 返回了非法攻击目标")
-    if action_type == ActionType.MOVE.value and data.get("target_zone"):
+    if (
+        not attack_only
+        and action_type == ActionType.MOVE.value
+        and data.get("target_zone")
+    ):
         return {
             "action_type": ActionType.MOVE.value,
             "target_zone": str(data["target_zone"]),
@@ -230,17 +252,48 @@ def validate_player_action(
         return None
     if action_type in {ActionType.SKILL.value, ActionType.ITEM.value}:
         key = "skill_id" if action_type == ActionType.SKILL.value else "item_id"
-        legal_ids = {entry.get(key) for entry in options.get(action_type, []) or []}
+        entries = options.get(action_type, []) or []
+        legal_ids = {entry.get(key) for entry in entries}
         selected_id = raw_action.get(key)
         if selected_id not in legal_ids:
             return None
         normalized = {"action_type": action_type, key: str(selected_id)}
-        target_id = raw_action.get("target_id")
-        if target_id is not None:
-            target = combatants.get(str(target_id))
-            if not target or not target.is_alive:
+        target_ids = list(raw_action.get("target_ids") or [])
+        if raw_action.get("target_id") is not None and not target_ids:
+            target_ids = [raw_action["target_id"]]
+        if action_type == ActionType.SKILL.value and not target_ids:
+            return None
+        if target_ids:
+            normalized_targets: list[str] = []
+            selected_entry = next(
+                entry for entry in entries if entry.get(key) == selected_id
+            )
+            if action_type == ActionType.SKILL.value and not (
+                int(selected_entry.get("min_targets", 1))
+                <= len(set(map(str, target_ids)))
+                <= int(selected_entry.get("max_targets", 20))
+            ):
                 return None
-            normalized["target_id"] = target.id
+            legal_targets = {
+                str(target.get("id"))
+                for target in selected_entry.get("targets", [])
+                if target.get("id")
+            }
+            for target_id in target_ids:
+                target = combatants.get(str(target_id))
+                if not target:
+                    return None
+                if (
+                    action_type == ActionType.SKILL.value
+                    and target.id not in legal_targets
+                ):
+                    return None
+                if action_type == ActionType.ITEM.value and not target.is_alive:
+                    return None
+                if target.id not in normalized_targets:
+                    normalized_targets.append(target.id)
+            normalized["target_ids"] = normalized_targets
+            normalized["target_id"] = normalized_targets[0]
         return normalized
     if action_type == ActionType.SPECIAL.value:
         selected_id = raw_action.get("special_action_id")

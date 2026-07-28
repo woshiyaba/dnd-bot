@@ -13,6 +13,8 @@ from fastapi.encoders import jsonable_encoder
 
 from src.common.ws.ws_manager import manager as ws_manager
 from src.combat.dice import parse_dice, roll_virtual_dice
+from src.character.progression import apply_ability_increases, next_level_experience
+from src.model.combatant import Character, ability_modifier
 from src.model.enums import InterruptType
 from src.schemas.room import (
     CharacterView,
@@ -25,12 +27,7 @@ from src.schemas.room import (
     SessionView,
     TimelineEntry,
 )
-from src.services.room_service import (
-    CHARACTER_TEMPLATES,
-    GameRoom,
-    RoomMember,
-    room_service,
-)
+from src.services.room_service import GameRoom, RoomMember, room_service
 from src.session.engine import SessionEngine
 from src.story.loader import get_registry
 
@@ -78,6 +75,7 @@ class SessionService:
         self._require_playing(room)
         async with self._room_lock(room.room_code):
             current = await self._require_payload(room.room_code)
+            self._require_progression_complete(current)
             if current.get("status") != "awaiting_input":
                 raise HTTPException(status_code=409, detail="当前会话不接受自由输入")
             payload = await self._get_engine().message_stream(
@@ -184,6 +182,27 @@ class SessionService:
             return None
         return await self._get_engine().current_payload(room.room_code)
 
+    async def apply_level_up(
+        self, room: GameRoom, member: RoomMember, increases: dict[str, int]
+    ) -> dict[str, Any]:
+        """为当前成员应用一轮待处理属性提升并返回最新会话负载。"""
+        self._require_playing(room)
+        async with self._room_lock(room.room_code):
+            current = await self._require_payload(room.room_code)
+            state = current.get("state") or {}
+            actor = (state.get("party") or {}).get(member.character_id)
+            if not isinstance(actor, Character):
+                raise HTTPException(status_code=409, detail="当前角色状态不可升级")
+            try:
+                apply_ability_increases(actor, increases)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            party = state.get("party") or {}
+            await self._get_engine().update_state(room.room_code, {"party": party})
+            room_service.sync_character_cards(room, party)
+            await room_service.bump_revision(room)
+        return await self._require_payload(room.room_code)
+
     def session_view(
         self,
         room: GameRoom,
@@ -192,14 +211,16 @@ class SessionService:
     ) -> SessionView:
         """把内部引擎负载投影成面向单个玩家的稳定 DTO。"""
         state = (payload or {}).get("state") or {}
+        room_service.sync_character_cards(room, state.get("party") or {})
         safe_state = jsonable_encoder(state)
         interrupt = (payload or {}).get("interrupt")
         combat_view = ((interrupt or {}).get("extra") or {}).get("combat") or {}
-        party_source = list((safe_state.get("party") or {}).values())
+        party_by_id = safe_state.get("party") or {}
+        party_source = list(party_by_id.values())
         combatants = combat_view.get("combatants") or []
         if combatants:
             party_source = [
-                actor
+                {**(party_by_id.get(actor.get("id")) or {}), **actor}
                 for actor in combatants
                 if actor.get("faction") == "player"
                 or actor.get("id") in {m.character_id for m in room.members.values()}
@@ -367,8 +388,35 @@ class SessionService:
             allowed = {item.get(key) for item in options.get(action_type, [])}
             if value in allowed:
                 normalized = {"action_type": action_type, key: value}
-                if action.get("target_id"):
-                    normalized["target_id"] = action["target_id"]
+                selected_targets = list(action.get("target_ids") or [])
+                if action.get("target_id") and not selected_targets:
+                    selected_targets = [str(action["target_id"])]
+                option = next(
+                    item
+                    for item in options.get(action_type, [])
+                    if item.get(key) == value
+                )
+                legal_targets = {
+                    target.get("id") for target in option.get("targets", [])
+                }
+                selected_targets = list(dict.fromkeys(map(str, selected_targets)))
+                if action_type == "skill" and not selected_targets:
+                    raise HTTPException(status_code=422, detail="技能必须选择目标")
+                if action_type == "skill" and not (
+                    int(option.get("min_targets", 1))
+                    <= len(selected_targets)
+                    <= int(option.get("max_targets", 20))
+                ):
+                    raise HTTPException(status_code=422, detail="技能目标数量不合法")
+                if (
+                    action_type == "skill"
+                    and selected_targets
+                    and not set(selected_targets).issubset(legal_targets)
+                ):
+                    raise HTTPException(status_code=422, detail="技能目标不合法")
+                if selected_targets:
+                    normalized["target_ids"] = selected_targets
+                    normalized["target_id"] = selected_targets[0]
                 return normalized
         if action_type == "special":
             special_action_id = action.get("special_action_id")
@@ -414,6 +462,21 @@ class SessionService:
     def _require_playing(room: GameRoom) -> None:
         if room.status != "playing":
             raise HTTPException(status_code=409, detail="房间尚未开局或已经结束")
+
+    @staticmethod
+    def _require_progression_complete(payload: dict[str, Any]) -> None:
+        """属性提升未完成时阻止剧情继续推进。"""
+        state = payload.get("state") or {}
+        pending = [
+            actor.name
+            for actor in (state.get("party") or {}).values()
+            if isinstance(actor, Character) and actor.pending_ability_points > 0
+        ]
+        if pending:
+            raise HTTPException(
+                status_code=409,
+                detail=f"请先完成属性提升：{', '.join(pending)}",
+            )
 
     async def _sync_room_status(self, room: GameRoom, payload: dict[str, Any]) -> None:
         if payload.get("status") == "finished":
@@ -508,25 +571,58 @@ class SessionService:
         current_member: RoomMember,
         owner: RoomMember | None,
     ) -> CharacterView:
-        template = CHARACTER_TEMPLATES.get(actor.get("id"), {})
         conditions = []
         for condition in actor.get("conditions") or []:
             if isinstance(condition, dict):
-                value = condition.get("condition_type") or condition.get("name")
+                value = (
+                    condition.get("kind")
+                    or condition.get("condition_type")
+                    or condition.get("name")
+                )
             else:
                 value = condition
             conditions.append(str(value))
         life_state = actor.get("life_state")
         if isinstance(life_state, dict):
             life_state = life_state.get("value")
+        level = int(actor.get("level") or 1)
+        abilities = {
+            key: int(actor.get(key, 10))
+            for key in (
+                "strength",
+                "dexterity",
+                "constitution",
+                "intelligence",
+                "wisdom",
+                "charisma",
+            )
+        }
+        skills = []
+        for raw_skill in actor.get("skills") or []:
+            skill = dict(raw_skill)
+            cooldown_left = int(skill.get("cooldown_left") or 0)
+            skill["cooldown_left"] = max(0, cooldown_left - 1)
+            skills.append(skill)
         return CharacterView(
             id=str(actor.get("id") or ""),
             name=str(actor.get("name") or "未知角色"),
             race=actor.get("race"),
+            race_id=actor.get("race_id"),
             char_class=actor.get("char_class"),
-            level=int(actor.get("level") or 1),
+            class_id=actor.get("class_id"),
+            level=level,
+            experience=int(actor.get("experience") or 0),
+            next_level_experience=next_level_experience(level),
+            pending_ability_points=int(actor.get("pending_ability_points") or 0),
+            abilities=abilities,
+            ability_modifiers={
+                key: ability_modifier(value) for key, value in abilities.items()
+            },
+            skills=skills,
+            features=list(actor.get("features") or []),
             current_hp=int(actor.get("current_hp") or 0),
             max_hp=max(int(actor.get("max_hp") or 1), 1),
+            temporary_hp=int(actor.get("temporary_hp") or 0),
             ac=int(actor.get("ac") or 10),
             life_state=str(life_state) if life_state else None,
             conditions=conditions,
@@ -535,7 +631,11 @@ class SessionService:
             display_name=owner.display_name if owner else None,
             is_self=bool(owner and owner.user_id == current_member.user_id),
             is_online=bool(owner and owner.is_online),
-            color=str(template.get("color") or "#c9922a"),
+            color=str(
+                actor.get("color")
+                or ((owner.character_card if owner else {}).get("color"))
+                or "#c9922a"
+            ),
         )
 
     @staticmethod

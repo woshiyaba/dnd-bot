@@ -326,6 +326,7 @@
       },
       "encounter": {
         "id": "boss_bell_spirit",
+        "xp_reward": 300,
         "monster_ids": ["bell_spirit"],
         "surprised": [],
         "random_seed": 20240626,

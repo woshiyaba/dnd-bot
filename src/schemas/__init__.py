@@ -1,7 +1,9 @@
 """FastAPI 对外输入输出模型。"""
 
 from src.schemas.room import (
-    CharacterOption,
+    AbilityIncreaseRequest,
+    CharacterDraft,
+    CharacterSummary,
     CreateRoomRequest,
     DiceRollRequest,
     DiceRollResult,
@@ -22,7 +24,9 @@ from src.schemas.room import (
 )
 
 __all__ = [
-    "CharacterOption",
+    "AbilityIncreaseRequest",
+    "CharacterDraft",
+    "CharacterSummary",
     "CreateRoomRequest",
     "DiceRollRequest",
     "DiceRollResult",

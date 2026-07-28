@@ -62,6 +62,7 @@ function AuthenticatedGame({
         onFreeRoll={game.freeRoll}
         onInteractionRoll={game.rollInteraction}
         onLeave={onLeave}
+        onLevelUp={game.submitLevelUp}
         onMessage={game.sendMessage}
         onStart={game.startRoom}
         session={game.session}

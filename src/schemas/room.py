@@ -11,12 +11,23 @@ SessionStatus = Literal["idle", "awaiting_input", "interrupted", "finished"]
 DiceType = Literal["d4", "d6", "d8", "d10", "d12", "d20"]
 
 
-class CharacterOption(BaseModel):
-    """大厅可选择的预设角色摘要。"""
+class CharacterDraft(BaseModel):
+    """客户端提交的角色创建草稿；派生数值全部由服务端重算。"""
+
+    race_id: str = Field(min_length=1, max_length=32)
+    class_id: str = Field(min_length=1, max_length=32)
+    base_abilities: dict[str, int]
+    racial_bonus_choices: list[str] = Field(default_factory=list, max_length=2)
+
+
+class CharacterSummary(BaseModel):
+    """大厅成员公开的角色摘要。"""
 
     id: str
     name: str
+    race_id: str
     race: str
+    class_id: str
     char_class: str
     level: int
     max_hp: int
@@ -24,7 +35,6 @@ class CharacterOption(BaseModel):
     initiative: int
     speed: str = "30ft"
     color: str
-    available: bool = True
 
 
 class MemberView(BaseModel):
@@ -33,6 +43,7 @@ class MemberView(BaseModel):
     user_id: str
     display_name: str
     character_id: str
+    character: CharacterSummary
     is_host: bool
     is_online: bool
 
@@ -46,14 +57,13 @@ class RoomLobbyView(BaseModel):
     revision: int
     max_players: int
     members: list[MemberView]
-    characters: list[CharacterOption]
 
 
 class CreateRoomRequest(BaseModel):
     """创建匿名多人房间。"""
 
     display_name: str = Field(min_length=1, max_length=24)
-    character_id: str = Field(min_length=1, max_length=64)
+    character: CharacterDraft
     campaign_id: str = Field(default="whispers_bell_tower", min_length=1)
 
     @field_validator("display_name")
@@ -70,7 +80,7 @@ class JoinRoomRequest(BaseModel):
     """通过房间码加入房间。"""
 
     display_name: str = Field(min_length=1, max_length=24)
-    character_id: str = Field(min_length=1, max_length=64)
+    character: CharacterDraft
 
     @field_validator("display_name")
     @classmethod
@@ -129,6 +139,7 @@ class RoomActionRequest(BaseModel):
     ]
     attack_name: str | None = None
     target_id: str | None = None
+    target_ids: list[str] | None = Field(default=None, max_length=20)
     target_zone: str | None = None
     skill_id: str | None = None
     item_id: str | None = None
@@ -176,10 +187,20 @@ class CharacterView(BaseModel):
     id: str
     name: str
     race: str | None = None
+    race_id: str | None = None
     char_class: str | None = None
+    class_id: str | None = None
     level: int = 1
+    experience: int = 0
+    next_level_experience: int | None = None
+    pending_ability_points: int = 0
+    abilities: dict[str, int] = Field(default_factory=dict)
+    ability_modifiers: dict[str, int] = Field(default_factory=dict)
+    skills: list[dict[str, Any]] = Field(default_factory=list)
+    features: list[str] = Field(default_factory=list)
     current_hp: int
     max_hp: int
+    temporary_hp: int = 0
     ac: int
     life_state: str | None = None
     conditions: list[str] = Field(default_factory=list)
@@ -189,6 +210,12 @@ class CharacterView(BaseModel):
     is_self: bool = False
     is_online: bool = False
     color: str = "#c9922a"
+
+
+class AbilityIncreaseRequest(BaseModel):
+    """玩家升级后提交的一次属性提升分配。"""
+
+    increases: dict[str, int]
 
 
 class SceneView(BaseModel):

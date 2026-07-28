@@ -136,6 +136,14 @@ export function useGameRoom(credential: RoomCredential) {
     [acceptSession, credential, run],
   )
 
+  const submitLevelUp = useCallback(
+    async (increases: Record<string, number>) => {
+      const next = await run(() => gameApi.levelUp(credential, increases))
+      if (next) acceptSession(next)
+    },
+    [acceptSession, credential, run],
+  )
+
   const rollInteraction = useCallback(
     async (diceType: DiceType, expression: string) => {
       setRollAnimation({
@@ -192,6 +200,7 @@ export function useGameRoom(credential: RoomCredential) {
     startRoom,
     sendMessage,
     submitAction,
+    submitLevelUp,
     rollInteraction,
     freeRoll,
     dismissRoll: () => setRollAnimation(null),

@@ -42,6 +42,7 @@ from src.combat.nodes import (
     narrate,
     narrate_opening,
     next_turn,
+    prepare_skill,
     resolve_action,
     roll_initiative,
     route_after_declare,
@@ -109,6 +110,7 @@ def build_combat_graph(checkpointer: Any | None = None, *, embeddable: bool = Fa
     g.add_node("roll_initiative", roll_initiative)
     g.add_node("next_turn", next_turn)
     g.add_node("declare_action", declare_action)
+    g.add_node("prepare_skill", prepare_skill)
     g.add_node("resolve_action", resolve_action)
     g.add_node("narrate", narrate)
     g.add_node("check_end", check_end)
@@ -125,9 +127,11 @@ def build_combat_graph(checkpointer: Any | None = None, *, embeddable: bool = Fa
         route_after_declare,
         {
             "retry": "declare_action",
+            "skill": "prepare_skill",
             "resolve": "resolve_action",
         },
     )
+    g.add_edge("prepare_skill", "resolve_action")
     g.add_edge("resolve_action", "narrate")
     g.add_edge("narrate", "check_end")
 
@@ -136,7 +140,8 @@ def build_combat_graph(checkpointer: Any | None = None, *, embeddable: bool = Fa
         "check_end",
         route_after_check,
         {
-            "continue": "next_turn",
+            "same_turn": "declare_action",
+            "next_turn": "next_turn",
             "end": "settle",
         },
     )

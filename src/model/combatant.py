@@ -65,6 +65,7 @@ class Combatant:
     # —— 战斗数值（每回合都读）——
     current_hp: int = 1  # 当前 HP
     max_hp: int = 1  # 最大 HP
+    temporary_hp: int = 0  # 临时 HP
     ac: int = 10  # 护甲等级
     initiative_bonus: int = 0  # 先攻调整值
     current_zone: str = "前排"  # 当前区域
@@ -80,6 +81,7 @@ class Combatant:
     controller: str | None = None  # 操控者：玩家 user_id，中断时据此推给正确的人
     initiative: int | None = None  # 先攻值：本场掷出的先攻结果，用于排序
     is_surprised: bool = False  # 被突袭：True 则跳过自己的第一个回合
+    concentration_skill_id: str | None = None  # 当前维持的专注技能
 
     # ---- 派生值（现算，不存）----
     def modifier(self, ability: Ability) -> int:
@@ -114,11 +116,14 @@ class Combatant:
     def take_damage(self, amount: int) -> int:
         """受伤：扣血并钳制到 [0, 最大HP]，归零即倒下。返回实际扣除值。"""
         amount = max(0, amount)
+        absorbed = min(self.temporary_hp, amount)
+        self.temporary_hp -= absorbed
+        remaining = amount - absorbed
         old = self.current_hp
-        self.current_hp = max(0, self.current_hp - amount)
+        self.current_hp = max(0, self.current_hp - remaining)
         if self.current_hp <= 0:
             self.life_state = LifeState.DOWN
-        return old - self.current_hp
+        return absorbed + old - self.current_hp
 
     def heal(self, amount: int) -> int:
         """治疗：回血，不超过最大 HP；死亡（倒下）者不因治疗复活。返回实际恢复值。"""
@@ -131,10 +136,20 @@ class Combatant:
     def add_condition(self, effect: Condition) -> None:
         """添加状态：同名状态刷新为较长的剩余回合。"""
         for s in self.conditions:
-            if s.kind == effect.kind:
+            if (
+                s.kind == effect.kind
+                and s.source_skill_id == effect.source_skill_id
+                and s.source_actor_id == effect.source_actor_id
+            ):
+                if s.stat == "ac" or effect.stat == "ac":
+                    self.ac += effect.amount - s.amount
                 s.rounds_left = max(s.rounds_left, effect.rounds_left)
-                s.amount = max(s.amount, effect.amount)
+                s.amount = effect.amount
+                s.damage_type = effect.damage_type
+                s.stat = effect.stat
                 return
+        if effect.stat == "ac":
+            self.ac += effect.amount
         self.conditions.append(effect)
 
     def tick_conditions(self) -> list[Condition]:
@@ -142,6 +157,9 @@ class Combatant:
         for s in self.conditions:
             s.rounds_left -= 1
         expired = [s for s in self.conditions if s.is_expired]
+        for effect in expired:
+            if effect.stat == "ac":
+                self.ac -= effect.amount
         self.conditions = [s for s in self.conditions if not s.is_expired]
         return expired
 
@@ -159,12 +177,14 @@ class Combatant:
             "charisma": self.charisma,
             "current_hp": self.current_hp,
             "max_hp": self.max_hp,
+            "temporary_hp": self.temporary_hp,
             "ac": self.ac,
             "initiative_bonus": self.initiative_bonus,
             "current_zone": self.current_zone,
             "life_state": self.life_state.value,
             "attacks": [a.to_dict() for a in self.attacks],
             "conditions": [s.to_dict() for s in self.conditions],
+            "concentration_skill_id": self.concentration_skill_id,
         }
 
     def to_card(self) -> dict:
@@ -185,12 +205,14 @@ class Combatant:
             "charisma": int(data.get("charisma", 10)),
             "current_hp": int(data.get("current_hp", data.get("max_hp", 1))),
             "max_hp": int(data.get("max_hp", data.get("current_hp", 1))),
+            "temporary_hp": int(data.get("temporary_hp", 0)),
             "ac": int(data.get("ac", 10)),
             "initiative_bonus": int(data.get("initiative_bonus", 0)),
             "current_zone": data.get("current_zone", "前排"),
             "life_state": LifeState(data.get("life_state", LifeState.ALIVE)),
             "attacks": [Attack.from_dict(a) for a in data.get("attacks", [])],
             "conditions": [Condition.from_dict(s) for s in data.get("conditions", [])],
+            "concentration_skill_id": data.get("concentration_skill_id"),
         }
 
 
@@ -226,18 +248,31 @@ class Character(Combatant):
 
     # —— 身份与外观 ——
     race: str | None = None  # 种族
+    race_id: str | None = None  # 种族稳定 id
     char_class: str | None = None  # 职业
+    class_id: str | None = None  # 职业稳定 id
     level: int = 1  # 等级
+    experience: int = 0  # 累计经验值
+    pending_ability_points: int = 0  # 尚未分配的属性提升点
+    hit_die: int = 8  # 职业生命骰面数
+    size: str = "medium"  # 体型
+    speed: str = "30ft"  # 基础移动速度
+    color: str = "#c9922a"  # 前端角色主题色
+    base_abilities: dict[str, int] = field(default_factory=dict)  # 创建时购点值
     bio: str | None = None  # 简介
+    equipment: list[str] = field(default_factory=list)  # 固定起始装备展示项
 
     # —— 熟练项 ——
     save_proficiencies: list[str] = field(
         default_factory=list
     )  # 熟练豁免（存 Ability 值）
     skill_proficiencies: list[str] = field(default_factory=list)  # 熟练技能
+    armor_proficiencies: list[str] = field(default_factory=list)  # 护甲熟练项
+    weapon_proficiencies: list[str] = field(default_factory=list)  # 武器熟练项
 
     # —— 技能 / 背包 ——
     skills: list[LearnedSkill] = field(default_factory=list)  # 已学技能
+    features: list[str] = field(default_factory=list)  # 已解锁职业/通用特性 id
     inventory: list[InventoryItem] = field(default_factory=list)  # 背包
 
     @property
@@ -255,12 +290,25 @@ class Character(Combatant):
         card.update(
             {
                 "race": self.race,
+                "race_id": self.race_id,
                 "char_class": self.char_class,
+                "class_id": self.class_id,
                 "level": self.level,
+                "experience": self.experience,
+                "pending_ability_points": self.pending_ability_points,
+                "hit_die": self.hit_die,
+                "size": self.size,
+                "speed": self.speed,
+                "color": self.color,
+                "base_abilities": dict(self.base_abilities),
                 "bio": self.bio,
+                "equipment": list(self.equipment),
                 "save_proficiencies": list(self.save_proficiencies),
                 "skill_proficiencies": list(self.skill_proficiencies),
+                "armor_proficiencies": list(self.armor_proficiencies),
+                "weapon_proficiencies": list(self.weapon_proficiencies),
                 "skills": [s.to_dict() for s in self.skills],
+                "features": list(self.features),
                 "inventory": [i.to_dict() for i in self.inventory],
             }
         )
@@ -273,12 +321,28 @@ class Character(Combatant):
         params.update(
             {
                 "race": data.get("race"),
+                "race_id": data.get("race_id"),
                 "char_class": data.get("char_class"),
+                "class_id": data.get("class_id"),
                 "level": int(data.get("level", 1)),
+                "experience": int(data.get("experience", 0)),
+                "pending_ability_points": int(data.get("pending_ability_points", 0)),
+                "hit_die": int(data.get("hit_die", 8)),
+                "size": str(data.get("size", "medium")),
+                "speed": str(data.get("speed", "30ft")),
+                "color": str(data.get("color", "#c9922a")),
+                "base_abilities": {
+                    str(key): int(value)
+                    for key, value in (data.get("base_abilities") or {}).items()
+                },
                 "bio": data.get("bio"),
+                "equipment": list(data.get("equipment", [])),
                 "save_proficiencies": list(data.get("save_proficiencies", [])),
                 "skill_proficiencies": list(data.get("skill_proficiencies", [])),
+                "armor_proficiencies": list(data.get("armor_proficiencies", [])),
+                "weapon_proficiencies": list(data.get("weapon_proficiencies", [])),
                 "skills": [LearnedSkill.from_dict(s) for s in data.get("skills", [])],
+                "features": list(data.get("features", [])),
                 "inventory": [
                     InventoryItem.from_dict(i) for i in data.get("inventory", [])
                 ],

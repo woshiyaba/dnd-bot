@@ -15,7 +15,7 @@ from __future__ import annotations
 from typing import Any, TypedDict
 
 from src.model.canon import Beat, Canon
-from src.model.combatant import Combatant, PlayerCharacter
+from src.model.combatant import Character, Combatant, PlayerCharacter
 from src.model.combat_state import load_combatant
 
 
@@ -131,8 +131,27 @@ def fold_combat_writeback(
         fighter = combatants.get(pc_id)
         if fighter is not None:
             pc.current_hp = fighter.current_hp  # 对齐 HP
+            pc.max_hp = fighter.max_hp  # 升级可能提高最大 HP
+            pc.temporary_hp = fighter.temporary_hp
+            pc.ac = fighter.ac
             pc.life_state = fighter.life_state  # 对齐存活状态
             pc.conditions = fighter.conditions  # 对齐残留状态
+            pc.concentration_skill_id = fighter.concentration_skill_id
+            if isinstance(pc, Character) and isinstance(fighter, Character):
+                for ability in (
+                    "strength",
+                    "dexterity",
+                    "constitution",
+                    "intelligence",
+                    "wisdom",
+                    "charisma",
+                ):
+                    setattr(pc, ability, getattr(fighter, ability))
+                pc.level = fighter.level
+                pc.experience = fighter.experience
+                pc.pending_ability_points = fighter.pending_ability_points
+                pc.skills = fighter.skills
+                pc.features = fighter.features
 
     scene_ctx = combat_state.get("scene_context", {}) or {}
     casualties = [
@@ -226,6 +245,7 @@ def build_beat_scene(
     if beat.encounter is not None:
         if beat.encounter.loot_table:
             scene["loot_table"] = list(beat.encounter.loot_table)
+        scene["xp_reward"] = beat.encounter.xp_reward
         if beat.encounter.random_seed is not None:
             scene["random_seed"] = beat.encounter.random_seed
         scene["encounter_id"] = beat.encounter.id

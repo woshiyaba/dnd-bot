@@ -9,7 +9,6 @@ from fastapi import APIRouter, Depends
 from src.api.dependencies import require_room_member
 from src.common.ws.ws_manager import manager as ws_manager
 from src.schemas.room import (
-    CharacterOption,
     CreateRoomRequest,
     JoinRoomRequest,
     RoomAuthResponse,
@@ -27,10 +26,10 @@ RoomIdentity = Annotated[tuple[GameRoom, RoomMember], Depends(require_room_membe
 
 @router.post("", response_model=RoomAuthResponse, status_code=201)
 async def create_room(request: CreateRoomRequest) -> RoomAuthResponse:
-    """创建房间、选择角色并签发房主令牌。"""
+    """创建房间、校验自建角色并签发房主令牌。"""
     room, member = await room_service.create_room(
         display_name=request.display_name,
-        character_id=request.character_id,
+        character=request.character,
         campaign_id=request.campaign_id,
     )
     return RoomAuthResponse(
@@ -40,10 +39,10 @@ async def create_room(request: CreateRoomRequest) -> RoomAuthResponse:
     )
 
 
-@router.get("/characters", response_model=list[CharacterOption])
-async def list_characters() -> list[CharacterOption]:
-    """读取创建房间时可选择的预设角色。"""
-    return room_service.character_catalog()
+@router.get("/character-options", response_model=dict)
+async def get_character_options() -> dict:
+    """读取种族、职业和标准购点目录。"""
+    return room_service.creation_catalog()
 
 
 @router.get("/{room_code}/lobby", response_model=RoomLobbyView)
@@ -54,11 +53,11 @@ async def get_lobby(room_code: str) -> RoomLobbyView:
 
 @router.post("/{room_code}/join", response_model=RoomAuthResponse)
 async def join_room(room_code: str, request: JoinRoomRequest) -> RoomAuthResponse:
-    """通过房间码和预设角色加入大厅。"""
+    """通过房间码和自建角色加入大厅。"""
     room, member = await room_service.join_room(
         room_code,
         display_name=request.display_name,
-        character_id=request.character_id,
+        character=request.character,
     )
     lobby = room_service.lobby_view(room)
     await ws_manager.broadcast_room(

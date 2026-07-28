@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from src.combat.rules import in_reach
+from src.character.skills import is_combat_skill, skill_definition
 from src.model.combatant import Character, Combatant
 from src.model.enums import InterruptType
 
@@ -64,6 +65,9 @@ def build_action_options(
     special_actions: list[dict[str, Any]] | None = None,
     story_flags: list[str] | None = None,
     applied_special_actions: list[str] | None = None,
+    actions_remaining: int = 1,
+    extra_attacks_remaining: int = 0,
+    attack_action_started: bool = False,
 ) -> dict[str, Any]:
     """为「声明行动」中断构造合法选项（文档 2.1）。
 
@@ -74,6 +78,8 @@ def build_action_options(
     enemies_alive = [
         c for c in combatants.values() if c.faction != actor.faction and c.is_alive
     ]
+    has_general_action = int(actions_remaining) > 0
+    has_extra_attack = attack_action_started and int(extra_attacks_remaining) > 0
 
     attack_options = []
     for weapon in actor.attacks:
@@ -98,32 +104,79 @@ def build_action_options(
 
     # 移动：可去的其他区域
     all_zones = sorted({c.current_zone for c in combatants.values()})
-    options["move"] = [
-        {"target_zone": zone} for zone in all_zones if zone != actor.current_zone
-    ]
+    options["move"] = (
+        [{"target_zone": zone} for zone in all_zones if zone != actor.current_zone]
+        if has_general_action
+        else []
+    )
 
-    if isinstance(actor, Character):
-        options["skill"] = [
+    if isinstance(actor, Character) and has_general_action:
+        target_options = [
             {
-                "skill_id": s.skill_id,
-                "charges_left": s.charges,
-                "cooldown_left": s.cooldown_left,
+                "id": target.id,
+                "name": target.name,
+                "faction": target.faction.value,
+                "zone": target.current_zone,
+                "life_state": target.life_state.value,
             }
-            for s in actor.skills
-            if s.is_available
+            for target in combatants.values()
         ]
+        skill_options: list[dict[str, Any]] = []
+        for skill in actor.skills:
+            if not skill.is_available or not is_combat_skill(skill.skill_id):
+                continue
+            definition = skill_definition(skill.skill_id) or {}
+            targets = target_options
+            if definition.get("target_scope") == "same_zone_enemy_alive":
+                legal_ids = {
+                    target.id
+                    for target in combatants.values()
+                    if target.faction != actor.faction
+                    and target.is_alive
+                    and target.current_zone == actor.current_zone
+                }
+                targets = [
+                    target for target in target_options if target["id"] in legal_ids
+                ]
+            min_targets = int(definition.get("min_targets", 1))
+            if len(targets) < min_targets:
+                continue
+            skill_options.append(
+                {
+                    "skill_id": skill.skill_id,
+                    "name": skill.name or skill.skill_id,
+                    "source_type": skill.source_type,
+                    "types": list(skill.types),
+                    "charges_left": skill.charges,
+                    "cooldown_left": max(0, skill.cooldown_left - 1),
+                    "min_targets": min_targets,
+                    "max_targets": int(definition.get("max_targets", 20)),
+                    "targets": targets,
+                }
+            )
+        options["skill"] = skill_options
         options["item"] = [
             {"item_id": i.item_id, "quantity": i.quantity}
             for i in actor.inventory
             if i.is_available
         ]
-    options["special"] = _available_special_actions(
-        actor,
-        combatants,
-        special_actions=special_actions or [],
-        story_flags=set(story_flags or []),
-        applied_special_actions=set(applied_special_actions or []),
+    options["special"] = (
+        _available_special_actions(
+            actor,
+            combatants,
+            special_actions=special_actions or [],
+            story_flags=set(story_flags or []),
+            applied_special_actions=set(applied_special_actions or []),
+        )
+        if has_general_action
+        else []
     )
+    options["actions_remaining"] = max(0, int(actions_remaining)) + max(
+        0, int(extra_attacks_remaining)
+    )
+    options["general_actions_remaining"] = max(0, int(actions_remaining))
+    options["extra_attacks_remaining"] = max(0, int(extra_attacks_remaining))
+    options["attack_only"] = not has_general_action and has_extra_attack
     return options
 
 
@@ -239,6 +292,7 @@ def build_combat_view(state: dict, *, actor_id: str | None = None) -> dict[str, 
                 "faction": str(combatant.faction.value),
                 "current_hp": combatant.current_hp,
                 "max_hp": combatant.max_hp,
+                "temporary_hp": combatant.temporary_hp,
                 "ac": combatant.ac,
                 "life_state": str(combatant.life_state.value),
                 "current_zone": combatant.current_zone,

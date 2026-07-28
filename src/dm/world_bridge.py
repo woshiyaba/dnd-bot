@@ -43,14 +43,21 @@ def _dump(obj) -> str:
 
 
 def _party_brief(party: dict[str, Combatant]) -> list[dict]:
-    """玩家角色册压成最小画像。"""
+    """玩家角色册压成最小画像，并公开可在探索中调用的已学技能 ID。"""
     return [
         {
             "id": c.id,
             "name": c.name,
             "hp": f"{c.current_hp}/{c.max_hp}",
             "class": getattr(c, "char_class", None),
+            "class_id": getattr(c, "class_id", None),
             "alive": c.is_alive,
+            "exploration_skill_ids": [
+                skill.skill_id
+                for skill in getattr(c, "skills", [])
+                if "exploration" in skill.types
+            ],
+            "features": list(getattr(c, "features", [])),
         }
         for c in party.values()
     ]

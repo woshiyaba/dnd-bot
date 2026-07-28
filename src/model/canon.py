@@ -164,6 +164,7 @@ class Encounter:
     )  # 参战的敌方在场者 actor_id（卡面在 entry_state.actors 里）
     surprised: list[str] = field(default_factory=list)  # 被突袭者 id
     loot_table: list[Any] = field(default_factory=list)  # 战利品表（玩家胜利时发放）
+    xp_reward: int = 0  # 玩家胜利时每位参战角色获得的完整经验
     random_seed: int | None = None  # 可复现随机源
     on_win_flags: list[str] = field(
         default_factory=list
@@ -181,6 +182,7 @@ class Encounter:
             monster_ids=list(data.get("monster_ids", [])),
             surprised=list(data.get("surprised", [])),
             loot_table=list(data.get("loot_table", [])),
+            xp_reward=max(0, int(data.get("xp_reward", 0))),
             random_seed=int(seed) if seed is not None else None,
             on_win_flags=list(data.get("on_win_flags", [])),
             special_actions=[

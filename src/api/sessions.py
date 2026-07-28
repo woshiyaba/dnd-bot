@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends
 
 from src.api.dependencies import require_room_member
 from src.schemas.room import (
+    AbilityIncreaseRequest,
     DiceRollRequest,
     DiceRollResult,
     InteractionRollResponse,
@@ -42,6 +43,17 @@ async def submit_action(
     payload = await session_service.submit_action(
         room, member, request.model_dump(exclude_none=True)
     )
+    await session_service.broadcast_session(room, payload)
+    return session_service.session_view(room, member, payload)
+
+
+@router.post("/{room_code}/level-ups", response_model=SessionView)
+async def apply_level_up(
+    request: AbilityIncreaseRequest, identity: RoomIdentity
+) -> SessionView:
+    """为当前玩家提交一轮属性提升并广播最新角色状态。"""
+    room, member = identity
+    payload = await session_service.apply_level_up(room, member, request.increases)
     await session_service.broadcast_session(room, payload)
     return session_service.session_view(room, member, payload)
 

@@ -1,5 +1,6 @@
 import type {
-  CharacterOption,
+  CharacterCreationCatalog,
+  CharacterDraft,
   DiceRollResult,
   DiceType,
   RoomAuthResponse,
@@ -54,19 +55,24 @@ function post<T>(path: string, body: unknown, accessToken?: string) {
 }
 
 export const gameApi = {
-  characters: () => requestJson<CharacterOption[]>('/api/rooms/characters'),
+  characterOptions: () =>
+    requestJson<CharacterCreationCatalog>('/api/rooms/character-options'),
   lobby: (roomCode: string) =>
     requestJson<RoomLobbyView>(`/api/rooms/${roomCode}/lobby`),
-  createRoom: (displayName: string, characterId: string) =>
+  createRoom: (displayName: string, character: CharacterDraft) =>
     post<RoomAuthResponse>('/api/rooms', {
       display_name: displayName,
-      character_id: characterId,
+      character,
       campaign_id: 'whispers_bell_tower',
     }),
-  joinRoom: (roomCode: string, displayName: string, characterId: string) =>
+  joinRoom: (
+    roomCode: string,
+    displayName: string,
+    character: CharacterDraft,
+  ) =>
     post<RoomAuthResponse>(`/api/rooms/${roomCode}/join`, {
       display_name: displayName,
-      character_id: characterId,
+      character,
     }),
   session: (credential: RoomCredential) =>
     requestJson<SessionView>(
@@ -90,6 +96,15 @@ export const gameApi = {
     post<SessionView>(
       `/api/rooms/${credential.roomCode}/actions`,
       action,
+      credential.accessToken,
+    ),
+  levelUp: (
+    credential: RoomCredential,
+    increases: Record<string, number>,
+  ) =>
+    post<SessionView>(
+      `/api/rooms/${credential.roomCode}/level-ups`,
+      { increases },
       credential.accessToken,
     ),
   interactionRoll: (credential: RoomCredential) =>

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type {
+  AbilityId,
   CharacterView,
   DiceType,
   PendingInteraction,
@@ -23,6 +24,7 @@ type GameScreenProps = {
   onStart: () => Promise<void>
   onMessage: (content: string) => Promise<void>
   onAction: (action: Record<string, unknown>) => Promise<void>
+  onLevelUp: (increases: Record<string, number>) => Promise<void>
   onInteractionRoll: (diceType: DiceType, expression: string) => Promise<void>
   onFreeRoll: (diceType: DiceType) => Promise<void>
   onLeave: () => void
@@ -44,9 +46,9 @@ function WaitingRoom({
   onStart,
   onLeave,
 }: GameScreenProps) {
-  const currentCharacter = lobby?.characters.find(
-    (item) => item.id === credential.member.character_id,
-  )
+  const currentCharacter =
+    lobby?.members.find((item) => item.user_id === credential.member.user_id)
+      ?.character ?? credential.member.character
   return (
     <main className="waiting-screen">
       <section className="waiting-card">
@@ -69,9 +71,7 @@ function WaitingRoom({
         </button>
         <div className="waiting-party">
           {(lobby?.members ?? [credential.member]).map((member) => {
-            const character = lobby?.characters.find(
-              (item) => item.id === member.character_id,
-            )
+            const character = member.character
             return (
               <article key={member.user_id}>
                 <CharacterAvatar
@@ -142,6 +142,7 @@ function AdventureRoom({
   onAction,
   onInteractionRoll,
   onFreeRoll,
+  onLevelUp,
   onLeave,
 }: GameScreenProps & { session: SessionView }) {
   const [activeTab, setActiveTab] = useState<DockTab>('chat')
@@ -175,6 +176,7 @@ function AdventureRoom({
     isBusy ||
     session.session_status === 'finished' ||
     (Boolean(pending) && !canSubmitCombatText)
+  const needsLevelUp = Boolean(me && me.pending_ability_points >= 2)
 
   useEffect(() => {
     timelineRef.current?.scrollTo({
@@ -209,6 +211,9 @@ function AdventureRoom({
 
   return (
     <main className="game-shell">
+      {needsLevelUp && me ? (
+        <LevelUpDialog character={me} disabled={isBusy} onSubmit={onLevelUp} />
+      ) : null}
       <header className="game-header">
         <div className="campaign-title">
           <span className="sword-mark">⚔</span>
@@ -462,6 +467,74 @@ function DockButton({
   )
 }
 
+const LEVEL_UP_ABILITIES: Array<{ id: AbilityId; name: string }> = [
+  { id: 'strength', name: '力量' },
+  { id: 'dexterity', name: '敏捷' },
+  { id: 'constitution', name: '体质' },
+  { id: 'intelligence', name: '智力' },
+  { id: 'wisdom', name: '感知' },
+  { id: 'charisma', name: '魅力' },
+]
+
+function LevelUpDialog({
+  character,
+  disabled,
+  onSubmit,
+}: {
+  character: CharacterView
+  disabled: boolean
+  onSubmit: (increases: Record<string, number>) => Promise<void>
+}) {
+  const [first, setFirst] = useState<AbilityId>('strength')
+  const [split, setSplit] = useState(false)
+  const [second, setSecond] = useState<AbilityId>('constitution')
+  const invalid =
+    (character.abilities[first] ?? 10) + (split ? 1 : 2) > 20 ||
+    (split && (first === second || (character.abilities[second] ?? 10) + 1 > 20))
+  return (
+    <div className="level-up-backdrop">
+      <section className="level-up-dialog">
+        <span>LEVEL UP</span>
+        <h2>{character.name} 升至 {character.level} 级</h2>
+        <p>新的能力已经解锁。完成本轮属性提升后，冒险才会继续。</p>
+        <div className="level-up-mode">
+          <button className={!split ? 'active' : ''} onClick={() => setSplit(false)} type="button">一项属性 +2</button>
+          <button className={split ? 'active' : ''} onClick={() => setSplit(true)} type="button">两项属性各 +1</button>
+        </div>
+        <div className="level-up-selects">
+          <label>
+            <span>第一项属性</span>
+            <select value={first} onChange={(event) => setFirst(event.target.value as AbilityId)}>
+              {LEVEL_UP_ABILITIES.map((ability) => (
+                <option key={ability.id} value={ability.id}>{ability.name} · {character.abilities[ability.id] ?? 10}</option>
+              ))}
+            </select>
+          </label>
+          {split ? (
+            <label>
+              <span>第二项属性</span>
+              <select value={second} onChange={(event) => setSecond(event.target.value as AbilityId)}>
+                {LEVEL_UP_ABILITIES.map((ability) => (
+                  <option key={ability.id} value={ability.id}>{ability.name} · {character.abilities[ability.id] ?? 10}</option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+        </div>
+        {invalid ? <p className="form-error">请选择不同属性，且提升后不能超过 20。</p> : null}
+        <button
+          className="primary-cta"
+          disabled={disabled || invalid}
+          onClick={() => void onSubmit(split ? { [first]: 1, [second]: 1 } : { [first]: 2 })}
+          type="button"
+        >
+          {disabled ? '命运正在铭刻…' : '确认属性提升'}
+        </button>
+      </section>
+    </div>
+  )
+}
+
 function CommandDrawer({
   activeTab,
   me,
@@ -578,12 +651,80 @@ function ActionPanel({
   disabled: boolean
   onAction: (action: Record<string, unknown>) => Promise<void>
 }) {
+  const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null)
+  const [selectedTargetIds, setSelectedTargetIds] = useState<string[]>([])
   if (!pending?.is_yours || pending.interrupt_type !== 'declare_action') {
     return <p className="drawer-empty">轮到你的战斗回合时，合法行动会在这里出现。</p>
   }
   const options = pending.options
+  const selectedSkill = options?.skill?.find(
+    (skill) => skill.skill_id === selectedSkillId,
+  )
+  if (selectedSkill) {
+    return (
+      <div className="skill-target-panel">
+        <button className="text-button" onClick={() => { setSelectedSkillId(null); setSelectedTargetIds([]) }} type="button">← 返回行动</button>
+        <div className="skill-target-heading">
+          <span>✦</span>
+          <div>
+            <strong>{selectedSkill.name}</strong>
+            <small>{selectedSkill.types.join(' · ') || selectedSkill.source_type}</small>
+          </div>
+        </div>
+        <p>
+          {selectedSkill.max_targets === 1 ? '选择一个技能目标。' : '选择一个或多个技能目标。'}
+          LLM 会解释技能规则，引擎负责校验并结算。
+        </p>
+        <div className="skill-target-grid">
+          {(selectedSkill.targets ?? []).map((target) => (
+            <button
+              className={selectedTargetIds.includes(target.id) ? 'selected' : ''}
+              disabled={disabled}
+              key={target.id}
+              onClick={() => setSelectedTargetIds((current) => {
+                if (current.includes(target.id)) {
+                  return current.filter((id) => id !== target.id)
+                }
+                if ((selectedSkill.max_targets ?? 20) === 1) return [target.id]
+                if (current.length >= (selectedSkill.max_targets ?? 20)) return current
+                return [...current, target.id]
+              })}
+              type="button"
+            >
+              <strong>{target.name}</strong>
+              <small>
+                {target.faction === 'player' ? '友方' : '敌方'} · {target.zone}
+                {target.life_state !== 'alive' ? ' · 已倒地' : ''}
+              </small>
+            </button>
+          ))}
+        </div>
+        <button
+          className="primary-cta"
+          disabled={
+            disabled ||
+            selectedTargetIds.length < (selectedSkill.min_targets ?? 1) ||
+            selectedTargetIds.length > (selectedSkill.max_targets ?? 20)
+          }
+          onClick={() => void onAction({
+            action_type: 'skill',
+            skill_id: selectedSkill.skill_id,
+            target_ids: selectedTargetIds,
+          })}
+          type="button"
+        >
+          施放技能 · {selectedTargetIds.length} 个目标
+        </button>
+      </div>
+    )
+  }
   return (
-    <div className="action-grid">
+    <div>
+      <p className="action-budget">
+        {options?.attack_only ? '额外攻击阶段' : '本回合剩余行动'} ·{' '}
+        {options?.actions_remaining ?? 1}
+      </p>
+      <div className="action-grid">
       {(options?.attack ?? []).flatMap((attack) =>
         (attack.targets ?? []).map((target) => (
           <button
@@ -622,14 +763,12 @@ function ActionPanel({
         <button
           disabled={disabled}
           key={skill.skill_id}
-          onClick={() =>
-            void onAction({ action_type: 'skill', skill_id: skill.skill_id })
-          }
+          onClick={() => { setSelectedSkillId(skill.skill_id); setSelectedTargetIds([]) }}
           type="button"
         >
           <span>✦</span>
-          <strong>技能</strong>
-          <small>{skill.skill_id}</small>
+          <strong>{skill.name}</strong>
+          <small>{skill.types.join(' · ') || skill.source_type}</small>
         </button>
       ))}
       {(options?.item ?? []).map((item) => (
@@ -680,6 +819,7 @@ function ActionPanel({
           <small>暂不行动</small>
         </button>
       ) : null}
+      </div>
     </div>
   )
 }

@@ -21,6 +21,12 @@ from typing import Any
 
 from langgraph.types import interrupt
 
+from src.character.features import (
+    action_budget_for,
+    extra_attack_budget_for,
+    general_action_budget_for,
+)
+from src.character.progression import grant_experience
 from src.combat.dice import current_engine_dice, reset_engine_dice
 from src.combat.interrupts import (
     build_action_options,
@@ -35,6 +41,7 @@ from src.combat.rules import (
     check_success,
     in_reach,
     resolve_attack,
+    saving_throw_bonus,
 )
 from src.model.combat_state import CombatState, load_combatants
 from src.model.combatant import Character, Combatant
@@ -45,8 +52,10 @@ from src.model.enums import (
     CombatOutcome,
     CombatPhase,
     ConditionType,
+    DamageType,
     Faction,
     InterruptType,
+    LifeState,
 )
 
 logger = logging.getLogger(__name__)
@@ -77,6 +86,86 @@ def _with_round(state: CombatState, event: dict) -> dict:
     return event
 
 
+def _turn_action_budget(actor: Combatant) -> int:
+    """按通用额外攻击和战士常驻动作如潮计算本回合行动次数。"""
+    if not isinstance(actor, Character):
+        return 1
+    return action_budget_for(
+        actor.class_id or "",
+        actor.level,
+        actor.features,
+    )
+
+
+def _clear_concentration_effects(
+    combatants: dict[str, Combatant], skill_id: str, source_actor_id: str
+) -> None:
+    """移除某个专注技能产生的可追踪状态，并还原其数值修正。"""
+    for combatant in combatants.values():
+        removed = [
+            condition
+            for condition in combatant.conditions
+            if condition.source_skill_id == skill_id
+            and condition.source_actor_id == source_actor_id
+        ]
+        for condition in removed:
+            if condition.stat == "ac":
+                combatant.ac -= condition.amount
+        combatant.conditions = [
+            condition
+            for condition in combatant.conditions
+            if not (
+                condition.source_skill_id == skill_id
+                and condition.source_actor_id == source_actor_id
+            )
+        ]
+
+
+def _check_concentration(
+    state: CombatState,
+    target: Combatant,
+    damage: int,
+    combatants: dict[str, Combatant],
+) -> dict | None:
+    """受伤后由引擎执行专注体质豁免，失败时清理来源效果。"""
+    skill_id = target.concentration_skill_id
+    if not skill_id or damage <= 0:
+        return None
+    if not target.is_alive:
+        _clear_concentration_effects(combatants, skill_id, target.id)
+        target.concentration_skill_id = None
+        return {
+            "event": "concentration_save",
+            "actor": target.id,
+            "skill_id": skill_id,
+            "success": False,
+            "reason": "down",
+        }
+    dc = max(10, damage // 2)
+    bonus = saving_throw_bonus(target, Ability.CONSTITUTION)
+    d20, source = _roll_d20_for(
+        target,
+        kind=InterruptType.SAVING_THROW,
+        prompt=f"{target.name} 维持「{skill_id}」专注：体质豁免 d20 + {bonus}，DC {dc}",
+        bonus=bonus,
+        state=state,
+    )
+    success = check_success(d20, bonus, dc)
+    if not success:
+        _clear_concentration_effects(combatants, skill_id, target.id)
+        target.concentration_skill_id = None
+    return {
+        "event": "concentration_save",
+        "actor": target.id,
+        "skill_id": skill_id,
+        "d20": d20,
+        "bonus": bonus,
+        "dc": dc,
+        "source": source,
+        "success": success,
+    }
+
+
 # ---------------------------------------------------------------------------
 # 1. enter_combat（引擎）
 # ---------------------------------------------------------------------------
@@ -97,6 +186,10 @@ def enter_combat(state: CombatState) -> dict:
         "phase": CombatPhase.SETUP,
         "outcome": CombatOutcome.ONGOING,
         "current_action": None,
+        "pending_skill_plan": None,
+        "actions_remaining": 0,
+        "extra_attacks_remaining": 0,
+        "attack_action_started": False,
         "action_feedback": None,
         "applied_special_actions": [],
         "turn_events": [],
@@ -250,6 +343,10 @@ def next_turn(state: CombatState) -> dict:
         if not actor.is_alive:
             continue  # 倒下者直接跳过，不结算
 
+        if isinstance(actor, Character):
+            for skill in actor.skills:
+                skill.tick_cooldown()
+
         # —— 回合开始结算：持续伤害 ——
         for s in list(actor.conditions):
             if s.kind == ConditionType.DAMAGE_OVER_TIME and s.amount > 0:
@@ -265,6 +362,13 @@ def next_turn(state: CombatState) -> dict:
                         },
                     )
                 )
+                concentration = _check_concentration(
+                    state | {"current_round": rnd}, actor, dealt, combatants
+                )
+                if concentration:
+                    events.append(
+                        _with_round(state | {"current_round": rnd}, concentration)
+                    )
 
         was_stunned = actor.has_condition(ConditionType.STUNNED)
         actor.tick_conditions()
@@ -303,6 +407,18 @@ def next_turn(state: CombatState) -> dict:
         "current_round": rnd,
         "phase": CombatPhase.IN_TURN,
         "current_action": None,
+        "pending_skill_plan": None,
+        "actions_remaining": (
+            general_action_budget_for(actor.class_id or "", actor.level, actor.features)
+            if isinstance(actor, Character)
+            else 1
+        ),
+        "extra_attacks_remaining": (
+            extra_attack_budget_for(actor.class_id or "", actor.level, actor.features)
+            if isinstance(actor, Character)
+            else 0
+        ),
+        "attack_action_started": False,
         "action_feedback": None,
         "turn_events": [],
         "combat_log": _append_log(state, events),
@@ -333,6 +449,9 @@ async def declare_action(state: CombatState) -> dict:
             applied_special_actions=list(
                 state.get("applied_special_actions", []) or []
             ),
+            actions_remaining=int(state.get("actions_remaining", 1)),
+            extra_attacks_remaining=int(state.get("extra_attacks_remaining", 0)),
+            attack_action_started=bool(state.get("attack_action_started")),
         )
         feedback = state.get("action_feedback")
         prompt = f"轮到 {actor.name}，从当前选项中选择或描述本回合行动"
@@ -363,7 +482,11 @@ async def declare_action(state: CombatState) -> dict:
     else:
         from src.combat import dm_bridge
 
-        current_action = await dm_bridge.decide_action_llm(actor, combatants)
+        current_action = await dm_bridge.decide_action_llm(
+            actor,
+            combatants,
+            attack_only=int(state.get("actions_remaining", 0)) <= 0,
+        )
         update = {"current_action": current_action, "action_feedback": None}
 
     logger.info("[declare_action] %s -> %s", actor.id, current_action)
@@ -439,7 +562,38 @@ def route_after_declare(state: CombatState) -> str:
     action = state.get("current_action") or {}
     if action.get("action_type") == ActionType.REJECTED.value:
         return "retry"
+    if action.get("action_type") == ActionType.SKILL.value:
+        return "skill"
     return "resolve"
+
+
+async def prepare_skill(state: CombatState) -> dict:
+    """调用真实 LLM 生成一次技能计划并写入检查点，后续中断只复用该计划。"""
+    actor = _current_actor(state)
+    if not isinstance(actor, Character):
+        raise ValueError("只有完整角色可以施放技能")
+    action = state.get("current_action") or {}
+    skill_id = str(action.get("skill_id") or "")
+    owned = next((skill for skill in actor.skills if skill.skill_id == skill_id), None)
+    if owned is None or not owned.is_available:
+        raise ValueError(f"技能 «{skill_id}» 未掌握或尚不可用")
+    # 旧测试场景中的「回气」是封闭的规则技能，不需要 LLM 解释。
+    if skill_id in _HEALING_SKILLS:
+        return {"pending_skill_plan": None}
+
+    from src.combat.skill_resolver import prepare_skill_plan
+
+    target_ids = [str(value) for value in action.get("target_ids", [])]
+    if not target_ids and action.get("target_id"):
+        target_ids = [str(action["target_id"])]
+    plan = await prepare_skill_plan(
+        actor=actor,
+        skill_id=skill_id,
+        combatants=state["combatants"],
+        selected_target_ids=target_ids,
+        current_round=int(state.get("current_round", 1)),
+    )
+    return {"pending_skill_plan": plan}
 
 
 # ---------------------------------------------------------------------------
@@ -455,7 +609,7 @@ def resolve_action(state: CombatState) -> dict:
     if action_type == ActionType.ATTACK.value:
         events = _resolve_attack(state, actor, action, combatants)
     elif action_type == ActionType.SKILL.value:
-        events = _resolve_skill(actor, action, combatants)
+        events = _resolve_skill(state, actor, action, combatants)
     elif action_type == ActionType.ITEM.value:
         events = _resolve_item(actor, action, combatants)
     elif action_type == ActionType.SPECIAL.value:
@@ -478,8 +632,26 @@ def resolve_action(state: CombatState) -> dict:
     logger.info(
         "[resolve_action] %s 事件=%s", actor.id, [e.get("event") for e in events]
     )
+    remaining = max(0, int(state.get("actions_remaining", 1)))
+    extra_attacks = max(0, int(state.get("extra_attacks_remaining", 0)))
+    attack_started = bool(state.get("attack_action_started"))
+    if remaining > 0:
+        remaining -= 1
+        if action_type == ActionType.ATTACK.value:
+            attack_started = True
+    elif (
+        action_type == ActionType.ATTACK.value and attack_started and extra_attacks > 0
+    ):
+        extra_attacks -= 1
+    if action_type == ActionType.PASS.value:
+        remaining = 0
+        extra_attacks = 0
     return {
         "combatants": combatants,
+        "actions_remaining": remaining,
+        "extra_attacks_remaining": extra_attacks,
+        "attack_action_started": attack_started,
+        "pending_skill_plan": None,
         "action_feedback": None,
         "applied_special_actions": applied_special_actions,
         "turn_events": events,
@@ -605,35 +777,398 @@ def _resolve_attack(
             "target_alive": target.is_alive,
         }
     )
-    return [event]
+    events = [event]
+    concentration = _check_concentration(state, target, dealt, combatants)
+    if concentration:
+        events.append(concentration)
+    return events
 
 
 _HEALING_SKILLS = {"skill_second_wind": "1d10"}
 
 
 def _resolve_skill(
-    actor: Combatant, action: dict, combatants: dict[str, Combatant]
+    state: CombatState,
+    actor: Combatant,
+    action: dict,
+    combatants: dict[str, Combatant],
 ) -> list[dict]:
-    """技能结算（v0）：扣充能；已知治疗技能回血，其余仅记事交 DM 叙述。"""
-    skill_id = action.get("skill_id", "")
+    """执行已校验技能计划；所有随机数和最终状态均由引擎处理。"""
+    skill_id = str(action.get("skill_id", ""))
     owned = None
     if isinstance(actor, Character):
-        owned = next((s for s in actor.skills if s.skill_id == skill_id), None)
+        owned = next(
+            (skill for skill in actor.skills if skill.skill_id == skill_id), None
+        )
     if owned is None or not owned.is_available:
         return [{"event": "invalid_skill", "actor": actor.id, "skill_id": skill_id}]
 
-    owned.charges -= 1
-    event: dict = {"event": "skill", "actor": actor.id, "skill_id": skill_id}
-
-    if skill_id in _HEALING_SKILLS:
+    # 保留旧流程测试里的封闭示例技能；新目录技能必须有 prepare_skill 计划。
+    if skill_id in _HEALING_SKILLS and state.get("pending_skill_plan") is None:
+        if owned.charges is not None:
+            owned.charges -= 1
         heal_amount = current_engine_dice().roll(
             _HEALING_SKILLS[skill_id]
         ).total + getattr(actor, "level", 1)
         healed = actor.heal(heal_amount)
-        event.update(
-            {"heal": healed, "target": actor.id, "target_hp": actor.current_hp}
+        return [
+            {
+                "event": "skill",
+                "actor": actor.id,
+                "skill_id": skill_id,
+                "heal": healed,
+                "target": actor.id,
+                "target_hp": actor.current_hp,
+            }
+        ]
+
+    plan = state.get("pending_skill_plan")
+    if not isinstance(plan, dict) or plan.get("skill_id") != skill_id:
+        raise ValueError(f"技能 «{skill_id}» 缺少已校验执行计划")
+    owned.consume()
+    previous_concentration = actor.concentration_skill_id
+    if plan.get("concentration"):
+        if previous_concentration:
+            _clear_concentration_effects(combatants, previous_concentration, actor.id)
+        actor.concentration_skill_id = skill_id
+    events: list[dict] = [
+        {
+            "event": "skill",
+            "actor": actor.id,
+            "skill_id": skill_id,
+            "skill_name": owned.name or skill_id,
+            "summary": plan.get("summary", ""),
+        }
+    ]
+    roll = plan.get("roll") or {"kind": "none"}
+    attack_hit = True
+    attack_crit = False
+    if roll.get("kind") == "attack_roll":
+        target = combatants[str(roll["target_id"])]
+        attack_bonus = (
+            actor.attacks[0].attack_bonus
+            if skill_id == "feature_divine_smite" and actor.attacks
+            else actor.proficiency_bonus + _spellcasting_modifier(actor)
         )
-    return [event]
+        d20, source = _roll_d20_for(
+            actor,
+            kind=InterruptType.ATTACK_ROLL,
+            prompt=(
+                f"{actor.name} 施放「{owned.name or skill_id}」攻击 {target.name}："
+                f"掷 d20 + {attack_bonus}"
+            ),
+            bonus=attack_bonus,
+            state=state,
+        )
+        result = resolve_attack(d20, attack_bonus, target.ac)
+        attack_hit = result.hit
+        attack_crit = result.crit
+        events.append(
+            {
+                "event": "skill_attack",
+                "actor": actor.id,
+                "target": target.id,
+                "d20": d20,
+                "bonus": attack_bonus,
+                "source": source,
+                "hit": result.hit,
+                "crit": result.crit,
+            }
+        )
+
+    save_results: dict[str, bool] = {}
+    if roll.get("kind") == "saving_throw":
+        ability = Ability(str(roll["ability"]))
+        dc = int(roll.get("dc") or _spell_save_dc(actor))
+        target_ids = {
+            str(effect.get("target_id"))
+            for effect in plan.get("effects", [])
+            if effect.get("target_id")
+        }
+        for target_id in target_ids:
+            target = combatants[target_id]
+            bonus = saving_throw_bonus(target, ability)
+            d20, source = _roll_d20_for(
+                target,
+                kind=InterruptType.SAVING_THROW,
+                prompt=(
+                    f"{target.name} 对「{owned.name or skill_id}」进行 "
+                    f"{ability.value} 豁免：掷 d20 + {bonus}"
+                ),
+                bonus=bonus,
+                state=state,
+            )
+            success = check_success(d20, bonus, dc)
+            save_results[target_id] = success
+            events.append(
+                {
+                    "event": "skill_save",
+                    "actor": target.id,
+                    "skill_id": skill_id,
+                    "ability": ability.value,
+                    "d20": d20,
+                    "bonus": bonus,
+                    "dc": dc,
+                    "source": source,
+                    "success": success,
+                }
+            )
+
+    for effect in plan.get("effects", []):
+        kind = effect["kind"]
+        if kind == "dm_ruling":
+            events.append(
+                {
+                    "event": "skill_dm_ruling",
+                    "actor": actor.id,
+                    "skill_id": skill_id,
+                    "text": effect["text"],
+                }
+            )
+            continue
+        target = combatants[str(effect["target_id"])]
+        saved = save_results.get(target.id, False)
+        if not attack_hit and kind in {"damage", "add_condition", "modify_ac"}:
+            continue
+        if saved and effect.get("on_save") == "none":
+            continue
+        if kind in {"damage", "healing", "temporary_hp"}:
+            amount, source = _roll_skill_amount(
+                actor,
+                expression=effect.get("dice"),
+                fixed=effect.get("amount"),
+                skill_name=owned.name or skill_id,
+                state=state,
+                crit=attack_crit and kind == "damage",
+            )
+            if kind == "damage":
+                if saved and effect.get("on_save") == "half":
+                    amount //= 2
+                applied = target.take_damage(amount)
+                events.append(
+                    {
+                        "event": "skill_damage",
+                        "actor": actor.id,
+                        "target": target.id,
+                        "skill_id": skill_id,
+                        "damage": applied,
+                        "damage_type": effect["damage_type"],
+                        "source": source,
+                        "target_hp": target.current_hp,
+                        "target_alive": target.is_alive,
+                    }
+                )
+                concentration = _check_concentration(state, target, applied, combatants)
+                if concentration:
+                    events.append(concentration)
+            elif kind == "healing":
+                healed = target.heal(amount)
+                events.append(
+                    {
+                        "event": "skill_heal",
+                        "actor": actor.id,
+                        "target": target.id,
+                        "skill_id": skill_id,
+                        "heal": healed,
+                        "source": source,
+                        "target_hp": target.current_hp,
+                    }
+                )
+            else:
+                target.temporary_hp = max(target.temporary_hp, amount)
+                events.append(
+                    {
+                        "event": "temporary_hp",
+                        "actor": actor.id,
+                        "target": target.id,
+                        "skill_id": skill_id,
+                        "temporary_hp": target.temporary_hp,
+                    }
+                )
+        elif kind == "add_condition":
+            condition_kind = ConditionType(str(effect["condition"]))
+            condition_amount = 0
+            condition_damage_type = None
+            if condition_kind == ConditionType.DAMAGE_OVER_TIME:
+                condition_amount, _ = _roll_skill_amount(
+                    actor,
+                    expression=effect.get("dice"),
+                    fixed=effect.get("amount"),
+                    skill_name=owned.name or skill_id,
+                    state=state,
+                )
+                condition_damage_type = DamageType(str(effect["damage_type"]))
+            condition = Condition(
+                kind=condition_kind,
+                rounds_left=int(effect.get("rounds", 1)),
+                amount=condition_amount,
+                damage_type=condition_damage_type,
+                source_skill_id=skill_id,
+                source_actor_id=actor.id,
+            )
+            target.add_condition(condition)
+            events.append(
+                {
+                    "event": "condition_added",
+                    "actor": actor.id,
+                    "target": target.id,
+                    "condition": condition.kind.value,
+                    "rounds": condition.rounds_left,
+                }
+            )
+        elif kind == "remove_condition":
+            condition_value = effect.get("condition")
+            before = len(target.conditions)
+            removed_conditions = [
+                condition
+                for condition in target.conditions
+                if not condition_value or condition.kind.value == condition_value
+            ]
+            for condition in removed_conditions:
+                if condition.stat == "ac":
+                    target.ac -= condition.amount
+            if condition_value:
+                target.conditions = [
+                    condition
+                    for condition in target.conditions
+                    if condition.kind.value != condition_value
+                ]
+            else:
+                target.conditions = []
+            events.append(
+                {
+                    "event": "condition_removed",
+                    "actor": actor.id,
+                    "target": target.id,
+                    "removed": before - len(target.conditions),
+                }
+            )
+        elif kind == "modify_ac":
+            condition = Condition(
+                kind=(
+                    ConditionType.BUFF
+                    if int(effect["amount"]) >= 0
+                    else ConditionType.DEBUFF
+                ),
+                rounds_left=int(effect.get("rounds", 1)),
+                amount=int(effect["amount"]),
+                stat="ac",
+                source_skill_id=skill_id,
+                source_actor_id=actor.id,
+            )
+            target.add_condition(condition)
+            events.append(
+                {
+                    "event": "ac_modified",
+                    "actor": actor.id,
+                    "target": target.id,
+                    "amount": condition.amount,
+                    "ac": target.ac,
+                    "rounds": condition.rounds_left,
+                }
+            )
+        elif kind == "move":
+            old_zone = target.current_zone
+            target.current_zone = str(effect["target_zone"])
+            events.append(
+                {
+                    "event": "skill_move",
+                    "actor": actor.id,
+                    "target": target.id,
+                    "from": old_zone,
+                    "to": target.current_zone,
+                }
+            )
+        elif kind == "revive":
+            amount, source = _roll_skill_amount(
+                actor,
+                expression=effect.get("dice"),
+                fixed=effect.get("amount", 1),
+                skill_name=owned.name or skill_id,
+                state=state,
+            )
+            target.life_state = LifeState.ALIVE
+            target.current_hp = min(target.max_hp, max(1, amount))
+            events.append(
+                {
+                    "event": "revive",
+                    "actor": actor.id,
+                    "target": target.id,
+                    "source": source,
+                    "target_hp": target.current_hp,
+                }
+            )
+    return events
+
+
+def _spellcasting_modifier(actor: Character) -> int:
+    """返回当前开放职业的施法关键属性调整值。"""
+    ability = {
+        "bard": Ability.CHARISMA,
+        "cleric": Ability.WISDOM,
+        "paladin": Ability.CHARISMA,
+    }.get(actor.class_id, Ability.INTELLIGENCE)
+    return actor.modifier(ability)
+
+
+def _spell_save_dc(actor: Character) -> int:
+    return 8 + actor.proficiency_bonus + _spellcasting_modifier(actor)
+
+
+def _roll_d20_for(
+    roller: Combatant,
+    *,
+    kind: InterruptType,
+    prompt: str,
+    bonus: int,
+    state: CombatState,
+) -> tuple[int, str]:
+    """按控制权取得一颗原始 d20；玩家中断、其他参战者引擎掷。"""
+    if roller.is_player_controlled:
+        resume_value = interrupt(
+            build_interrupt_request(
+                kind=kind,
+                actor=roller,
+                prompt=prompt,
+                required_dice="d20",
+                bonus=bonus,
+                extra={"combat": build_combat_view(state, actor_id=roller.id)},
+            )
+        )
+        return validate_d20(resume_value), extract_roll_source(resume_value)
+    return current_engine_dice().d20(), "engine"
+
+
+def _roll_skill_amount(
+    actor: Combatant,
+    *,
+    expression: str | None,
+    fixed: int | None,
+    skill_name: str,
+    state: CombatState,
+    crit: bool = False,
+) -> tuple[int, str]:
+    """取得技能伤害/治疗数值；玩家掷表达式，固定值无需中断。"""
+    if expression is None:
+        return max(0, int(fixed or 0)), "fixed"
+    if actor.is_player_controlled:
+        resume_value = interrupt(
+            build_interrupt_request(
+                kind=InterruptType.DAMAGE_ROLL,
+                actor=actor,
+                prompt=f"为「{skill_name}」掷 {expression}",
+                required_dice=expression,
+                extra={
+                    "crit": crit,
+                    "combat": build_combat_view(state, actor_id=actor.id),
+                },
+            )
+        )
+        amount = extract_damage(resume_value)
+        if amount is None:
+            raise ValueError("技能骰中断缺少有效结果")
+        return amount, extract_roll_source(resume_value)
+    return current_engine_dice().roll(expression, crit=crit).total, "engine"
 
 
 _HEALING_ITEMS = {"item_healing_potion": "2d4+2"}
@@ -916,8 +1451,17 @@ def check_end(state: CombatState) -> dict:
 
 
 def route_after_check(state: CombatState) -> str:
-    """条件边路由：进行中→继续下一位；否则→结算。"""
-    return "continue" if state["outcome"] == CombatOutcome.ONGOING else "end"
+    """条件边路由：胜负结算、同角色剩余行动或推进下一位。"""
+    if state["outcome"] != CombatOutcome.ONGOING:
+        return "end"
+    has_general_action = int(state.get("actions_remaining", 0)) > 0
+    has_extra_attack = (
+        bool(state.get("attack_action_started"))
+        and int(state.get("extra_attacks_remaining", 0)) > 0
+    )
+    if (has_general_action or has_extra_attack) and _current_actor(state).is_alive:
+        return "same_turn"
+    return "next_turn"
 
 
 # ---------------------------------------------------------------------------
@@ -927,13 +1471,39 @@ def settle(state: CombatState) -> dict:
     """结算并回到剧情：置结束阶段，发战利品，导出可写回世界库的数据。"""
     scene = state.get("scene_context", {}) or {}
     combatants = state["combatants"]
+    xp_reward = max(0, int(scene.get("xp_reward", 0)))
+    growth: dict[str, dict[str, Any]] = {}
+    if state["outcome"] == CombatOutcome.PLAYERS_WIN and xp_reward > 0:
+        for combatant_id, combatant in combatants.items():
+            if isinstance(combatant, Character):
+                growth[combatant_id] = grant_experience(combatant, xp_reward)
 
     writeback = {
         cid: {
             "current_hp": c.current_hp,
+            "max_hp": c.max_hp,
+            "temporary_hp": c.temporary_hp,
+            "ac": c.ac,
             "life_state": str(c.life_state.value),
             "conditions": [s.to_dict() for s in c.conditions],
             "inventory": [i.to_dict() for i in getattr(c, "inventory", [])],
+            **(
+                {
+                    "level": c.level,
+                    "experience": c.experience,
+                    "pending_ability_points": c.pending_ability_points,
+                    "strength": c.strength,
+                    "dexterity": c.dexterity,
+                    "constitution": c.constitution,
+                    "intelligence": c.intelligence,
+                    "wisdom": c.wisdom,
+                    "charisma": c.charisma,
+                    "skills": [skill.to_dict() for skill in c.skills],
+                    "features": list(c.features),
+                }
+                if isinstance(c, Character)
+                else {}
+            ),
         }
         for cid, c in combatants.items()
     }
@@ -948,11 +1518,18 @@ def settle(state: CombatState) -> dict:
             "event": "settle",
             "outcome": str(state["outcome"].value),
             "loot": loot,
+            "xp_reward": xp_reward,
+            "growth": growth,
         }
     ]
     logger.info("[settle] 战斗结束 | 结果=%s", state["outcome"].value)
     return {
         "phase": CombatPhase.ENDED,
         "combat_log": _append_log(state, events),
-        "scene_context": {**scene, "writeback": writeback, "granted_loot": loot},
+        "scene_context": {
+            **scene,
+            "writeback": writeback,
+            "granted_loot": loot,
+            "growth": growth,
+        },
     }

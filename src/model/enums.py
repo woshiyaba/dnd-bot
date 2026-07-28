@@ -71,6 +71,18 @@ class ConditionType(StrEnum):
     RESTRAINED = "restrained"  # 束缚
     STUNNED = "stunned"  # 眩晕
     DAMAGE_OVER_TIME = "damage_over_time"  # 持续伤害
+    BLINDED = "blinded"  # 目盲
+    CHARMED = "charmed"  # 魅惑
+    DEAFENED = "deafened"  # 耳聋
+    FRIGHTENED = "frightened"  # 恐慌
+    GRAPPLED = "grappled"  # 擒抱
+    INCAPACITATED = "incapacitated"  # 失能
+    INVISIBLE = "invisible"  # 隐形
+    PARALYZED = "paralyzed"  # 麻痹
+    PETRIFIED = "petrified"  # 石化
+    UNCONSCIOUS = "unconscious"  # 昏迷
+    BUFF = "buff"  # 通用数值增益
+    DEBUFF = "debuff"  # 通用数值减益
 
 
 class Faction(StrEnum):

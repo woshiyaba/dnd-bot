@@ -158,6 +158,11 @@ class SessionEngine:
             result["__interrupt__"] = snapshot.interrupts
         return self._interpret(room_id, result)
 
+    async def update_state(self, room_id: str, values: dict[str, Any]) -> None:
+        """由应用服务写入已校验的非图交互状态（例如升级属性分配）。"""
+        config = {"configurable": {"thread_id": room_thread_id(room_id)}}
+        await self._graph.aupdate_state(config, values)
+
     def _build_initial_state(
         self, room_id: str, scene_context: dict, opening: str
     ) -> dict:

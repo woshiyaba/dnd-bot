@@ -35,6 +35,6 @@
     "同一法术只在 spells.json 定义一次，classes 字段记录所有所属职业。",
     "职业索引按最低法术环位引用共享法术 ID。",
     "damage_calculation/healing_calculation 为 null 表示该法术没有对应结算。",
-    "法术效果由规则引擎确定性结算，不交给 DM LLM 计算。"
+    "战斗法术由真实 LLM 编译为白名单结构化效果；掷骰、命中、豁免、冷却、专注与 HP 仍由规则引擎确定性结算。"
   ]
 }

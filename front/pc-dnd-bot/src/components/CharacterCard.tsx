@@ -48,9 +48,19 @@ export function CharacterCard({ character }: { character: CharacterView }) {
         <span>♥ {character.current_hp}/{character.max_hp}</span>
         <span>◇ AC {character.ac}</span>
       </div>
+      {character.temporary_hp > 0 ? (
+        <small className="temporary-hp">临时生命 +{character.temporary_hp}</small>
+      ) : null}
       <div className="hp-track">
         <span style={{ width: `${hpPercent}%` }} />
       </div>
+      {character.next_level_experience ? (
+        <small className="experience-line">
+          XP {character.experience}/{character.next_level_experience}
+        </small>
+      ) : (
+        <small className="experience-line">XP {character.experience} · 满级</small>
+      )}
       {character.conditions.length ? (
         <div className="condition-list">
           {character.conditions.map((condition) => (

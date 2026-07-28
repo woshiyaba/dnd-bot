@@ -15,6 +15,7 @@ from typing import Any, Callable
 
 from langchain_core.tools import tool
 
+from src.character.skills import skill_definition, spell_catalog
 from src.dm.knowledge import get_registry
 
 # 取"引擎当前骰子"的回调，由战斗层通过 set_dice_provider 注入
@@ -134,7 +135,49 @@ def kb_read(doc_id: str) -> str:
     return get_registry().read(doc_id)
 
 
+@tool
+def skill_search(query: str, class_id: str = "") -> list[dict]:
+    """按中英文名或 ID 检索玩家法术目录，可选按职业英文 ID 过滤。"""
+    needle = query.strip().casefold()
+    results: list[dict] = []
+    for definition in spell_catalog().values():
+        if class_id and class_id not in definition.get("classes", []):
+            continue
+        haystack = " ".join(
+            (
+                str(definition.get("id", "")),
+                str(definition.get("name_zh", "")),
+                str(definition.get("name_en", "")),
+            )
+        ).casefold()
+        if needle and needle not in haystack:
+            continue
+        results.append(
+            {
+                "skill_id": definition["id"],
+                "name_zh": definition["name_zh"],
+                "name_en": definition["name_en"],
+                "level": definition["level"],
+                "classes": definition["classes"],
+                "types": definition["types"],
+            }
+        )
+        if len(results) >= 20:
+            break
+    return results
+
+
+@tool
+def skill_read(skill_id: str) -> dict:
+    """按稳定技能 ID 读取规则详情，供探索阶段的真实 DM 裁定。"""
+    definition = skill_definition(skill_id)
+    if definition is None:
+        return {"error": f"技能不存在：{skill_id}"}
+    return definition
+
+
 # 分组导出，供 agent 装配
 DICE_TOOLS = [roll_d4, roll_d6, roll_d8, roll_d10, roll_d12, roll_d20, roll_expr]
 KB_TOOLS = [kb_search, kb_read]
-ALL_DM_TOOLS = [*DICE_TOOLS, *KB_TOOLS]
+SKILL_TOOLS = [skill_search, skill_read]
+ALL_DM_TOOLS = [*DICE_TOOLS, *KB_TOOLS, *SKILL_TOOLS]

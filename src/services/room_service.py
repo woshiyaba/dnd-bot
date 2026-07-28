@@ -1,182 +1,32 @@
-"""匿名多人房间与预设角色管理。"""
+"""匿名多人房间与玩家自建角色管理。"""
 
 from __future__ import annotations
 
 import asyncio
 import secrets
-import string
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import HTTPException
 
-from src.schemas.room import CharacterOption, MemberView, RoomLobbyView
+from src.character.creation import build_character_card, character_creation_catalog
+from src.schemas.room import CharacterDraft, CharacterSummary, MemberView, RoomLobbyView
 
 _ROOM_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 _ROOM_CODE_LENGTH = 6
 _MAX_PLAYERS = 6
 
 
-def _attack(
-    name: str,
-    attack_bonus: int,
-    damage_dice: str,
-    damage_type: str,
-    *,
-    attack_range: str = "melee",
-) -> dict[str, Any]:
-    """构造预设角色的攻击卡。"""
-    return {
-        "name": name,
-        "attack_bonus": attack_bonus,
-        "damage_dice": damage_dice,
-        "damage_type": damage_type,
-        "range": attack_range,
-    }
-
-
-_CHARACTER_TEMPLATES: tuple[dict[str, Any], ...] = (
-    {
-        "id": "pc_aldous",
-        "name": "艾伦",
-        "race": "人类",
-        "char_class": "战士",
-        "level": 5,
-        "current_hp": 52,
-        "max_hp": 52,
-        "ac": 18,
-        "initiative_bonus": 2,
-        "speed": "30ft",
-        "color": "#c9922a",
-        "strength": 18,
-        "dexterity": 14,
-        "constitution": 16,
-        "intelligence": 10,
-        "wisdom": 12,
-        "charisma": 11,
-        "save_proficiencies": ["strength", "constitution"],
-        "attacks": [_attack("长剑", 7, "1d8+4", "slashing")],
-        "inventory": [{"item_id": "item_healing_potion", "quantity": 1}],
-    },
-    {
-        "id": "pc_lyra",
-        "name": "莉拉",
-        "race": "高等精灵",
-        "char_class": "法师",
-        "level": 5,
-        "current_hp": 35,
-        "max_hp": 35,
-        "ac": 12,
-        "initiative_bonus": 2,
-        "speed": "30ft",
-        "color": "#4a90d9",
-        "strength": 8,
-        "dexterity": 14,
-        "constitution": 14,
-        "intelligence": 18,
-        "wisdom": 12,
-        "charisma": 10,
-        "save_proficiencies": ["intelligence", "wisdom"],
-        "attacks": [_attack("火焰箭", 7, "2d10", "fire", attack_range="ranged")],
-    },
-    {
-        "id": "pc_kate",
-        "name": "卡特",
-        "race": "半身人",
-        "char_class": "盗贼",
-        "level": 5,
-        "current_hp": 38,
-        "max_hp": 38,
-        "ac": 15,
-        "initiative_bonus": 4,
-        "speed": "25ft",
-        "color": "#7ab648",
-        "strength": 10,
-        "dexterity": 18,
-        "constitution": 14,
-        "intelligence": 13,
-        "wisdom": 12,
-        "charisma": 14,
-        "save_proficiencies": ["dexterity", "intelligence"],
-        "attacks": [_attack("短剑", 7, "1d6+4", "piercing")],
-    },
-    {
-        "id": "pc_serra",
-        "name": "塞拉",
-        "race": "矮人",
-        "char_class": "牧师",
-        "level": 5,
-        "current_hp": 44,
-        "max_hp": 44,
-        "ac": 16,
-        "initiative_bonus": 1,
-        "speed": "25ft",
-        "color": "#c94a4a",
-        "strength": 14,
-        "dexterity": 12,
-        "constitution": 16,
-        "intelligence": 10,
-        "wisdom": 18,
-        "charisma": 13,
-        "save_proficiencies": ["wisdom", "charisma"],
-        "attacks": [_attack("战锤", 5, "1d8+2", "bludgeoning")],
-    },
-    {
-        "id": "pc_rex",
-        "name": "雷克",
-        "race": "木精灵",
-        "char_class": "游侠",
-        "level": 5,
-        "current_hp": 40,
-        "max_hp": 40,
-        "ac": 14,
-        "initiative_bonus": 4,
-        "speed": "35ft",
-        "color": "#9b6ade",
-        "strength": 12,
-        "dexterity": 18,
-        "constitution": 14,
-        "intelligence": 11,
-        "wisdom": 16,
-        "charisma": 10,
-        "save_proficiencies": ["strength", "dexterity"],
-        "attacks": [_attack("长弓", 7, "1d8+4", "piercing", attack_range="ranged")],
-    },
-    {
-        "id": "pc_vera",
-        "name": "维拉",
-        "race": "提夫林",
-        "char_class": "术士",
-        "level": 5,
-        "current_hp": 36,
-        "max_hp": 36,
-        "ac": 13,
-        "initiative_bonus": 3,
-        "speed": "30ft",
-        "color": "#4ab8b8",
-        "strength": 8,
-        "dexterity": 16,
-        "constitution": 14,
-        "intelligence": 12,
-        "wisdom": 10,
-        "charisma": 18,
-        "save_proficiencies": ["constitution", "charisma"],
-        "attacks": [_attack("魔能爆", 7, "1d10+4", "force", attack_range="ranged")],
-    },
-)
-
-CHARACTER_TEMPLATES = {entry["id"]: entry for entry in _CHARACTER_TEMPLATES}
-
-
 @dataclass(slots=True)
 class RoomMember:
-    """房间内的匿名玩家身份。"""
+    """房间内的匿名玩家身份及其当前冒险角色卡。"""
 
     user_id: str
     display_name: str
     character_id: str
     access_token: str
+    character_card: dict[str, Any] = field(default_factory=dict)
     is_host: bool = False
     is_online: bool = False
 
@@ -204,7 +54,7 @@ class GameRoom:
         )
 
     def member_by_character(self, character_id: str) -> RoomMember | None:
-        """查找占用指定角色的成员。"""
+        """按服务端角色 ID 查找其控制者。"""
         return next(
             (
                 member
@@ -216,23 +66,22 @@ class GameRoom:
 
 
 class RoomService:
-    """管理匿名房间、成员令牌和预设角色占用。"""
+    """管理匿名房间、成员令牌和服务端权威角色卡。"""
 
     def __init__(self) -> None:
         self._rooms: dict[str, GameRoom] = {}
         self._registry_lock = asyncio.Lock()
 
     async def create_room(
-        self, *, display_name: str, character_id: str, campaign_id: str
+        self, *, display_name: str, character: CharacterDraft, campaign_id: str
     ) -> tuple[GameRoom, RoomMember]:
-        """创建房间并把创建者登记为房主。"""
-        self._require_character(character_id)
+        """创建房间并用角色草稿登记房主。"""
         async with self._registry_lock:
             room_code = self._new_room_code()
             room = GameRoom(room_code=room_code, campaign_id=campaign_id)
             member = self._new_member(
                 display_name=display_name,
-                character_id=character_id,
+                character=character,
                 is_host=True,
             )
             room.members[member.user_id] = member
@@ -240,10 +89,9 @@ class RoomService:
             return room, member
 
     async def join_room(
-        self, room_code: str, *, display_name: str, character_id: str
+        self, room_code: str, *, display_name: str, character: CharacterDraft
     ) -> tuple[GameRoom, RoomMember]:
-        """在开局前选择一个空闲角色加入房间。"""
-        self._require_character(character_id)
+        """在开局前创建自己的角色并加入房间。"""
         async with self._registry_lock:
             room = self.require_room(room_code)
             if room.status != "lobby":
@@ -256,11 +104,9 @@ class RoomService:
                 for member in room.members.values()
             ):
                 raise HTTPException(status_code=409, detail="房间内昵称已被使用")
-            if room.member_by_character(character_id):
-                raise HTTPException(status_code=409, detail="该角色已被其他玩家选择")
             member = self._new_member(
                 display_name=display_name,
-                character_id=character_id,
+                character=character,
                 is_host=False,
             )
             room.members[member.user_id] = member
@@ -320,11 +166,6 @@ class RoomService:
 
     def lobby_view(self, room: GameRoom) -> RoomLobbyView:
         """生成不含访问令牌的大厅公开视图。"""
-        occupied = {member.character_id for member in room.members.values()}
-        characters = [
-            self._character_option(template, template["id"] not in occupied)
-            for template in _CHARACTER_TEMPLATES
-        ]
         return RoomLobbyView(
             room_code=room.room_code,
             campaign_id=room.campaign_id,
@@ -332,43 +173,35 @@ class RoomService:
             revision=room.revision,
             max_players=_MAX_PLAYERS,
             members=[self.member_view(member) for member in room.members.values()],
-            characters=characters,
         )
 
-    def character_catalog(self) -> list[CharacterOption]:
-        """返回创建房间页使用的完整预设角色目录。"""
-        return [
-            self._character_option(template, True) for template in _CHARACTER_TEMPLATES
-        ]
+    @staticmethod
+    def creation_catalog() -> dict[str, Any]:
+        """返回角色创建目录。"""
+        return character_creation_catalog()
 
     def member_view(self, member: RoomMember) -> MemberView:
-        """生成成员公开视图。"""
+        """生成包含角色摘要的成员公开视图。"""
         return MemberView(
             user_id=member.user_id,
             display_name=member.display_name,
             character_id=member.character_id,
+            character=self._character_summary(member.character_card),
             is_host=member.is_host,
             is_online=member.is_online,
         )
 
     def scene_context(self, room: GameRoom) -> dict[str, Any]:
-        """把房间成员选择转换为 SessionEngine 的多人初始上下文。"""
+        """把房间成员角色卡转换为 SessionEngine 的多人初始上下文。"""
         host = next(member for member in room.members.values() if member.is_host)
-        party = []
-        for member in room.members.values():
-            template = CHARACTER_TEMPLATES[member.character_id]
-            card = {
-                key: value
-                for key, value in template.items()
-                if key not in {"speed", "color"}
+        party = [
+            {
+                "type": "player",
+                "controller": member.user_id,
+                "card": dict(member.character_card),
             }
-            party.append(
-                {
-                    "type": "player",
-                    "controller": member.user_id,
-                    "card": card,
-                }
-            )
+            for member in room.members.values()
+        ]
         return {
             "campaign_id": room.campaign_id,
             "dm_mode": "llm",
@@ -380,13 +213,24 @@ class RoomService:
             "party": party,
         }
 
+    def sync_character_cards(self, room: GameRoom, party: dict[str, Any]) -> None:
+        """把会话中的最新角色对象同步回大厅成员摘要。"""
+        for member in room.members.values():
+            actor = party.get(member.character_id)
+            if actor is not None and hasattr(actor, "to_card"):
+                member.character_card = {**member.character_card, **actor.to_card()}
+
     def member_for_user(self, room: GameRoom, user_id: str | None) -> RoomMember | None:
         """读取房间内指定用户。"""
         return room.members.get(user_id or "")
 
-    def character_template(self, character_id: str) -> dict[str, Any]:
-        """读取预设角色完整卡面。"""
-        return CHARACTER_TEMPLATES[self._require_character(character_id)]
+    def character_card(self, character_id: str) -> dict[str, Any]:
+        """读取当前房间之外不可寻址的角色卡接口已被移除。"""
+        for room in self._rooms.values():
+            member = room.member_by_character(character_id)
+            if member is not None:
+                return member.character_card
+        raise HTTPException(status_code=404, detail="角色不存在")
 
     def reset(self) -> None:
         """清空进程内房间；仅供无模型测试隔离。"""
@@ -402,36 +246,45 @@ class RoomService:
 
     @staticmethod
     def _new_member(
-        *, display_name: str, character_id: str, is_host: bool
+        *, display_name: str, character: CharacterDraft, is_host: bool
     ) -> RoomMember:
+        user_id = f"user_{secrets.token_hex(8)}"
+        character_id = f"pc_{secrets.token_hex(8)}"
+        try:
+            card = build_character_card(
+                character_id=character_id,
+                name=display_name,
+                race_id=character.race_id,
+                class_id=character.class_id,
+                base_abilities=character.base_abilities,
+                racial_bonus_choices=character.racial_bonus_choices,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         return RoomMember(
-            user_id=f"user_{secrets.token_hex(8)}",
+            user_id=user_id,
             display_name=display_name,
             character_id=character_id,
+            character_card=card,
             access_token=secrets.token_urlsafe(32),
             is_host=is_host,
         )
 
     @staticmethod
-    def _require_character(character_id: str) -> str:
-        if character_id not in CHARACTER_TEMPLATES:
-            raise HTTPException(status_code=422, detail="未知的预设角色")
-        return character_id
-
-    @staticmethod
-    def _character_option(template: dict[str, Any], available: bool) -> CharacterOption:
-        return CharacterOption(
-            id=template["id"],
-            name=template["name"],
-            race=template["race"],
-            char_class=template["char_class"],
-            level=template["level"],
-            max_hp=template["max_hp"],
-            ac=template["ac"],
-            initiative=template["initiative_bonus"],
-            speed=template["speed"],
-            color=template["color"],
-            available=available,
+    def _character_summary(card: dict[str, Any]) -> CharacterSummary:
+        return CharacterSummary(
+            id=str(card["id"]),
+            name=str(card["name"]),
+            race_id=str(card["race_id"]),
+            race=str(card["race"]),
+            class_id=str(card["class_id"]),
+            char_class=str(card["char_class"]),
+            level=int(card.get("level", 1)),
+            max_hp=int(card["max_hp"]),
+            ac=int(card["ac"]),
+            initiative=int(card.get("initiative_bonus", 0)),
+            speed=str(card.get("speed", "30ft")),
+            color=str(card.get("color", "#c9922a")),
         )
 
 

@@ -60,7 +60,10 @@ DM_STORY_GUIDE = """【剧本骨架】你在主持一个有**预定剧本(canon)
 DM_TOOLS_GUIDE = """【工具】你可以调用：
 - 骰子：roll_d4 / roll_d6 / roll_d8 / roll_d10 / roll_d12 / roll_d20，以及通用 roll_expr("2d6+3")。
 - 知识库：kb_search(query, category) 先查有哪些相关条目，kb_read(doc_id) 再读正文。
-当你对某条具体规则、某个怪物的打法或某个技能的细节不确定时，先 kb_search/kb_read，**不要凭空编造规则**。常规、显而易见的情形不必查阅，直接裁定即可，以免拖慢节奏。"""
+- 玩家技能：skill_search(query, class_id) 按名称查稳定技能 ID，skill_read(skill_id) 读取完整规则。
+玩家在探索阶段声明施法时，必须先查到技能 ID、确认它列在该角色的 exploration_skill_ids 中，再依据
+skill_read 的规则做叙事或检定裁定；未掌握的技能必须明确拒绝。不要在探索叙述里直接修改战斗 HP。
+当你对某条具体规则或怪物打法不确定时，先 kb_search/kb_read，**不要凭空编造规则**。常规、显而易见的情形不必查阅，直接裁定即可，以免拖慢节奏。"""
 
 
 def build_dm_system_prompt() -> str:
