@@ -18,6 +18,7 @@ from src.model.combatant import Character, ability_modifier
 from src.model.enums import InterruptType
 from src.schemas.room import (
     CharacterView,
+    ClueView,
     DiceRollResult,
     PendingInteractionView,
     RecentResolutionView,
@@ -298,6 +299,7 @@ class SessionService:
                 self._character_view(actor, member, None) for actor in enemies_source
             ],
             available_actions=world_actions if not combat_view else [],
+            clues=self._clue_views(room, safe_state.get("story") or {}),
             timeline=self._timeline(
                 [
                     *(safe_state.get("messages") or []),
@@ -312,6 +314,21 @@ class SessionService:
                 or safe_state.get("last_combat"),
             ),
         )
+
+    @staticmethod
+    def _clue_views(room: GameRoom, story: dict[str, Any]) -> list[ClueView]:
+        """按发现顺序投影线索正文；未发现或无法解析的 canon 内容一律不下发。"""
+        canon = get_registry().get(room.campaign_id)
+        if canon is None:
+            return []
+        clues = []
+        for clue_id in story.get("discovered_clues", []) or []:
+            resolved = canon.clue(str(clue_id))
+            if resolved is None:
+                continue
+            _, clue = resolved
+            clues.append(ClueView(id=clue.id, text=clue.text))
+        return clues
 
     def stream_sink(self, room: GameRoom):
         """把 LangGraph custom 流转成房间统一事件。"""

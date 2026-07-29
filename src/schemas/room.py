@@ -248,6 +248,13 @@ class RecentResolutionView(BaseModel):
     combat: dict[str, Any] | None = None
 
 
+class ClueView(BaseModel):
+    """玩家已经发现、可长期回看的线索。"""
+
+    id: str
+    text: str
+
+
 class RoomView(BaseModel):
     """游戏页面顶部所需的房间信息。"""
 
@@ -269,6 +276,7 @@ class SessionView(BaseModel):
     party: list[CharacterView]
     enemies: list[CharacterView]
     available_actions: list[dict[str, Any]] = Field(default_factory=list)
+    clues: list[ClueView] = Field(default_factory=list)
     timeline: list[TimelineEntry]
     pending_interaction: PendingInteractionView | None = None
     recent_resolution: RecentResolutionView = Field(

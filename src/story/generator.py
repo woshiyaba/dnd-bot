@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +24,15 @@ from src.story.prompt import (
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-REFERENCE_CANON_PATH = PROJECT_ROOT / "canon" / "whispers_bell_tower.json"
+CANON_DIR = PROJECT_ROOT / "canon"
+REFERENCE_CANON_PATHS = (
+    CANON_DIR / "prodigal_return_quest.json",
+    CANON_DIR / "whispers_bell_tower.json",
+)
+DEFAULT_STORY_GENERATION_MODEL = "deepseek-v4-pro"
+STORY_GENERATION_MODEL = os.getenv(
+    "STORY_GENERATION_MODEL", DEFAULT_STORY_GENERATION_MODEL
+)
 MAX_REPAIR_ATTEMPTS = 2
 
 _model: Any | None = None
@@ -41,8 +50,18 @@ async def _get_model() -> Any:
         return _model
     async with _model_lock:
         if _model is None:
-            _model = create_chat_model(enable_search=False)
+            _model = create_chat_model(
+                model=STORY_GENERATION_MODEL,
+                enable_search=False,
+            )
         return _model
+
+
+def _load_reference_canons() -> list[dict[str, Any]]:
+    """每次编译重新读取内置 Canon，使故事框架改动立即进入生成上下文。"""
+    return [
+        json.loads(path.read_text(encoding="utf-8")) for path in REFERENCE_CANON_PATHS
+    ]
 
 
 def _message_text(message: Any) -> str:
@@ -102,14 +121,12 @@ async def generate_canon(
     *, confirmed_brief: dict[str, Any]
 ) -> tuple[dict[str, Any], Canon]:
     """编译并确定性校验 Canon，最多让真实 LLM 修复两轮。"""
-    reference = json.loads(REFERENCE_CANON_PATH.read_text(encoding="utf-8"))
-    reserved_ids = sorted(
-        path.stem for path in REFERENCE_CANON_PATH.parent.glob("*.json")
-    )
+    reference_canons = _load_reference_canons()
+    reserved_ids = sorted(path.stem for path in CANON_DIR.glob("*.json"))
     draft = await _complete_json(
         build_canon_authoring_prompt(
             confirmed_brief=confirmed_brief,
-            reference_canon=reference,
+            reference_canons=reference_canons,
             reserved_campaign_ids=reserved_ids,
         ),
         stage="编译",

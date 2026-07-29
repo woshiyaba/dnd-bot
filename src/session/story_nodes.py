@@ -21,6 +21,7 @@ from src.dm import world_bridge
 from src.model.canon import (
     Canon,
     EndingOutcome,
+    KeyInfo,
     Trigger,
     beat_brief,
     evaluate_trigger,
@@ -88,7 +89,14 @@ def stuck_hint_for(state: DMState) -> str | None:
         parts.append(str(fb["hint"]))
     if fb.get("reveal_clue"):
         delivered = set(story.get("delivered_clues", []))
-        undelivered = [k.text for k in beat.key_info if k.id not in delivered]
+        on_win_discoveries = set(
+            beat.encounter.on_win_discoveries if beat.encounter is not None else []
+        )
+        undelivered = [
+            k.text
+            for k in beat.key_info
+            if k.id not in delivered and k.id not in on_win_discoveries
+        ]
         if undelivered:
             parts.append("主动抛出这条尚未传达的关键线索：" + undelivered[0])
     if fb.get("point_to_exit"):
@@ -119,7 +127,13 @@ async def evaluate_advancement(state: DMState) -> dict:
 
     # 先把世界写入落进 story（DM 声明 + 引擎自动写），再据此判定推进
     story, scene, party, write_events = _apply_world_writes(canon, story, state)
-    last_combat = state.get("last_combat")
+    last_combat = _combat_result_with_discoveries(
+        canon,
+        story,
+        party,
+        state,
+        state.get("last_combat"),
+    )
     messages = state.get("messages", [])
 
     target_beat_id: str | None = None
@@ -179,6 +193,7 @@ async def evaluate_advancement(state: DMState) -> dict:
             "story": story,
             "scene": scene,
             "party": party,
+            "last_combat": last_combat,
             "next_story": "advance",
             "world_writes": None,
             "story_transition": {
@@ -209,6 +224,7 @@ async def evaluate_advancement(state: DMState) -> dict:
         "story": story,
         "scene": scene,
         "party": party,
+        "last_combat": last_combat,
         "next_story": "stay",
         "world_writes": None,
         "story_transition": {"type": "stay"},
@@ -243,10 +259,11 @@ async def _condition_met(
 def _apply_world_writes(
     canon: Canon, story: dict, state: DMState
 ) -> tuple[dict, dict, dict, list[dict]]:
-    """把 DM 声明的世界写入（白名单校验）与引擎自动写落进 story，返回 ``(新 story, 事件列表)``。
+    """提交 DM 世界写入与引擎自动写，返回 story、scene、party 和事件列表。
 
     - DM 写：``flags_set``（仅 canon ``declared_flags`` 白名单内）、``moved_to``（须在本拍地点内）、``clues_delivered``。
-    - 引擎自动写：战斗胜利按本拍 ``encounter.on_win_flags`` 置 flag（§4.5）。
+    - 引擎自动写：战斗胜利按本拍 ``encounter.on_win_flags`` 置 flag，并消费
+      ``encounter.on_win_discoveries`` 中的敌人随身线索。
     """
     events: list[dict] = []
     declared = set(canon.declared_flags)
@@ -291,12 +308,19 @@ def _apply_world_writes(
 
     delivered = list(story.get("delivered_clues", []))
     current_clue_ids = {clue.id for clue in beat.key_info} if beat else set()
+    on_win_discoveries = set(
+        beat.encounter.on_win_discoveries
+        if beat is not None and beat.encounter is not None
+        else []
+    )
     for clue_id in writes.get("clues_delivered", []):
         if clue_id not in current_clue_ids:
             raise ValueError(
                 f"[story] 当前拍 «{story.get('current_beat_id')}» "
                 f"不存在可传达线索 «{clue_id}»"
             )
+        if clue_id in on_win_discoveries:
+            raise ValueError(f"[story] 战后自动线索 «{clue_id}» 不能由 DM 提前传达")
         if clue_id not in delivered:
             delivered.append(clue_id)
             events.append({"event": "clue_delivered", "clue_id": clue_id})
@@ -310,50 +334,20 @@ def _apply_world_writes(
                 raise ValueError(
                     f"[story] 当前拍 «{beat.id}» 不存在可发现线索 «{clue_id}»"
                 )
+            if clue_id in on_win_discoveries:
+                raise ValueError(f"[story] 战后自动线索 «{clue_id}» 不能由 DM 提前发现")
             if clue_id in discovered:
                 continue
-            discovered.append(clue_id)
-            effects = clue.discovery_effects or {}
-            for key, value in (effects.get("flags_set") or {}).items():
-                if key not in declared:
-                    raise ValueError(
-                        f"[story] 线索 «{clue_id}» 尝试写入未声明 flag «{key}»"
-                    )
-                flags[key] = value
-                events.append(
-                    {
-                        "event": "flag_set",
-                        "flag": key,
-                        "value": value,
-                        "by": "discovery",
-                    }
-                )
-            for grant in effects.get("grant_items", []):
-                recipient = _discovery_recipient(party, state, grant)
-                item_id = str(grant.get("item_id") or "")
-                quantity = int(grant.get("quantity", 1))
-                if recipient is None or not item_id or quantity <= 0:
-                    raise ValueError(f"[story] 线索 «{clue_id}» 的物品发放配置无效")
-                owned = next(
-                    (item for item in recipient.inventory if item.item_id == item_id),
-                    None,
-                )
-                if owned is None:
-                    recipient.inventory.append(
-                        InventoryItem(item_id=item_id, quantity=quantity)
-                    )
-                else:
-                    owned.quantity += quantity
-                events.append(
-                    {
-                        "event": "item_granted",
-                        "item_id": item_id,
-                        "quantity": quantity,
-                        "actor_id": recipient.id,
-                        "by": "discovery",
-                    }
-                )
-            events.append({"event": "clue_discovered", "clue_id": clue_id})
+            _apply_discovery_effects(
+                clue,
+                discovered=discovered,
+                flags=flags,
+                party=party,
+                state=state,
+                declared=declared,
+                events=events,
+                source="discovery",
+            )
 
     transition_to = writes.get("transition_to_beat_id")
     if transition_to:
@@ -388,7 +382,7 @@ def _apply_world_writes(
             }
         )
 
-    # 引擎自动写：战斗胜利 → on_win_flags
+    # 引擎自动写：战斗胜利 → on_win_flags + 敌人随身线索
     last_combat = state.get("last_combat") or {}
     if (
         last_combat.get("outcome") == "players_win"
@@ -402,6 +396,29 @@ def _apply_world_writes(
                 events.append(
                     {"event": "flag_set", "flag": flag, "value": True, "by": "engine"}
                 )
+        clue_by_id = {clue.id: clue for clue in beat.key_info}
+        for clue_id in beat.encounter.on_win_discoveries:
+            if clue_id not in delivered:
+                delivered.append(clue_id)
+                events.append(
+                    {
+                        "event": "clue_delivered",
+                        "clue_id": clue_id,
+                        "by": "encounter_win",
+                    }
+                )
+            if clue_id in discovered:
+                continue
+            _apply_discovery_effects(
+                clue_by_id[clue_id],
+                discovered=discovered,
+                flags=flags,
+                party=party,
+                state=state,
+                declared=declared,
+                events=events,
+                source="encounter_win",
+            )
 
     story = {
         **story,
@@ -412,6 +429,145 @@ def _apply_world_writes(
         "discovered_clues": discovered,
     }
     return story, scene, party, events
+
+
+def _apply_discovery_effects(
+    clue: KeyInfo,
+    *,
+    discovered: list[str],
+    flags: dict,
+    party: dict,
+    state: DMState,
+    declared: set[str],
+    events: list[dict],
+    source: str,
+) -> None:
+    """原子提交一次新线索及其 flag、背包效果，并记录结构化事件。"""
+    discovered.append(clue.id)
+    effects = clue.discovery_effects or {}
+    for key, value in (effects.get("flags_set") or {}).items():
+        if key not in declared:
+            raise ValueError(f"[story] 线索 «{clue.id}» 尝试写入未声明 flag «{key}»")
+        flags[key] = value
+        events.append(
+            {
+                "event": "flag_set",
+                "flag": key,
+                "value": value,
+                "by": source,
+                "clue_id": clue.id,
+            }
+        )
+    for grant in effects.get("grant_items", []):
+        recipient = _discovery_recipient(party, state, grant)
+        item_id = str(grant.get("item_id") or "")
+        quantity = int(grant.get("quantity", 1))
+        if recipient is None or not item_id or quantity <= 0:
+            raise ValueError(f"[story] 线索 «{clue.id}» 的物品发放配置无效")
+        owned = next(
+            (item for item in recipient.inventory if item.item_id == item_id),
+            None,
+        )
+        if owned is None:
+            recipient.inventory.append(
+                InventoryItem(item_id=item_id, quantity=quantity)
+            )
+        else:
+            owned.quantity += quantity
+        events.append(
+            {
+                "event": "item_granted",
+                "item_id": item_id,
+                "quantity": quantity,
+                "actor_id": recipient.id,
+                "by": source,
+                "clue_id": clue.id,
+            }
+        )
+    events.append({"event": "clue_discovered", "clue_id": clue.id, "by": source})
+
+
+def _combat_result_with_discoveries(
+    canon: Canon,
+    story: dict,
+    party: dict,
+    state: DMState,
+    last_combat: dict | None,
+) -> dict | None:
+    """把胜利后自动取得的线索正文与物品事实加入本次战斗叙述上下文。"""
+    if last_combat is None or last_combat.get("outcome") != "players_win":
+        return last_combat
+    beat = canon.beat(story.get("current_beat_id", ""))
+    if (
+        beat is None
+        or beat.encounter is None
+        or last_combat.get("encounter_id") != beat.encounter.id
+        or not beat.encounter.on_win_discoveries
+    ):
+        return last_combat
+
+    discoveries = []
+    for clue_id in beat.encounter.on_win_discoveries:
+        resolved = canon.clue(clue_id)
+        if resolved is None:
+            raise ValueError(f"[story] 战后自动线索 «{clue_id}» 不存在")
+        _, clue = resolved
+        granted_items = []
+        for grant in (clue.discovery_effects or {}).get("grant_items", []):
+            recipient = _discovery_recipient(party, state, grant)
+            if recipient is None:
+                raise ValueError(f"[story] 线索 «{clue_id}» 缺少物品接收角色")
+            granted_items.append(
+                {
+                    "item_id": str(grant.get("item_id") or ""),
+                    "quantity": int(grant.get("quantity", 1)),
+                    "actor_id": recipient.id,
+                    "actor_name": recipient.name,
+                }
+            )
+        discoveries.append(
+            {
+                "id": clue.id,
+                "text": clue.text,
+                "granted_items": granted_items,
+            }
+        )
+    return {**last_combat, "automatic_discoveries": discoveries}
+
+
+def settle_combat_victory(
+    state: DMState,
+    *,
+    story: dict,
+    scene: dict,
+    party: dict,
+    last_combat: dict,
+) -> tuple[dict, dict, dict, dict, list[dict]]:
+    """在战斗节点返回前原子提交胜利 flag 与自动线索。
+
+    返回更新后的 ``(story, scene, party, last_combat, events)``。即使战斗后需要先停下
+    处理升级，线索与背包也已经完成结算；后续推进节点重复判定时会由 discovered id 幂等跳过。
+    """
+    canon = current_canon(state)
+    if canon is None or not story:
+        return story, scene, party, last_combat, []
+    working = {
+        **state,
+        "story": story,
+        "scene": scene,
+        "party": party,
+        "last_combat": last_combat,
+        "world_writes": None,
+    }
+    story, scene, party, events = _apply_world_writes(canon, story, working)
+    last_combat = _combat_result_with_discoveries(
+        canon,
+        story,
+        party,
+        working,
+        last_combat,
+    )
+    return story, scene, party, last_combat, events
 
 
 def _discovery_recipient(party: dict, state: DMState, grant: dict):

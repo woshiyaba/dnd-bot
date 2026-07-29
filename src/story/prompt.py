@@ -273,10 +273,15 @@ CANON_AUTHORING_RULE = """你是 D&D 短篇冒险的【Canon 编译器】，不�
 }
 - ``discovery_effects`` 可省略。线索 flag 和物品只能在玩家真正发现线索后由引擎写入。
 - 不要把 ``DM 已经讲过`` 与 ``玩家已经发现/取得`` 混为一谈。
+- 敌人随身携带、击败后无需额外选择或检定即可取得的线索，仍用唯一 KeyInfo 承载正文与
+  discovery_effects，并把该 KeyInfo.id 引入同一拍 Encounter.on_win_discoveries。
+- 铭文、机关、容器、暗格、隐藏物、需要审问或鉴定的内容不得放入 on_win_discoveries；它们必须等
+  玩家实际调查、交互或完成检定后，再通过普通 discoveries 写入。
 
 【持久化效果的唯一原子入口】
 - 每个持久化 flag 与关键物品必须先选定唯一 owner，整个 Canon 中只能有一个原子写入入口。
-- 玩家通过搜索、交谈、调查或拾取得到的 flag/物品，只能由对应 KeyInfo.discovery_effects 管理；
+- 玩家通过搜索、交谈、调查、拾取或战后自动搜获得到的 flag/物品，只能由对应
+  KeyInfo.discovery_effects 管理；
   同一个 discovery 可以同时设置关联 flag 并通过 grant_items 发放物品，这属于一次合法原子写入。
 - 战斗胜利本身立即成立的 flag 只能写在对应 Encounter.on_win_flags；同一 flag 不得同时出现在
   discovery_effects.flags_set 与 on_win_flags，也不得由多个线索或多个遭遇重复管理。
@@ -302,10 +307,14 @@ CANON_AUTHORING_RULE = """你是 D&D 短篇冒险的【Canon 编译器】，不�
   "surprised": [],
   "random_seed": 1,
   "on_win_flags": ["已声明 flag"],
+  "on_win_discoveries": ["本拍中属于敌人随身物的 KeyInfo.id"],
   "loot_table": ["只用于结算展示的简短战利品文字"]
 }
 - monster_ids 至少一项。Boss 胜利条件应同时绑定 encounter_id，避免击败普通 NPC 误判通关。
 - 遭遇只引用卡面，不复制或现场生成卡面。
+- on_win_discoveries 可省略或为空；引用必须存在、属于当前拍且不得重复。它只用于敌人被击败后
+  无悬念取得的随身密信、钥匙等内容，玩家失败、撤退或战斗未结束时不会触发。
+- 环境中的铭文、机关、容器、暗格、隐藏物，以及需要审问、破解或鉴定的内容，必须保留为玩家主动探索。
 - 若后续硬门槛依赖线索或物品，必须提供世界内合理的补救路线，例如返回搜索、询问仍存 NPC、
   另一条可发现线索、替代检定或暴力开启，并在 advance_conditions / stuck_fallback 中保持一致。
 
@@ -342,13 +351,17 @@ modify_attack_bonus、move_zone、revive；世界效果只支持 set_flag、gran
 discover_clue、move_location、transition_beat 与角色 HP/状态效果。每个效果必须给出对应固定参数，
 不得使用自由文本脚本或 description-only 裁定。新物品和任务特性若要产生机械作用，必须在此定义。
 
-【从“钟楼下的低语”提炼出的结构范式】
-- opening：NPC 提供问题和行动钩子。
-- exploration：多个互通地点与 2～4 条可选线索；线索分别改变信息、物品或高潮战斗选项。
-- climax：预置 Boss 遭遇；玩家即使没有收集全部线索也可进入，只是缺少特殊优势。
-- ending_win：只由指定 Boss encounter 的 players_win 触发。
+【从两份内置 Canon 提炼出的互补结构范式】
+- opening：NPC、异象或事件提供问题和行动钩子。
+- 多地点调查范式：探索拍包含互通地点与 2～4 条可选线索；即使零线索也可进入高潮，
+  线索分别提供信息、物品或战斗优势。
+- 合理硬门槛范式：门锁、障碍等必须有明确世界事实，并同时提供任务道具、替代行动或补救路线；
+  取得敌人随身的任务道具可通过同拍 on_win_discoveries 自动结算，环境线索仍需主动探索。
+- exploration 拍可以包含预置小遭遇；Beat.kind 表示剧情功能，不等于禁止战斗。
+- climax：预置 Boss 遭遇，全局胜利条件绑定指定 encounter 的 players_win。
 - ending_lose：由队伍 players_lose 触发，并保留实际失败场景。
-- 这是结构范式，不得复制钟楼、赫尔薇、圣水或任何示例专有名词，除非玩家大纲本身要求。
+- 这些只是互补结构范式，不得复制钟楼、浪子、NPC、道具、谜底或其它示例专有内容，
+  除非玩家已确认的设计稿本身要求。
 
 【提交前自检】
 1. start_beat_id 存在。
@@ -416,7 +429,7 @@ def validate_confirmed_design_brief(design_brief: dict[str, Any]) -> list[str]:
 def build_canon_authoring_prompt(
     *,
     confirmed_brief: dict[str, Any],
-    reference_canon: dict[str, Any] | None = None,
+    reference_canons: list[dict[str, Any]] | None = None,
     reserved_campaign_ids: list[str] | None = None,
 ) -> str:
     """构造 Canon 编译任务；没有玩家明确确认的设计稿时拒绝进入编译阶段。"""
@@ -428,16 +441,17 @@ def build_canon_authoring_prompt(
         "【玩家已确认的设计稿】以下内容是唯一创作方向，不得擅自改变大方向：\n"
         f"<confirmed_design_brief>{json.dumps(confirmed_brief, ensure_ascii=False)}</confirmed_design_brief>",
     ]
-    if reference_canon is not None:
-        example = json.dumps(
-            reference_canon,
+    if reference_canons:
+        examples = json.dumps(
+            reference_canons,
             ensure_ascii=False,
             separators=(",", ":"),
         )
         sections.append(
-            "【合法 Canon 结构参考】下面的 JSON 只用于学习字段组织和引用闭合，"
-            "不得无故复制其剧情内容、专有名词或数值：\n"
-            f"<reference_canon>{example}</reference_canon>"
+            "【合法 Canon 双参考】下面的 JSON 数组展示两种互补的合法结构，"
+            "只用于学习当前字段组织、规则边界和引用闭合。不得无故复制剧情内容、"
+            "专有名词或数值；若样例与上方规则冲突，以上方规则为准：\n"
+            f"<reference_canons>{examples}</reference_canons>"
         )
     if reserved_campaign_ids:
         sections.append(
@@ -456,7 +470,8 @@ def build_canon_repair_prompt(
     return (
         "下面的 Canon 草稿未通过确定性校验。只修复列出的结构问题，保留玩家的主题、"
         "角色关系和核心冲突。修复持久化效果冲突时，必须为每个 flag/item_id 保留唯一原子 owner："
-        "调查所得放在唯一 discovery_effects，战斗胜利所得放在唯一 on_win_flags，"
+        "调查与战后自动搜获所得都放在唯一 discovery_effects；只有胜利本身即成立的 flag "
+        "放在唯一 on_win_flags，敌人随身线索由同拍 on_win_discoveries 引用，"
         "loot_table 只作文字展示、不能代替 grant_items。返回修复后的完整 JSON 对象，不要解释。\n"
         f"<validation_errors>{json.dumps(validation_errors, ensure_ascii=False)}</validation_errors>\n"
         f"<canon_draft>{json.dumps(draft, ensure_ascii=False)}</canon_draft>"

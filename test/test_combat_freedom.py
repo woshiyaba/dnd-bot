@@ -175,6 +175,7 @@ class CombatFreedomTests(unittest.TestCase):
             "discovered_clues": [],
         }
         state = {
+            "campaign_id": self.canon.campaign_id,
             "scene": scene,
             "party": {player.id: player},
             "active_actor_id": player.id,
@@ -211,10 +212,10 @@ class CombatFreedomTests(unittest.TestCase):
                 summit_brief,
             )
 
-    def test_legacy_win_flag_does_not_hide_undiscovered_key_source(self):
-        legacy = get_registry().get("prodigal_return_quest")
+    def test_on_win_discovery_is_reserved_even_with_legacy_flag(self):
+        canon = get_registry().get("prodigal_return_quest")
         brief = beat_brief(
-            legacy,
+            canon,
             {
                 "current_beat_id": "gate_exploration",
                 "flags": {"key_obtained": True},
@@ -223,53 +224,146 @@ class CombatFreedomTests(unittest.TestCase):
             },
         )
 
-        corpse_note = next(
-            clue
-            for clue in brief["available_discoveries"]
-            if clue["id"] == "clue_corpse_note"
+        self.assertNotIn(
+            "clue_corpse_note",
+            {clue["id"] for clue in brief["available_discoveries"]},
         )
-        self.assertEqual(
-            corpse_note["discovery_effects"]["grant_items"][0]["item_id"],
-            "item_copper_key",
+        self.assertNotIn(
+            "clue_corpse_note",
+            brief["allowed_discovery_clue_ids"],
         )
-        self.assertEqual(
+        self.assertNotIn(
+            "clue_corpse_note",
+            brief["allowed_delivery_clue_ids"],
+        )
+        self.assertFalse(
+            any("黑风宗密信" in clue for clue in brief["undelivered_clues"])
+        )
+        with self.assertRaises(world_bridge.WorldStateDecisionError):
             world_bridge._world_writes(
-                {
-                    "discoveries": ["clue_corpse_note"],
-                    "moved_to": "inscription_hall",
-                },
+                {"discoveries": ["clue_corpse_note"]},
                 brief,
-            ),
-            {
-                "discoveries": ["clue_corpse_note"],
-                "moved_to": "inscription_hall",
-            },
-        )
+            )
 
+    def test_victory_atomically_discovers_enemy_possessions_and_is_idempotent(self):
+        canon = get_registry().get("prodigal_return_quest")
+        beat = canon.beat("gate_exploration")
+        scene = build_beat_scene(canon, beat)
         player = self._player()
         story = {
-            "current_beat_id": "gate_exploration",
-            "current_location_id": "ruined_gate",
-            "visited_locations": ["ruined_gate"],
-            "flags": {"key_obtained": True},
+            "current_beat_id": beat.id,
+            "current_location_id": scene["location_id"],
+            "visited_locations": [scene["location_id"]],
+            "flags": {},
             "delivered_clues": [],
             "discovered_clues": [],
         }
-        updated_story, _scene, _party, _events = story_nodes._apply_world_writes(
-            legacy,
-            story,
-            {
-                "scene": build_beat_scene(
-                    legacy,
-                    legacy.beat("gate_exploration"),
-                ),
-                "party": {player.id: player},
-                "active_actor_id": player.id,
-                "world_writes": {"discoveries": ["clue_corpse_note"]},
+        state = {
+            "campaign_id": canon.campaign_id,
+            "scene": scene,
+            "party": {player.id: player},
+            "active_actor_id": player.id,
+            "last_combat": {
+                "outcome": "players_win",
+                "encounter_id": beat.encounter.id,
             },
+        }
+
+        updated_story, _, _, combat_context, events = story_nodes.settle_combat_victory(
+            state,
+            story=story,
+            scene=scene,
+            party=state["party"],
+            last_combat=state["last_combat"],
         )
-        self.assertIn("clue_corpse_note", updated_story["discovered_clues"])
+
+        self.assertEqual(updated_story["discovered_clues"], ["clue_corpse_note"])
+        self.assertEqual(updated_story["delivered_clues"], ["clue_corpse_note"])
+        self.assertTrue(updated_story["flags"]["key_obtained"])
         self.assertEqual(player.inventory[0].item_id, "item_copper_key")
+        self.assertEqual(player.inventory[0].quantity, 1)
+        self.assertTrue(
+            any(
+                event.get("event") == "clue_discovered"
+                and event.get("by") == "encounter_win"
+                for event in events
+            )
+        )
+        self.assertIn("黑风宗密信", combat_context["automatic_discoveries"][0]["text"])
+        self.assertEqual(
+            combat_context["automatic_discoveries"][0]["granted_items"][0]["item_id"],
+            "item_copper_key",
+        )
+
+        repeated_story, _, _, _, repeated_events = story_nodes.settle_combat_victory(
+            state,
+            story=updated_story,
+            scene=scene,
+            party=state["party"],
+            last_combat=state["last_combat"],
+        )
+        self.assertEqual(repeated_story["discovered_clues"], ["clue_corpse_note"])
+        self.assertEqual(player.inventory[0].quantity, 1)
+        self.assertEqual(repeated_events, [])
+
+    def test_non_victory_does_not_discover_enemy_possessions_or_environment(self):
+        canon = get_registry().get("prodigal_return_quest")
+        beat = canon.beat("gate_exploration")
+        scene = build_beat_scene(canon, beat)
+        player = self._player()
+        story = {
+            "current_beat_id": beat.id,
+            "current_location_id": scene["location_id"],
+            "visited_locations": [scene["location_id"]],
+            "flags": {},
+            "delivered_clues": [],
+            "discovered_clues": [],
+        }
+        state = {
+            "campaign_id": canon.campaign_id,
+            "scene": scene,
+            "party": {player.id: player},
+            "active_actor_id": player.id,
+            "last_combat": {
+                "outcome": "players_lose",
+                "encounter_id": beat.encounter.id,
+            },
+        }
+
+        failed_story, _, _, _, events = story_nodes.settle_combat_victory(
+            state,
+            story=story,
+            scene=scene,
+            party=state["party"],
+            last_combat=state["last_combat"],
+        )
+        self.assertEqual(failed_story["discovered_clues"], [])
+        self.assertEqual(player.inventory, [])
+        self.assertEqual(events, [])
+
+        state["last_combat"]["outcome"] = "players_win"
+        won_story, _, _, _, _ = story_nodes.settle_combat_victory(
+            state,
+            story=story,
+            scene=scene,
+            party=state["party"],
+            last_combat=state["last_combat"],
+        )
+        self.assertNotIn("clue_sigil_frost", won_story["discovered_clues"])
+        self.assertFalse(
+            any(item.item_id == "item_frost_talisman" for item in player.inventory)
+        )
+
+        with self.assertRaises(ValueError):
+            story_nodes._apply_world_writes(
+                canon,
+                story,
+                {
+                    **state,
+                    "last_combat": None,
+                    "world_writes": {"discoveries": ["clue_corpse_note"]},
+                },
+            )
 
 
 class TransitionWriteValidationTests(unittest.IsolatedAsyncioTestCase):

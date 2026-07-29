@@ -194,6 +194,23 @@ class StoryContinuityTests(unittest.TestCase):
 
         self.assertIn("关键 NPC «elder_marlon» 缺少 death_fallback", errors)
 
+    def test_discovered_clue_text_survives_across_beats(self):
+        """DM 画像应持续携带已发现正文，但不泄露当前拍未发现的环境线索。"""
+        canon = get_registry().get("prodigal_return_quest")
+        brief = beat_brief(
+            canon,
+            {
+                "current_beat_id": "chamber_climax",
+                "flags": {"key_obtained": True},
+                "delivered_clues": ["clue_corpse_note"],
+                "discovered_clues": ["clue_corpse_note"],
+            },
+        )
+
+        self.assertEqual(brief["known_clues"][0]["id"], "clue_corpse_note")
+        self.assertIn("黑风宗密信", brief["known_clues"][0]["text"])
+        self.assertNotIn("clue_sigil_frost", brief["discovered_clue_ids"])
+
 
 class NarrativeIntentTests(unittest.IsolatedAsyncioTestCase):
     """验证 DM 的小心思被保留，但最终提示仍受规则与 canon 约束。"""
@@ -231,7 +248,16 @@ class NarrativeIntentTests(unittest.IsolatedAsyncioTestCase):
                 reply_brief=None,
                 narrative_intent="让断裂钟绳像未说完的话一样轻摆",
                 last_check=None,
-                last_combat={"outcome": "players_win"},
+                last_combat={
+                    "outcome": "players_win",
+                    "automatic_discoveries": [
+                        {
+                            "id": "clue_corpse_note",
+                            "text": "黑风宗密信说明他们打算用火攻压制火蟒。",
+                            "granted_items": [{"item_id": "item_copper_key"}],
+                        }
+                    ],
+                },
                 previous_scene=None,
                 scene={"location": "废村·钟楼前厅", "actors": []},
                 beat_brief=context,
@@ -245,6 +271,9 @@ class NarrativeIntentTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("critical_npc_deaths", task)
         self.assertIn("死者不得重新行动或说话", task)
         self.assertIn("不能仅靠叙述自动授予线索 flag", task)
+        self.assertIn("黑风宗密信", task)
+        self.assertIn("item_copper_key", task)
+        self.assertNotIn("最后一句必须以", task)
 
     def test_decision_normalizes_optional_narrative_intent(self):
         """三类 DM 决策共用的隐藏叙事意图应通过规范化边界。"""

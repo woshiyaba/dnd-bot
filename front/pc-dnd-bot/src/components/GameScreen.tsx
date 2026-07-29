@@ -12,7 +12,7 @@ import type {
 import { CharacterAvatar, CharacterCard } from './CharacterCard'
 import { diceTypeForExpression } from '../utils/dice'
 
-type DockTab = 'chat' | 'dice' | 'action' | 'party'
+type DockTab = 'chat' | 'dice' | 'action' | 'party' | 'clues'
 
 type GameScreenProps = {
   credential: RoomCredential
@@ -332,6 +332,7 @@ function AdventureRoom({
         <CommandDrawer
           activeTab={activeTab}
           isBusy={isBusy}
+          clues={session.clues}
           me={me}
           party={party}
           pending={pending}
@@ -442,6 +443,7 @@ function BottomDock({
           onClick={() => onSelect('action')}
         />
         <DockButton active={activeTab === 'party'} icon="♟" label="队伍" onClick={() => onSelect('party')} />
+        <DockButton active={activeTab === 'clues'} icon="⌘" label="线索" onClick={() => onSelect('clues')} />
       </nav>
     </footer>
   )
@@ -539,6 +541,7 @@ function LevelUpDialog({
 
 function CommandDrawer({
   activeTab,
+  clues,
   me,
   party,
   pending,
@@ -550,6 +553,7 @@ function CommandDrawer({
   onInteractionRoll,
 }: {
   activeTab: DockTab
+  clues: SessionView['clues']
   me: CharacterView
   party: CharacterView[]
   pending?: PendingInteraction
@@ -560,18 +564,20 @@ function CommandDrawer({
   onFreeRoll: (diceType: DiceType) => Promise<void>
   onInteractionRoll: (diceType: DiceType, expression: string) => Promise<void>
 }) {
+  const heading =
+    activeTab === 'dice'
+      ? ['命运之骰', '选择一颗骰子，结果由服务器裁定']
+      : activeTab === 'action'
+        ? ['行动选择', pending?.prompt ?? '现在没有需要声明的行动']
+        : activeTab === 'clues'
+          ? ['线索手记', clues.length ? `已记录 ${clues.length} 条已知线索` : '尚未记录已知线索']
+          : ['冒险队伍', `${party.length} 名冒险者正在同行`]
   return (
     <section className="command-drawer">
       <div className="drawer-heading">
         <div>
-          <span>{activeTab === 'dice' ? '命运之骰' : activeTab === 'action' ? '行动选择' : '冒险队伍'}</span>
-          <strong>
-            {activeTab === 'dice'
-              ? '选择一颗骰子，结果由服务器裁定'
-              : activeTab === 'action'
-                ? pending?.prompt ?? '现在没有需要声明的行动'
-                : `${party.length} 名冒险者正在同行`}
-          </strong>
+          <span>{heading[0]}</span>
+          <strong>{heading[1]}</strong>
         </div>
         <button onClick={onClose} type="button" aria-label="关闭面板">×</button>
       </div>
@@ -589,6 +595,8 @@ function CommandDrawer({
           worldActions={worldActions}
           onAction={onAction}
         />
+      ) : activeTab === 'clues' ? (
+        <CluePanel clues={clues} />
       ) : (
         <div className="drawer-party">
           {party.map((character) => (
@@ -598,6 +606,22 @@ function CommandDrawer({
       )}
       <div className="drawer-owner">当前角色 · {me.name}</div>
     </section>
+  )
+}
+
+function CluePanel({ clues }: { clues: SessionView['clues'] }) {
+  if (clues.length === 0) {
+    return <p className="drawer-empty">尚未发现线索。继续观察、交谈或调查，重要发现会记录在这里。</p>
+  }
+  return (
+    <ol className="clue-list">
+      {clues.map((clue, index) => (
+        <li key={clue.id}>
+          <span>{String(index + 1).padStart(2, '0')}</span>
+          <p>{clue.text}</p>
+        </li>
+      ))}
+    </ol>
   )
 }
 

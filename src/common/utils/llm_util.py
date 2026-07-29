@@ -10,7 +10,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import MemorySaver
 
 load_dotenv()
-DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "deepseek-v4-flash")
+DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "deepseek-v4-pro")
 DEFAULT_BASE_URL = os.getenv(
     "DEFAULT_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"
 )

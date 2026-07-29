@@ -19,6 +19,7 @@ from src.model.combatant import Monster, PlayerCharacter
 from src.services.room_service import GameRoom, RoomMember
 from src.services.session_service import session_service
 from src.session.engine import SessionEngine
+from src.story.loader import get_registry
 
 
 class _FakeGraph:
@@ -135,6 +136,42 @@ class SessionPayloadTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(fake_engine.resume_value["source"], "virtual")
         self.assertGreaterEqual(roll.total, 1)
         self.assertLessEqual(roll.total, 20)
+
+    async def test_session_view_only_projects_discovered_clues(self):
+        get_registry().load_all()
+        member = _member()
+        room = GameRoom(
+            room_code="ROOM02",
+            campaign_id="prodigal_return_quest",
+            status="playing",
+            members={member.user_id: member},
+        )
+        payload = {
+            "status": "awaiting_input",
+            "state": {
+                "campaign_id": room.campaign_id,
+                "messages": [],
+                "scene": {},
+                "party": {},
+                "story": {
+                    "current_beat_id": "gate_exploration",
+                    "discovered_clues": [
+                        "clue_corpse_note",
+                        "clue_elder_weakness",
+                    ],
+                },
+            },
+        }
+
+        view = session_service.session_view(room, member, payload)
+        serialized = view.model_dump_json()
+
+        self.assertEqual(
+            [clue.id for clue in view.clues],
+            ["clue_corpse_note", "clue_elder_weakness"],
+        )
+        self.assertIn("黑风宗密信", view.clues[0].text)
+        self.assertNotIn("寒冰浮雕", serialized)
 
 
 class ResumeValidationTests(unittest.TestCase):

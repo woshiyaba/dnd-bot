@@ -194,12 +194,17 @@ class Encounter:
         default_factory=list
     )  # 参战的敌方在场者 actor_id（卡面在 entry_state.actors 里）
     surprised: list[str] = field(default_factory=list)  # 被突袭者 id
-    loot_table: list[Any] = field(default_factory=list)  # 战利品表（玩家胜利时发放）
+    loot_table: list[Any] = field(
+        default_factory=list
+    )  # 胜利结算展示摘要（不写入背包）
     xp_reward: int = 0  # 玩家胜利时每位参战角色获得的完整经验
     random_seed: int | None = None  # 可复现随机源
     on_win_flags: list[str] = field(
         default_factory=list
     )  # 玩家胜利时引擎自动写入的 flag（须在白名单内）
+    on_win_discoveries: list[str] = field(
+        default_factory=list
+    )  # 击败敌人后可无障碍取得的本拍线索 id
 
     @classmethod
     def from_dict(cls, data: dict) -> "Encounter":
@@ -213,6 +218,7 @@ class Encounter:
             xp_reward=max(0, int(data.get("xp_reward", 0))),
             random_seed=int(seed) if seed is not None else None,
             on_win_flags=list(data.get("on_win_flags", [])),
+            on_win_discoveries=list(data.get("on_win_discoveries", [])),
         )
 
 
@@ -312,6 +318,14 @@ class Canon:
         for beat in self.beats:
             if beat.encounter is not None and beat.encounter.id == encounter_id:
                 return beat, beat.encounter
+        return None
+
+    def clue(self, clue_id: str) -> tuple[Beat, KeyInfo] | None:
+        """按 id 取关键线索及其所属剧情拍。"""
+        for beat in self.beats:
+            for clue in beat.key_info:
+                if clue.id == clue_id:
+                    return beat, clue
         return None
 
     def location(self, location_id: str) -> LocationSpec | None:
@@ -462,8 +476,16 @@ def beat_brief(canon: Canon, story: dict) -> dict | None:
         return None
 
     delivered = set(story.get("delivered_clues", []))
-    undelivered = [k.text for k in beat.key_info if k.id not in delivered]
-    discovered = set(story.get("discovered_clues", []))
+    discovered_ids = list(story.get("discovered_clues", []))
+    discovered = set(discovered_ids)
+    on_win_discoveries = set(
+        beat.encounter.on_win_discoveries if beat.encounter is not None else []
+    )
+    undelivered = [
+        k.text
+        for k in beat.key_info
+        if k.id not in delivered and k.id not in on_win_discoveries
+    ]
     available_discoveries = [
         {
             "id": clue.id,
@@ -471,8 +493,15 @@ def beat_brief(canon: Canon, story: dict) -> dict | None:
             "discovery_effects": dict(clue.discovery_effects or {}),
         }
         for clue in beat.key_info
-        if clue.id not in discovered
+        if clue.id not in discovered and clue.id not in on_win_discoveries
     ]
+    known_clues = []
+    for clue_id in discovered_ids:
+        resolved = canon.clue(clue_id)
+        if resolved is None:
+            continue
+        _, clue = resolved
+        known_clues.append({"id": clue.id, "text": clue.text})
     removed = set(story.get("removed_actor_ids", []))
 
     # 在场 NPC：entry_state.actors 里能在 cast 中找到册页的，连同目标/秘密一并给 DM（仅供把控方向）
@@ -524,6 +553,7 @@ def beat_brief(canon: Canon, story: dict) -> dict | None:
         "locations": locations,
         "undelivered_clues": undelivered,
         "available_discoveries": available_discoveries,
+        "known_clues": known_clues,
         "current_flags": dict(story.get("flags", {})),
         "delivered_clue_ids": sorted(delivered),
         "discovered_clue_ids": sorted(discovered),
@@ -534,10 +564,14 @@ def beat_brief(canon: Canon, story: dict) -> dict | None:
         ],
         "allowed_flags": list(canon.declared_flags),
         "allowed_delivery_clue_ids": [
-            clue.id for clue in beat.key_info if clue.id not in delivered
+            clue.id
+            for clue in beat.key_info
+            if clue.id not in delivered and clue.id not in on_win_discoveries
         ],
         "allowed_discovery_clue_ids": [
-            clue.id for clue in beat.key_info if clue.id not in discovered
+            clue.id
+            for clue in beat.key_info
+            if clue.id not in discovered and clue.id not in on_win_discoveries
         ],
         "managed_flag_sources": managed_flag_sources(canon),
         "reachable_transitions": [
@@ -721,6 +755,28 @@ def validate_canon(canon: Canon) -> list[str]:
                 if flag not in declared:
                     errors.append(
                         f"拍 «{beat.id}» 遭遇胜利写入的 flag «{flag}» 不在 declared_flags 白名单内"
+                    )
+            current_clue_ids = {clue.id for clue in beat.key_info}
+            seen_on_win_discoveries: set[str] = set()
+            for clue_id in beat.encounter.on_win_discoveries:
+                if clue_id in seen_on_win_discoveries:
+                    errors.append(
+                        f"拍 «{beat.id}» 遭遇 «{beat.encounter.id}» 的 "
+                        f"on_win_discoveries 重复引用线索 «{clue_id}»"
+                    )
+                    continue
+                seen_on_win_discoveries.add(clue_id)
+                resolved = canon.clue(clue_id)
+                if resolved is None:
+                    errors.append(
+                        f"拍 «{beat.id}» 遭遇 «{beat.encounter.id}» 的 "
+                        f"on_win_discoveries 引用了不存在的线索 «{clue_id}»"
+                    )
+                elif clue_id not in current_clue_ids:
+                    owner_beat, _ = resolved
+                    errors.append(
+                        f"拍 «{beat.id}» 遭遇 «{beat.encounter.id}» 的 "
+                        f"on_win_discoveries 线索 «{clue_id}» 属于另一拍 «{owner_beat.id}»"
                     )
             actor_entries = {
                 actor.get("actor_id") or actor.get("npc_ref"): actor

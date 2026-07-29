@@ -196,6 +196,7 @@ export type SessionView = {
   party: CharacterView[]
   enemies: CharacterView[]
   available_actions: RuleActionEntry[]
+  clues: Array<{ id: string; text: string }>
   timeline: TimelineEntry[]
   pending_interaction?: PendingInteraction
   recent_resolution: {

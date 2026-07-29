@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from src.app import app
 from src.model.canon import Canon, validate_authored_canon, validate_canon
 from src.services.story_service import StoryService
+import src.story.generator as story_generator
 from src.story.loader import CanonRegistry
 from src.story.generator import StoryGenerationError, _canon_errors, continue_interview
 
@@ -112,9 +113,103 @@ class StoryApiTests(unittest.TestCase):
         self.assertEqual(validate_canon(canon), [])
         self.assertEqual(validate_authored_canon(canon), [])
 
+    def test_on_win_discoveries_must_reference_unique_clues_in_same_beat(self):
+        raw, _canon = _generated_canon()
+        ruined = next(beat for beat in raw["beats"] if beat["id"] == "ruined_village")
+        summit = next(
+            beat for beat in raw["beats"] if beat["id"] == "bell_tower_summit"
+        )
+        local_clue_id = ruined["key_info"][0]["id"]
+        summit_clue_id = summit["key_info"][0]["id"]
+
+        ruined["encounter"] = {
+            "id": "ruined_village_encounter",
+            "monster_ids": ["priest_eda"],
+            "on_win_discoveries": [local_clue_id],
+        }
+        self.assertEqual(validate_canon(Canon.from_dict(raw)), [])
+
+        ruined["encounter"]["on_win_discoveries"] = [
+            summit_clue_id,
+            "clue_missing",
+            local_clue_id,
+            local_clue_id,
+        ]
+        errors = validate_canon(Canon.from_dict(raw))
+
+        self.assertTrue(any("属于另一拍" in error for error in errors))
+        self.assertTrue(any("不存在的线索" in error for error in errors))
+        self.assertTrue(any("重复引用线索" in error for error in errors))
+
 
 class StoryGeneratorTests(unittest.IsolatedAsyncioTestCase):
     """确认模型输出损坏时显式失败，不创建假故事。"""
+
+    def test_both_live_canons_are_loaded_as_generation_references(self):
+        references = story_generator._load_reference_canons()
+
+        self.assertEqual(
+            [reference["campaign_id"] for reference in references],
+            ["prodigal_return_quest", "whispers_bell_tower"],
+        )
+        prodigal_exploration = next(
+            beat for beat in references[0]["beats"] if beat["id"] == "gate_exploration"
+        )
+        self.assertEqual(
+            prodigal_exploration["encounter"]["on_win_discoveries"],
+            ["clue_corpse_note"],
+        )
+
+    def test_generation_reloads_reference_canons_from_disk(self):
+        with tempfile.TemporaryDirectory() as directory:
+            first_path = Path(directory) / "first.json"
+            second_path = Path(directory) / "second.json"
+            first_path.write_text(
+                json.dumps({"campaign_id": "first", "revision": 1}),
+                encoding="utf-8",
+            )
+            second_path.write_text(
+                json.dumps({"campaign_id": "second"}),
+                encoding="utf-8",
+            )
+
+            with patch.object(
+                story_generator,
+                "REFERENCE_CANON_PATHS",
+                (first_path, second_path),
+            ):
+                initial = story_generator._load_reference_canons()
+                first_path.write_text(
+                    json.dumps({"campaign_id": "first", "revision": 2}),
+                    encoding="utf-8",
+                )
+                reloaded = story_generator._load_reference_canons()
+
+        self.assertEqual(initial[0]["revision"], 1)
+        self.assertEqual(reloaded[0]["revision"], 2)
+
+    async def test_story_generation_uses_dedicated_model(self):
+        previous_model = story_generator._model
+        story_generator._model = None
+        model = object()
+        try:
+            with patch(
+                "src.story.generator.create_chat_model",
+                return_value=model,
+            ) as create_model:
+                resolved = await story_generator._get_model()
+
+            self.assertIs(resolved, model)
+            self.assertEqual(
+                story_generator.DEFAULT_STORY_GENERATION_MODEL,
+                "deepseek-v4-pro",
+            )
+            create_model.assert_called_once_with(
+                model=story_generator.STORY_GENERATION_MODEL,
+                enable_search=False,
+            )
+        finally:
+            story_generator._model = previous_model
 
     async def test_invalid_llm_json_fails_explicitly(self):
         model = AsyncMock()

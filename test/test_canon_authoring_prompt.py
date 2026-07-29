@@ -50,6 +50,7 @@ class CanonAuthoringPromptTests(unittest.TestCase):
             "recommended_player_count",
             "content_warnings",
             "唯一原子入口",
+            "on_win_discoveries",
             "loot_table 只是战斗结算时展示",
             "补救路线",
         ):
@@ -85,21 +86,26 @@ class CanonAuthoringPromptTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             build_canon_authoring_prompt(confirmed_brief=stale)
 
-    def test_current_canon_can_be_attached_as_structural_reference(self):
-        path = Path("canon/whispers_bell_tower.json")
-        raw = json.loads(path.read_text(encoding="utf-8"))
+    def test_current_canons_can_be_attached_as_complementary_references(self):
+        paths = [
+            Path("canon/prodigal_return_quest.json"),
+            Path("canon/whispers_bell_tower.json"),
+        ]
+        references = [json.loads(path.read_text(encoding="utf-8")) for path in paths]
         prompt = build_canon_authoring_prompt(
             confirmed_brief=_CONFIRMED_BRIEF,
-            reference_canon=raw,
+            reference_canons=references,
         )
 
         self.assertIn("<confirmed_design_brief>", prompt)
-        self.assertIn("<reference_canon>", prompt)
+        self.assertIn("<reference_canons>", prompt)
+        self.assertIn('"campaign_id":"prodigal_return_quest"', prompt)
         self.assertIn('"campaign_id":"whispers_bell_tower"', prompt)
-        self.assertIn("不得无故复制其剧情内容", prompt)
+        self.assertIn("两种互补的合法结构", prompt)
+        self.assertIn("不得无故复制剧情内容", prompt)
         self.assertEqual(
-            load_canon_file(path).campaign_id,
-            "whispers_bell_tower",
+            [load_canon_file(path).campaign_id for path in paths],
+            ["prodigal_return_quest", "whispers_bell_tower"],
         )
 
     def test_reserved_campaign_ids_are_given_to_author(self):

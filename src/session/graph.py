@@ -257,6 +257,15 @@ async def run_combat(state: DMState) -> dict:
 
     casualty_ids = {c["id"] for c in last_combat.get("casualties", [])}
     scene, story, death_events = _fold_world_casualties(state, casualty_ids)
+    story, scene, party, last_combat, settlement_events = (
+        story_nodes.settle_combat_victory(
+            state,
+            story=story,
+            scene=scene,
+            party=party,
+            last_combat=last_combat,
+        )
+    )
 
     logger.info(
         "[run_combat] 战斗结束 | outcome=%s 伤亡=%d",
@@ -289,7 +298,7 @@ async def run_combat(state: DMState) -> dict:
             }
         )
     campaign_log = log_event(state, {"event": "combat", **last_combat})
-    for event in death_events:
+    for event in [*death_events, *settlement_events]:
         campaign_log = log_event({"campaign_log": campaign_log}, event)
     return {
         "party": party,
