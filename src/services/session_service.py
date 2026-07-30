@@ -168,6 +168,8 @@ class SessionService:
                 modifier=result.modifier,
                 total=result.total,
             )
+            # 骰值由引擎生成后立即公开，避免后续 LLM 叙述阻塞前端骰子动画。
+            await self.broadcast_roll(room, roll)
             resume_value = (
                 {"result": result.total, "source": "virtual"}
                 if kind

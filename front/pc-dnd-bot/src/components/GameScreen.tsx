@@ -10,7 +10,6 @@ import type {
   SessionView,
 } from '../types/game'
 import { CharacterAvatar, CharacterCard } from './CharacterCard'
-import { diceTypeForExpression } from '../utils/dice'
 
 type DockTab = 'chat' | 'dice' | 'action' | 'party' | 'clues'
 
@@ -20,14 +19,14 @@ type GameScreenProps = {
   session: SessionView | null
   streamText: string
   isBusy: boolean
+  isDmThinking: boolean
   isConnected: boolean
   error: string
   onStart: () => Promise<void>
   onMessage: (content: string) => Promise<void>
   onAction: (action: Record<string, unknown>) => Promise<void>
   onLevelUp: (increases: Record<string, number>) => Promise<void>
-  onInteractionRoll: (diceType: DiceType, expression: string) => Promise<void>
-  onFreeRoll: (diceType: DiceType) => Promise<void>
+  onFreeRoll: (diceType: DiceType) => void
   onLeave: () => void
 }
 
@@ -137,11 +136,11 @@ function AdventureRoom({
   session,
   streamText,
   isBusy,
+  isDmThinking,
   isConnected,
   error,
   onMessage,
   onAction,
-  onInteractionRoll,
   onFreeRoll,
   onLevelUp,
   onLeave,
@@ -184,12 +183,19 @@ function AdventureRoom({
       top: timelineRef.current.scrollHeight,
       behavior: 'smooth',
     })
-  }, [session.timeline, streamText])
+  }, [isDmThinking, session.timeline, streamText])
 
   useEffect(() => {
-    if (!pending?.is_yours) return
-    setActiveTab(pending.interrupt_type === 'declare_action' ? 'action' : 'dice')
+    if (pending?.is_yours && pending.interrupt_type === 'declare_action') {
+      setActiveTab('action')
+    }
   }, [pending])
+
+  useEffect(() => {
+    if (activeTab === 'clues' && session.clues.length === 0) {
+      setActiveTab('chat')
+    }
+  }, [activeTab, session.clues.length])
 
   function selectTab(tab: DockTab) {
     setActiveTab(tab)
@@ -275,7 +281,7 @@ function AdventureRoom({
               <span>{session.timeline.length} 条记录</span>
             </div>
             <div className="timeline" ref={timelineRef}>
-              {session.timeline.length === 0 && !streamText ? (
+              {session.timeline.length === 0 && !streamText && !isDmThinking ? (
                 <div className="empty-story">
                   <span>✦</span>
                   <strong>火把刚刚点亮</strong>
@@ -296,6 +302,19 @@ function AdventureRoom({
                 <article className="story-message role-dm streaming">
                   <span>地下城主</span>
                   <p>{streamText}</p>
+                </article>
+              ) : null}
+              {isDmThinking && !streamText ? (
+                <article className="story-message role-dm dm-thinking-message">
+                  <span>地下城主</span>
+                  <p>
+                    <i className="thinking-dots" aria-hidden="true">
+                      <b />
+                      <b />
+                      <b />
+                    </i>
+                    地下城主正在思考…
+                  </p>
                 </article>
               ) : null}
             </div>
@@ -340,7 +359,6 @@ function AdventureRoom({
           onAction={onAction}
           onClose={() => setActiveTab('chat')}
           onFreeRoll={onFreeRoll}
-          onInteractionRoll={onInteractionRoll}
         />
       ) : null}
 
@@ -349,6 +367,7 @@ function AdventureRoom({
           activeTab={activeTab}
           me={me}
           pending={pending}
+          hasClues={session.clues.length > 0}
           onSelect={selectTab}
         />
       ) : null}
@@ -389,11 +408,13 @@ function BottomDock({
   me,
   activeTab,
   pending,
+  hasClues,
   onSelect,
 }: {
   me: CharacterView
   activeTab: DockTab
   pending?: PendingInteraction
+  hasClues: boolean
   onSelect: (tab: DockTab) => void
 }) {
   const hpPercent = Math.max(0, (me.current_hp / Math.max(me.max_hp, 1)) * 100)
@@ -443,7 +464,9 @@ function BottomDock({
           onClick={() => onSelect('action')}
         />
         <DockButton active={activeTab === 'party'} icon="♟" label="队伍" onClick={() => onSelect('party')} />
-        <DockButton active={activeTab === 'clues'} icon="⌘" label="线索" onClick={() => onSelect('clues')} />
+        {hasClues ? (
+          <DockButton active={activeTab === 'clues'} icon="⌘" label="线索" onClick={() => onSelect('clues')} />
+        ) : null}
       </nav>
     </footer>
   )
@@ -550,7 +573,6 @@ function CommandDrawer({
   onClose,
   onAction,
   onFreeRoll,
-  onInteractionRoll,
 }: {
   activeTab: DockTab
   clues: SessionView['clues']
@@ -561,8 +583,7 @@ function CommandDrawer({
   isBusy: boolean
   onClose: () => void
   onAction: (action: Record<string, unknown>) => Promise<void>
-  onFreeRoll: (diceType: DiceType) => Promise<void>
-  onInteractionRoll: (diceType: DiceType, expression: string) => Promise<void>
+  onFreeRoll: (diceType: DiceType) => void
 }) {
   const heading =
     activeTab === 'dice'
@@ -584,9 +605,7 @@ function CommandDrawer({
       {activeTab === 'dice' ? (
         <DiceTray
           disabled={isBusy}
-          pending={pending}
           onFreeRoll={onFreeRoll}
-          onInteractionRoll={onInteractionRoll}
         />
       ) : activeTab === 'action' ? (
         <ActionPanel
@@ -626,36 +645,15 @@ function CluePanel({ clues }: { clues: SessionView['clues'] }) {
 }
 
 function DiceTray({
-  pending,
   disabled,
   onFreeRoll,
-  onInteractionRoll,
 }: {
-  pending?: PendingInteraction
   disabled: boolean
-  onFreeRoll: (diceType: DiceType) => Promise<void>
-  onInteractionRoll: (diceType: DiceType, expression: string) => Promise<void>
+  onFreeRoll: (diceType: DiceType) => void
 }) {
   const dice: DiceType[] = ['d4', 'd6', 'd8', 'd10', 'd12', 'd20']
-  const required = pending?.required_dice
-  const requiredType = diceTypeForExpression(required)
   return (
     <div className="dice-tray">
-      {pending?.is_yours && pending.interrupt_type !== 'declare_action' ? (
-        <button
-          className="required-roll"
-          disabled={disabled}
-          onClick={() => void onInteractionRoll(requiredType, required ?? requiredType)}
-          type="button"
-        >
-          <span>{requiredType.toUpperCase()}</span>
-          <div>
-            <strong>回应当前检定</strong>
-            <small>{pending.prompt} · 引擎加值 {pending.bonus >= 0 ? '+' : ''}{pending.bonus}</small>
-          </div>
-          <i>立即投掷</i>
-        </button>
-      ) : null}
       <div className="free-dice">
         <p>自由投掷 · 结果会展示给房间内所有同伴</p>
         <div>
@@ -663,7 +661,7 @@ function DiceTray({
             <button
               disabled={disabled}
               key={type}
-              onClick={() => void onFreeRoll(type)}
+              onClick={() => onFreeRoll(type)}
               type="button"
             >
               {type.toUpperCase()}
@@ -695,7 +693,10 @@ function ActionPanel({
   const options = isCombatTurn
     ? pending.options
     : { rule_actions: worldActions }
-  const selectedAction = options?.rule_actions?.find(
+  const enabledRuleActions = (options?.rule_actions ?? []).filter(
+    (action) => action.enabled,
+  )
+  const selectedAction = enabledRuleActions.find(
     (action) => action.action_id === selectedActionId,
   )
   if (selectedAction) {
@@ -798,16 +799,16 @@ function ActionPanel({
           <small>前往 {move.target_zone}</small>
         </button>
       ))}
-      {(options?.rule_actions ?? []).map((action) => (
+      {enabledRuleActions.map((action) => (
         <button
-          disabled={disabled || !action.enabled}
+          disabled={disabled}
           key={action.action_id}
           onClick={() => { setSelectedActionId(action.action_id); setSelectedTargetIds([]) }}
           type="button"
         >
           <span>{action.source_kind === 'item' ? '✚' : action.source_kind === 'skill' ? '✦' : '✧'}</span>
           <strong>{action.name}</strong>
-          <small>{action.enabled ? action.description : action.unavailable_reason}</small>
+          <small>{action.description}</small>
         </button>
       ))}
       {options?.pass ? (

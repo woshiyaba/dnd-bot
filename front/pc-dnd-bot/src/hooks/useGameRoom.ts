@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, gameApi, roomWebSocketUrl } from '../api/client'
 import type {
+  DiceRollResult,
   DiceType,
   RollAnimation,
   RoomCredential,
@@ -8,6 +9,7 @@ import type {
   RoomLobbyView,
   SessionView,
 } from '../types/game'
+import { diceTypeForExpression } from '../utils/dice'
 
 export function useGameRoom(credential: RoomCredential) {
   const [lobby, setLobby] = useState<RoomLobbyView | null>(null)
@@ -15,16 +17,53 @@ export function useGameRoom(credential: RoomCredential) {
   const [streamText, setStreamText] = useState('')
   const [rollAnimation, setRollAnimation] = useState<RollAnimation | null>(null)
   const [isBusy, setIsBusy] = useState(false)
+  const [isDmThinking, setIsDmThinking] = useState(false)
   const [isConnected, setIsConnected] = useState(false)
   const [error, setError] = useState('')
   const latestRevision = useRef(0)
+  const promptedInteractionKey = useRef('')
+  const rollRequestInFlight = useRef(false)
+  const seenRollIds = useRef(new Set<string>())
 
   const acceptSession = useCallback((next: SessionView) => {
     if (next.room.revision < latestRevision.current) return
     latestRevision.current = next.room.revision
     setSession(next)
     setStreamText('')
+    setIsDmThinking(false)
   }, [])
+
+  const showRollResult = useCallback(
+    (roll: DiceRollResult) => {
+      if (seenRollIds.current.has(roll.roll_id)) return
+      seenRollIds.current.add(roll.roll_id)
+      if (seenRollIds.current.size > 200) {
+        const oldestRollId = seenRollIds.current.values().next().value
+        if (oldestRollId) seenRollIds.current.delete(oldestRollId)
+      }
+      setRollAnimation((current) => {
+        const belongsToActiveRoll =
+          current?.isOwner === true &&
+          current.phase === 'rolling' &&
+          roll.user_id === credential.member.user_id &&
+          roll.dice_type === current.diceType
+        if (belongsToActiveRoll) {
+          return { ...current, result: roll }
+        }
+        if (current) return current
+        return {
+          key: roll.roll_id,
+          diceType: roll.dice_type,
+          expression: roll.expression,
+          phase: 'rolling',
+          purpose: roll.purpose,
+          isOwner: false,
+          result: roll,
+        }
+      })
+    },
+    [credential.member.user_id],
+  )
 
   useEffect(() => {
     let closed = false
@@ -55,25 +94,20 @@ export function useGameRoom(credential: RoomCredential) {
         }
         if (message.type === 'dm_stream_start') {
           setStreamText('')
+          setIsDmThinking(true)
           return
         }
         if (message.type === 'dm_stream') {
+          setIsDmThinking(true)
           setStreamText((current) => `${current}${message.payload?.content ?? ''}`)
           return
         }
+        if (message.type === 'dm_stream_end') {
+          setIsDmThinking(false)
+          return
+        }
         if (message.type === 'dice_rolled' && message.payload?.roll) {
-          const roll = message.payload.roll
-          setRollAnimation((current) => {
-            if (current && !current.result && roll.user_id === credential.member.user_id) {
-              return { ...current, key: roll.roll_id, result: roll }
-            }
-            return {
-              key: roll.roll_id,
-              diceType: roll.dice_type,
-              expression: roll.expression,
-              result: roll,
-            }
-          })
+          showRollResult(message.payload.roll)
         }
       }
       socket.onclose = () => {
@@ -100,7 +134,37 @@ export function useGameRoom(credential: RoomCredential) {
       if (heartbeatTimer) window.clearInterval(heartbeatTimer)
       socket?.close()
     }
-  }, [acceptSession, credential])
+  }, [acceptSession, credential, showRollResult])
+
+  useEffect(() => {
+    if (rollAnimation || !session) return
+    const pending = session.pending_interaction
+    if (
+      !pending?.is_yours ||
+      pending.interrupt_type === 'declare_action' ||
+      !pending.required_dice
+    ) {
+      return
+    }
+    const interactionKey = [
+      session.room.revision,
+      pending.interrupt_type,
+      pending.directed_to_character_id ?? '',
+      pending.required_dice,
+    ].join(':')
+    if (promptedInteractionKey.current === interactionKey) return
+    promptedInteractionKey.current = interactionKey
+    setRollAnimation({
+      key: `interaction-${interactionKey}`,
+      diceType: diceTypeForExpression(pending.required_dice),
+      expression: pending.required_dice,
+      phase: 'ready',
+      purpose: 'interaction',
+      isOwner: true,
+      prompt: pending.prompt,
+      bonus: pending.bonus,
+    })
+  }, [rollAnimation, session])
 
   const run = useCallback(async <T,>(request: () => Promise<T>): Promise<T | null> => {
     setIsBusy(true)
@@ -115,6 +179,18 @@ export function useGameRoom(credential: RoomCredential) {
     }
   }, [])
 
+  const runDmRequest = useCallback(
+    async <T,>(request: () => Promise<T>): Promise<T | null> => {
+      setIsDmThinking(true)
+      try {
+        return await run(request)
+      } finally {
+        setIsDmThinking(false)
+      }
+    },
+    [run],
+  )
+
   const startRoom = useCallback(async () => {
     const next = await run(() => gameApi.start(credential))
     if (next) acceptSession(next)
@@ -122,18 +198,18 @@ export function useGameRoom(credential: RoomCredential) {
 
   const sendMessage = useCallback(
     async (content: string) => {
-      const next = await run(() => gameApi.message(credential, content))
+      const next = await runDmRequest(() => gameApi.message(credential, content))
       if (next) acceptSession(next)
     },
-    [acceptSession, credential, run],
+    [acceptSession, credential, runDmRequest],
   )
 
   const submitAction = useCallback(
     async (action: Record<string, unknown>) => {
-      const next = await run(() => gameApi.action(credential, action))
+      const next = await runDmRequest(() => gameApi.action(credential, action))
       if (next) acceptSession(next)
     },
-    [acceptSession, credential, run],
+    [acceptSession, credential, runDmRequest],
   )
 
   const submitLevelUp = useCallback(
@@ -144,50 +220,59 @@ export function useGameRoom(credential: RoomCredential) {
     [acceptSession, credential, run],
   )
 
-  const rollInteraction = useCallback(
-    async (diceType: DiceType, expression: string) => {
-      setRollAnimation({
-        key: `pending-${Date.now()}`,
-        diceType,
-        expression,
-      })
-      const response = await run(() => gameApi.interactionRoll(credential))
+  const prepareFreeRoll = useCallback((diceType: DiceType) => {
+    if (rollRequestInFlight.current) return
+    setRollAnimation({
+      key: `free-${Date.now()}`,
+      diceType,
+      expression: diceType,
+      phase: 'ready',
+      purpose: 'free',
+      isOwner: true,
+    })
+  }, [])
+
+  const startPreparedRoll = useCallback(async () => {
+    if (
+      !rollAnimation ||
+      rollAnimation.phase !== 'ready' ||
+      !rollAnimation.isOwner ||
+      rollRequestInFlight.current
+    ) {
+      return
+    }
+    const preparedRoll = rollAnimation
+    rollRequestInFlight.current = true
+    setRollAnimation({ ...preparedRoll, phase: 'rolling' })
+    try {
+      if (preparedRoll.purpose === 'free') {
+        const roll = await run(() => gameApi.freeRoll(credential, preparedRoll.diceType))
+        if (roll) {
+          showRollResult(roll)
+        } else {
+          setRollAnimation((current) =>
+            current?.key === preparedRoll.key ? null : current,
+          )
+        }
+        return
+      }
+
+      const response = await runDmRequest(() => gameApi.interactionRoll(credential))
       if (response) {
-        setRollAnimation({
-          key: response.roll.roll_id,
-          diceType: response.roll.dice_type,
-          expression: response.roll.expression,
-          result: response.roll,
-        })
+        showRollResult(response.roll)
         acceptSession(response.session)
       } else {
-        setRollAnimation(null)
+        promptedInteractionKey.current = ''
+        setRollAnimation((current) =>
+          current?.key === preparedRoll.key && !current.result ? null : current,
+        )
       }
-    },
-    [acceptSession, credential, run],
-  )
+    } finally {
+      rollRequestInFlight.current = false
+    }
+  }, [acceptSession, credential, rollAnimation, run, runDmRequest, showRollResult])
 
-  const freeRoll = useCallback(
-    async (diceType: DiceType) => {
-      setRollAnimation({
-        key: `pending-${Date.now()}`,
-        diceType,
-        expression: diceType,
-      })
-      const roll = await run(() => gameApi.freeRoll(credential, diceType))
-      if (roll) {
-        setRollAnimation({
-          key: roll.roll_id,
-          diceType: roll.dice_type,
-          expression: roll.expression,
-          result: roll,
-        })
-      } else {
-        setRollAnimation(null)
-      }
-    },
-    [credential, run],
-  )
+  const dismissRoll = useCallback(() => setRollAnimation(null), [])
 
   return {
     lobby,
@@ -195,14 +280,15 @@ export function useGameRoom(credential: RoomCredential) {
     streamText,
     rollAnimation,
     isBusy,
+    isDmThinking,
     isConnected,
     error,
     startRoom,
     sendMessage,
     submitAction,
     submitLevelUp,
-    rollInteraction,
-    freeRoll,
-    dismissRoll: () => setRollAnimation(null),
+    prepareFreeRoll,
+    startPreparedRoll,
+    dismissRoll,
   }
 }

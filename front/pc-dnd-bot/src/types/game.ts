@@ -244,6 +244,11 @@ export type RollAnimation = {
   key: string
   diceType: DiceType
   expression: string
+  phase: 'ready' | 'rolling'
+  purpose: 'free' | 'interaction'
+  isOwner: boolean
+  prompt?: string
+  bonus?: number
   result?: DiceRollResult
 }
 

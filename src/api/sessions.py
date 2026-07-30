@@ -63,7 +63,6 @@ async def roll_interaction(identity: RoomIdentity) -> InteractionRollResponse:
     """为当前玩家中断生成服务器可信骰值。"""
     room, member = identity
     payload, roll = await session_service.roll_interaction(room, member)
-    await session_service.broadcast_roll(room, roll)
     await session_service.broadcast_session(room, payload)
     return InteractionRollResponse(
         roll=roll,

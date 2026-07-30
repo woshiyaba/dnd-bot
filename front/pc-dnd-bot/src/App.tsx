@@ -100,10 +100,10 @@ function AuthenticatedGame({
         error={game.error}
         isBusy={game.isBusy}
         isConnected={game.isConnected}
+        isDmThinking={game.isDmThinking}
         lobby={game.lobby}
         onAction={game.submitAction}
-        onFreeRoll={game.freeRoll}
-        onInteractionRoll={game.rollInteraction}
+        onFreeRoll={game.prepareFreeRoll}
         onLeave={onLeave}
         onLevelUp={game.submitLevelUp}
         onMessage={game.sendMessage}
@@ -111,12 +111,11 @@ function AuthenticatedGame({
         session={game.session}
         streamText={game.streamText}
       />
-      {game.rollAnimation ? (
-        <DiceAnimator
-          animation={game.rollAnimation}
-          onComplete={game.dismissRoll}
-        />
-      ) : null}
+      <DiceAnimator
+        animation={game.rollAnimation}
+        onRoll={game.startPreparedRoll}
+        onComplete={game.dismissRoll}
+      />
     </>
   )
 }

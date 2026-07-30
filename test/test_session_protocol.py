@@ -6,6 +6,7 @@ import sys
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
@@ -31,14 +32,17 @@ class _FakeGraph:
 
 
 class _FakeSessionEngine:
-    def __init__(self, current):
+    def __init__(self, current, events=None):
         self.current = current
         self.resume_value = None
+        self.events = events
 
     async def current_payload(self, _room_id):
         return self.current
 
     async def submit_stream(self, room_id, resume_value, *, event_sink=None):
+        if self.events is not None:
+            self.events.append("submit")
         self.resume_value = resume_value
         return {
             "status": "awaiting_input",
@@ -136,6 +140,39 @@ class SessionPayloadTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(fake_engine.resume_value["source"], "virtual")
         self.assertGreaterEqual(roll.total, 1)
         self.assertLessEqual(roll.total, 20)
+
+    async def test_interaction_roll_is_broadcast_before_session_resume(self):
+        member = _member()
+        room = _room(member)
+        current = {
+            "status": "interrupted",
+            "room_id": room.room_code,
+            "state": {"messages": [], "scene": {}, "party": {}},
+            "interrupt": {
+                "interrupt_type": "ability_check",
+                "directed_to": {"user_id": member.user_id},
+                "required_dice": "d20",
+            },
+        }
+        events = []
+        fake_engine = _FakeSessionEngine(current, events)
+        previous_engine = session_service._engine
+        previous_loaded = session_service._canon_loaded
+
+        async def record_broadcast(_room, _roll):
+            events.append("broadcast")
+
+        session_service._engine = fake_engine
+        session_service._canon_loaded = True
+        try:
+            with patch.object(session_service, "broadcast_roll", new=record_broadcast):
+                await session_service.roll_interaction(room, member)
+        finally:
+            session_service._engine = previous_engine
+            session_service._canon_loaded = previous_loaded
+            session_service._room_locks.clear()
+
+        self.assertEqual(events, ["broadcast", "submit"])
 
     async def test_session_view_only_projects_discovered_clues(self):
         get_registry().load_all()
