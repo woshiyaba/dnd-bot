@@ -242,7 +242,13 @@ class NarrativeIntentTests(unittest.IsolatedAsyncioTestCase):
             ],
         }
 
-        with patch("src.dm.world_bridge.dm_narrate", narrator):
+        with (
+            patch(
+                "src.dm.world_bridge.get_model_name",
+                return_value="deepseek/deepseek-v4-flash",
+            ),
+            patch("src.dm.world_bridge.dm_narrate", narrator),
+        ):
             await world_bridge.narrate_turn_final(
                 user_input="进攻黑袍神父",
                 reply_brief=None,

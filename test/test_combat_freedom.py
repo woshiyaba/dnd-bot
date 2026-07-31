@@ -631,7 +631,13 @@ class WorldStateGuidanceTests(unittest.IsolatedAsyncioTestCase):
         )
         state = self._state()
 
-        with patch("src.dm.world_bridge.dm_complete_json", completions):
+        with (
+            patch(
+                "src.dm.world_bridge.get_model_name",
+                return_value="deepseek/deepseek-v4-flash",
+            ),
+            patch("src.dm.world_bridge.dm_complete_json", completions),
+        ):
             result = await world_bridge.plan_world_state_guidance(
                 state["user_input"],
                 state["scene"],

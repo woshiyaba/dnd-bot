@@ -12,7 +12,7 @@ from langchain.agents import create_agent
 from src.combat.dice import parse_dice
 from src.common.debug import register_system_prompt
 from src.common.utils.json_parser import extract_json_object
-from src.common.utils.llm_util import create_chat_model
+from src.common.utils.llm_util import ModelRole, get_chat_model, get_model_name
 from src.model.combatant import Combatant
 from src.model.enums import Ability, ConditionType, DamageType
 from src.model.rule_action import (
@@ -37,21 +37,27 @@ _SYSTEM_PROMPT = """你是 D&D 统一规则行动编译器。
 
 规则效果边界由定义提供；成败、骰子、资源、HP 和世界写入由确定性引擎处理。"""
 _agent_lock = asyncio.Lock()
-_cached_agent: Any | None = None
+_cached_agents: dict[str, Any] = {}
 
 
 async def _get_agent() -> Any:
-    """缓存无工具的真实 LLM 编译智能体。"""
-    global _cached_agent
+    """按职责模型缓存无工具的真实 LLM 编译智能体。"""
     register_system_prompt(_PROMPT_KEY, _SYSTEM_PROMPT)
-    if _cached_agent is not None:
-        return _cached_agent
+    model_name = get_model_name(ModelRole.ACTION_COMPILER)
+    cached = _cached_agents.get(model_name)
+    if cached is not None:
+        return cached
     async with _agent_lock:
-        if _cached_agent is None:
-            _cached_agent = create_agent(
-                create_chat_model(), tools=[], system_prompt=_SYSTEM_PROMPT
-            )
-    return _cached_agent
+        cached = _cached_agents.get(model_name)
+        if cached is not None:
+            return cached
+        agent = create_agent(
+            get_chat_model(model_name),
+            tools=[],
+            system_prompt=_SYSTEM_PROMPT,
+        )
+        _cached_agents[model_name] = agent
+        return agent
 
 
 def _last_text(result: Any) -> str:

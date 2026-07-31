@@ -1,15 +1,15 @@
-"""DM 智能体装配与调用（基于 ``langchain.agents.create_agent``，不依赖 deepagents）。
+"""DM 决策智能体与无工具叙述模型的装配入口。
 
 ``create_agent`` 内置"工具调用循环"：把 DM 工具（骰子 + 知识库）与系统提示词绑给模型后，
-模型可在一次调用里自行决定查规则/掷骰，再给出结论，无需我们手写循环。
+决策模型可自行查规则/掷骰，再给出结论。叙述则直接调用聊天模型，绝不挂载工具。
 
 对外提供两类调用：
 - :func:`dm_complete_json` —— 决策类（突袭判定、怪物动作）：要求模型输出 JSON，
   用现有 :func:`extract_json_object` 防御式解析（不依赖具体厂商的结构化输出支持）。
-- :func:`dm_narrate` —— 叙述类：流式把 token 经 ``get_stream_writer()`` 推给前端，
+- :func:`dm_narrate` —— 叙述类：流式把 token 经 ``StreamCollector`` 推给前端，
   复用与 ``graph.py`` 一致的 custom 事件通道。
 
-智能体按系统提示词缓存复用（仿 ``example_agent`` 的 create-once 模式）。
+决策智能体按模型、系统提示词和工具集合缓存；聊天模型由中央注册表缓存。
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from langchain.agents import create_agent
 
 from src.common.debug import register_system_prompt
 from src.common.utils.json_parser import extract_json_object
-from src.common.utils.llm_util import create_chat_model
+from src.common.utils.llm_util import get_chat_model
 from src.common.utils.writer import StreamCollector
 from src.dm.prompt import build_dm_system_prompt
 from src.dm.tools import ALL_DM_TOOLS
@@ -31,31 +31,32 @@ from src.dm.tools import ALL_DM_TOOLS
 logger = logging.getLogger(__name__)
 
 _agent_lock = asyncio.Lock()
-_cached_agent: Any | None = None
-_cached_prompt: str | None = None
+_cached_agents: dict[tuple[str, str, tuple[str, ...]], Any] = {}
 _KB_TOOL_NAMES = {"kb_search", "kb_read"}
 _KNOWLEDGE_LOG_LIMIT = 12000
 
 
-async def get_dm_agent() -> Any:
-    """获取（并缓存）DM 智能体；仅当系统提示词变化（如知识库目录更新）时才重建。"""
-    global _cached_agent, _cached_prompt
-
+async def get_dm_agent(model_name: str) -> Any:
+    """按模型、系统提示词与工具集合获取并缓存 DM 决策智能体。"""
     system_prompt = build_dm_system_prompt()
     _register_dm_prompt(system_prompt)
-    if _cached_agent is not None and _cached_prompt == system_prompt:
-        return _cached_agent
+    tool_names = tuple(str(getattr(tool, "name", tool)) for tool in ALL_DM_TOOLS)
+    cache_key = (model_name, system_prompt, tool_names)
+    cached = _cached_agents.get(cache_key)
+    if cached is not None:
+        return cached
 
     async with _agent_lock:
-        if _cached_agent is not None and _cached_prompt == system_prompt:
-            return _cached_agent
-        _cached_agent = create_agent(
-            create_chat_model(),  # 复用默认模型（qwen3.5-plus，DashScope 兼容）
+        cached = _cached_agents.get(cache_key)
+        if cached is not None:
+            return cached
+        agent = create_agent(
+            get_chat_model(model_name),
             tools=ALL_DM_TOOLS,
             system_prompt=system_prompt,
         )
-        _cached_prompt = system_prompt
-        return _cached_agent
+        _cached_agents[cache_key] = agent
+        return agent
 
 
 def _register_dm_prompt(system_prompt: str) -> None:
@@ -145,53 +146,44 @@ def _log_knowledge_hits(result: dict, *, source: str) -> None:
         )
 
 
-def _log_knowledge_stream_token(token: Any, *, source: str) -> None:
-    """流式模式下打印单条 knowledge 工具结果（若当前分片就是工具消息）。"""
-    if getattr(token, "type", "") != "tool":
-        return
-    tool_name = getattr(token, "name", "") or ""
-    if tool_name not in _KB_TOOL_NAMES:
-        return
-    logger.info(
-        "[dm_agent] knowledge 命中 | source=%s | tool=%s | content=%s",
-        source,
-        tool_name,
-        _log_text(getattr(token, "content", "")),
-    )
-
-
-async def dm_complete_json(task: str) -> dict | None:
+async def dm_complete_json(task: str, *, model_name: str) -> dict | None:
     """跑一轮 DM 决策（可掷骰/查规则），要求输出 JSON 并解析为字典。
 
     参数 task 为本次决策的完整任务描述（含情境与"请输出 JSON"的格式要求）。
     解析失败返回 None；调用方必须显式失败，不允许回落到模拟 DM。
     """
-    agent = await get_dm_agent()
+    agent = await get_dm_agent(model_name)
     result = await agent.ainvoke({"messages": [{"role": "user", "content": task}]})
     _log_knowledge_hits(result, source="complete_json")
     return extract_json_object(_last_text(result))
 
 
-async def dm_narrate(task: str, *, node_name: str = "narrate") -> str:
+async def dm_narrate(
+    task: str,
+    *,
+    model_name: str,
+    node_name: str | None = "narrate",
+) -> str:
     """跑一轮 DM 叙述，流式把文本 token 推给前端（custom 通道），并返回完整叙述文本。
 
     参数:
         task: 叙述任务描述（含本回合发生的结构化事件）。
+        model_name: 已登记的 ``供应商/模型 ID`` 复合名。
         node_name: custom 事件里的节点名，前端据此归类；默认 ``"narrate"``。
     """
-    agent = await get_dm_agent()
+    system_prompt = build_dm_system_prompt()
+    _register_dm_prompt(system_prompt)
+    model = get_chat_model(model_name)
     collector = StreamCollector(node_name)
     collector.start()
     try:
-        async for token, _meta in agent.astream(
-            {"messages": [{"role": "user", "content": task}]},
-            stream_mode="messages",
+        async for token in model.astream(
+            [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": task},
+            ]
         ):
-            _log_knowledge_stream_token(token, source=node_name)
-            if getattr(token, "type", "") == "tool":
-                continue
             content = getattr(token, "content", "")
-            # 只推送模型的文本输出；工具调用分片的 content 为空，自动跳过
             if isinstance(content, str) and content:
                 collector.push(content)
     finally:

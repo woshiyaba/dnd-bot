@@ -4,7 +4,12 @@ from typing import Any
 
 from src.common.debug import register_system_prompt
 from src.common.prompts.prompt_repository import get_system_prompt
-from src.common.utils.llm_util import ReadOnlyFilesystemBackend, create_app_deep_agent
+from src.common.utils.llm_util import (
+    ModelRole,
+    ReadOnlyFilesystemBackend,
+    create_app_deep_agent,
+    get_model_name,
+)
 from src.common.utils.writer import astream_agent_collect
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -14,11 +19,13 @@ PROMPT_KEY = "skills_find"
 _agent_lock = asyncio.Lock()
 _cached_agent: Any | None = None
 _cached_system_prompt: str | None = None
+_cached_model_name: str | None = None
 
 
-def _build_skills_find_agent(system_prompt: str) -> Any:
+def _build_skills_find_agent(system_prompt: str, model_name: str) -> Any:
     return create_app_deep_agent(
         system_prompt=system_prompt,
+        model_name=model_name,
         skills_dir=SKILLS_DIR,
         backend=ReadOnlyFilesystemBackend(root_dir=PROJECT_ROOT, virtual_mode=True),
     )
@@ -26,20 +33,30 @@ def _build_skills_find_agent(system_prompt: str) -> Any:
 
 async def create_skills_find_agent() -> Any:
     """复用 skills_find agent；仅当数据库提示词变化后才重建。"""
-    global _cached_agent, _cached_system_prompt
+    global _cached_agent, _cached_model_name, _cached_system_prompt
 
     system_prompt = await get_system_prompt(PROMPT_KEY)
-    if _cached_agent is not None and _cached_system_prompt == system_prompt:
+    model_name = get_model_name(ModelRole.LEGACY_AGENT)
+    if (
+        _cached_agent is not None
+        and _cached_system_prompt == system_prompt
+        and _cached_model_name == model_name
+    ):
         return _cached_agent
 
     # 防止并发请求同时发现 prompt 变化后重复创建 deep agent。
     async with _agent_lock:
-        if _cached_agent is not None and _cached_system_prompt == system_prompt:
+        if (
+            _cached_agent is not None
+            and _cached_system_prompt == system_prompt
+            and _cached_model_name == model_name
+        ):
             return _cached_agent
 
         register_system_prompt(PROMPT_KEY, system_prompt, aliases=("process",))
-        _cached_agent = _build_skills_find_agent(system_prompt)
+        _cached_agent = _build_skills_find_agent(system_prompt, model_name)
         _cached_system_prompt = system_prompt
+        _cached_model_name = model_name
         return _cached_agent
 
 

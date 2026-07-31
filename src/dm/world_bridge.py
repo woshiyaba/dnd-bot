@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import logging
 
+from src.common.utils.llm_util import ModelRole, get_model_name
 from src.dm.agent import dm_complete_json, dm_narrate
 from src.model.canon import TriggerKind
 from src.model.dm_state import hostile_actors
@@ -312,7 +313,10 @@ async def _decide_llm(
         "不得借此新增关键事实、人物、道具、线索或规则结果。\n"
         "不确定 DC 时可 kb_read ability_check / 即兴伤害表。只输出 JSON，不要额外文字。"
     )
-    return await dm_complete_json(task)
+    return await dm_complete_json(
+        task,
+        model_name=get_model_name(ModelRole.DM_DECISION),
+    )
 
 
 def _decision_correction_hint(
@@ -403,7 +407,10 @@ async def plan_world_state_guidance(
             '"narrative_intent":"可选的一句意象或潜台词"}。'
             f"{correction}"
         )
-        data = await dm_complete_json(task)
+        data = await dm_complete_json(
+            task,
+            model_name=get_model_name(ModelRole.DM_GUIDANCE),
+        )
         if data is None:
             correction = "\n上次输出不可解析；请严格只返回指定 JSON。"
         else:
@@ -818,7 +825,11 @@ async def narrate_reply_llm(
         "才简洁提示最相关的行动方向，不要固定输出「你可以……」菜单。"
         "只输出玩家可见叙述，不要输出 JSON，不要罗列字段。"
     )
-    return await dm_narrate(task, node_name=node_name)
+    return await dm_narrate(
+        task,
+        model_name=get_model_name(ModelRole.DM_NARRATION),
+        node_name=node_name,
+    )
 
 
 async def narrate_turn_final(
@@ -895,7 +906,11 @@ async def narrate_turn_final(
         "或者上下文显示玩家卡住时，才简洁提示必要方向，且无需以固定措辞开头。"
         "只输出玩家可见叙述，不要输出 JSON，不要罗列字段。"
     )
-    return await dm_narrate(task, node_name=node_name)
+    return await dm_narrate(
+        task,
+        model_name=get_model_name(ModelRole.DM_NARRATION),
+        node_name=node_name,
+    )
 
 
 async def narrate_result(
@@ -930,7 +945,11 @@ async def narrate_result(
         "不要固定输出行动菜单。"
         "只描述结果，别罗列字段，别改判定数字。"
     )
-    return await dm_narrate(task, node_name=node_name)
+    return await dm_narrate(
+        task,
+        model_name=get_model_name(ModelRole.DM_NARRATION),
+        node_name=node_name,
+    )
 
 
 async def narrate_aftermath(
@@ -946,7 +965,11 @@ async def narrate_aftermath(
         "只有路线、风险或资源出现关键分支时才简洁提示方向，不要固定输出行动菜单。"
         "只描述既定结果，别新增战斗数字。"
     )
-    return await dm_narrate(task, node_name=node_name)
+    return await dm_narrate(
+        task,
+        model_name=get_model_name(ModelRole.DM_NARRATION),
+        node_name=node_name,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -981,7 +1004,10 @@ async def judge_trigger(
         "玩家若已经起身朝那里走、潜行靠近、或明确说要去，即视为满足；别被「当前场景」仍停在原地点误导。\n"
         '**只输出一个 JSON 对象**：{"answer": true 或 false, "reason": "一句话依据"}。'
     )
-    data = await dm_complete_json(task)
+    data = await dm_complete_json(
+        task,
+        model_name=get_model_name(ModelRole.DM_TRIGGER),
+    )
     if not isinstance(data, dict):
         raise RuntimeError(f"[dm] judge_trigger LLM 未返回可解析 JSON：{prompt}")
     answer = bool(data.get("answer"))
@@ -1010,4 +1036,8 @@ async def narrate_beat_transition(
         f"新场景：{_dump(_scene_brief(next_scene))}\n"
         "只描述场景与过渡，别罗列字段。"
     )
-    return await dm_narrate(task, node_name=node_name)
+    return await dm_narrate(
+        task,
+        model_name=get_model_name(ModelRole.DM_NARRATION),
+        node_name=node_name,
+    )

@@ -3,7 +3,7 @@
 验证需求文档那句话：**拿着这副骨架，让真模型把一整局冒险讲完——
 开场 → 珠内自由探索 → 触发推进 → Boss 战 → 结局，读下来有头有尾、且好玩。**
 
-运行（**需 DASHSCOPE_API_KEY**；DM 提示词走本地 knowledge/，不需 MySQL）::
+运行（**需按 .env.example 配置 LLM 供应商与模型目录**；DM 提示词走本地 knowledge/，不需 MySQL）::
 
     uv run python -m test.test_story_flow
 

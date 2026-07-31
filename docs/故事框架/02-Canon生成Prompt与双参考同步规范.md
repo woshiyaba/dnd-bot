@@ -32,7 +32,7 @@
 | 引用闭合、可达性、唯一原子入口 | `validate_canon`、`validate_authored_canon` | Prompt 不能代替确定性校验 |
 | 访谈、编译与修复约束 | `src/story/prompt.py` | 这是实际发送给模型的可执行 Prompt |
 | 当前合法结构范例 | 两份 `canon/*.json` | 每次编译重新读盘，不在 Python 中复制一份静态快照 |
-| 故事生成模型 | `STORY_GENERATION_MODEL` | 与运行时 DM 使用的 `DEFAULT_MODEL` 分开配置 |
+| 故事生成模型 | `STORY_INTERVIEW_MODEL`、`STORY_AUTHORING_MODEL`、`STORY_REPAIR_MODEL` | 从中央模型目录按职责选择 |
 
 文档用于说明契约和维护顺序，不应成为第三份可执行 Schema。当文档、Prompt、样例与模型代码
 不一致时，先按模型和校验器修复实现，再同步本文。
@@ -294,19 +294,25 @@ Prompt 的自检清单和后端校验至少覆盖：
 | 线索与物品结算 | discovery effect、Session 状态/API、Prompt、Canon、幂等测试 |
 | 公开故事元数据 | Canon、Pydantic schema、服务接口、前端类型与故事广场 |
 | 参考 Canon 内容 | 两份 Canon 的加载/校验测试；字段不变时无需改 Prompt 源码 |
-| 故事生成模型 | `STORY_GENERATION_MODEL`、`.env.example`、模型构造测试 |
+| 故事生成模型 | 三个 `STORY_*_MODEL` 职责、`.env.example`、模型注册表与路由测试 |
 
 ## 七、模型配置
 
-故事模块使用独立配置：
+故事模块从中央目录按职责选择模型；未提供职责覆盖时，访谈使用 Fast，编译与修复使用 Pro：
 
 ```dotenv
-STORY_GENERATION_MODEL=deepseek-v4-pro
+LLM_MODELS=deepseek/deepseek-v4-pro,deepseek/deepseek-v4-flash
+LLM_REASONING_MODEL=deepseek/deepseek-v4-pro
+LLM_FAST_MODEL=deepseek/deepseek-v4-flash
+
+# 可选职责覆盖
+STORY_INTERVIEW_MODEL=deepseek/deepseek-v4-flash
+STORY_AUTHORING_MODEL=deepseek/deepseek-v4-pro
+STORY_REPAIR_MODEL=deepseek/deepseek-v4-pro
 ```
 
-该模型负责故事访谈、Canon 初次编译和最多两轮结构修复。运行时 DM、战斗行动编译器和其他代理
-仍读取各自现有配置，不因这次试用而被全局切换。环境变量可用于回滚或 A/B 测试；代码默认值同样
-设为 `deepseek-v4-pro`，缺少模型配置或调用失败时显式报错，不回落到假故事。
+职责变量必须引用 `LLM_MODELS` 中登记的 `供应商/模型 ID` 复合名。缺少目录配置、引用未知模型
+或模型调用失败时显式报错，不回落到假故事。修改环境变量后需要重启服务。
 
 ## 八、推荐回归命令
 

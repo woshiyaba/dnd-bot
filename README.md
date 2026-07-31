@@ -198,11 +198,13 @@ uv run python main.py
 copy .env.example .env
 ```
 
-主服务和 LLM 路径需要：
+主服务和 LLM 路径使用启动时校验的模型目录：
 
-- `DASHSCOPE_API_KEY`
-- `DEFAULT_BASE_URL`
-- `DEFAULT_MODEL`（可选，默认由代码决定）
+- `LLM_PROVIDERS`：供应商名称列表。
+- `LLM_PROVIDER_<NAME>_BASE_URL` / `LLM_PROVIDER_<NAME>_API_KEY`：各供应商的 OpenAI 兼容端点与密钥。
+- `LLM_MODELS`：可用的 `供应商/模型 ID` 复合名列表。
+- `LLM_REASONING_MODEL` / `LLM_FAST_MODEL`：默认推理模型与快速模型。
+- `DM_*_MODEL`、`COMBAT_*_MODEL`、`ACTION_COMPILER_MODEL`、`STORY_*_MODEL`：可选的职责级覆盖，完整示例见 `.env.example`。
 - `MYSQL_HOST`
 - `MYSQL_PORT`
 - `MYSQL_DATABASE`
@@ -212,7 +214,7 @@ copy .env.example .env
 
 系统提示词从 MySQL 表 `agent_system_prompts` 读取，不从源码文件读取。没有 MySQL 时，主 deepagents 示例入口不可完整使用。
 
-combat/session 的 DM 决策与叙述必须使用真实 LLM；缺少模型环境变量、模型调用失败或 LLM 输出无法解析时，应显式失败，不允许回落到离线模拟 DM。
+模型配置变化后需要重启服务。启动过程只在本地创建客户端，不会发送探测请求；配置缺失、模型调用失败或 LLM 输出无法解析时均显式失败，不允许回落到离线模拟 DM。
 
 ## 开发命令
 

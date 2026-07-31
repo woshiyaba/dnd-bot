@@ -13,6 +13,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from src.app import app
+from src.common.utils.llm_util import ModelRole
 from src.model.canon import Canon, validate_authored_canon, validate_canon
 from src.services.story_service import StoryService
 import src.story.generator as story_generator
@@ -188,41 +189,71 @@ class StoryGeneratorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(initial[0]["revision"], 1)
         self.assertEqual(reloaded[0]["revision"], 2)
 
-    async def test_story_generation_uses_dedicated_model(self):
-        previous_model = story_generator._model
-        story_generator._model = None
-        model = object()
-        try:
-            with patch(
-                "src.story.generator.create_chat_model",
+    async def test_story_interview_uses_dedicated_role_model(self):
+        model = AsyncMock()
+        model.ainvoke.return_value = SimpleNamespace(
+            content=json.dumps(
+                {
+                    "status": "ready_for_confirmation",
+                    "assistant_message": "请确认这份故事方向。",
+                    "design_brief": {"user_confirmed": False},
+                    "questions": [],
+                },
+                ensure_ascii=False,
+            )
+        )
+        with (
+            patch(
+                "src.story.generator.get_model_name",
+                return_value="deepseek/deepseek-v4-flash",
+            ) as get_name,
+            patch(
+                "src.story.generator.get_chat_model",
                 return_value=model,
-            ) as create_model:
-                resolved = await story_generator._get_model()
+            ) as get_model,
+        ):
+            await continue_interview(
+                conversation=[{"role": "user", "content": "我想调查幽灵船"}],
+                design_brief={},
+            )
 
-            self.assertIs(resolved, model)
-            self.assertEqual(
-                story_generator.DEFAULT_STORY_GENERATION_MODEL,
-                "deepseek-v4-pro",
-            )
-            create_model.assert_called_once_with(
-                model=story_generator.STORY_GENERATION_MODEL,
-                enable_search=False,
-            )
-        finally:
-            story_generator._model = previous_model
+        get_name.assert_called_once_with(ModelRole.STORY_INTERVIEW)
+        get_model.assert_called_once_with("deepseek/deepseek-v4-flash")
 
     async def test_invalid_llm_json_fails_explicitly(self):
         model = AsyncMock()
         model.ainvoke.return_value = SimpleNamespace(content="这不是 JSON")
-        with patch(
-            "src.story.generator._get_model",
-            new=AsyncMock(return_value=model),
+        with (
+            patch(
+                "src.story.generator.get_model_name",
+                return_value="deepseek/deepseek-v4-flash",
+            ),
+            patch("src.story.generator.get_chat_model", return_value=model),
         ):
             with self.assertRaises(StoryGenerationError):
                 await continue_interview(
                     conversation=[{"role": "user", "content": "我想调查幽灵船"}],
                     design_brief={},
                 )
+
+    async def test_canon_authoring_and_repair_use_reasoning_roles(self):
+        valid_raw, _canon = _generated_canon()
+        completion = AsyncMock(
+            side_effect=[
+                {"campaign_id": "broken"},
+                valid_raw,
+            ]
+        )
+        with patch("src.story.generator._complete_json", completion):
+            generated_raw, _generated = await story_generator.generate_canon(
+                confirmed_brief=_CONFIRMED_BRIEF
+            )
+
+        self.assertEqual(generated_raw["campaign_id"], "test_starlight_archive")
+        self.assertEqual(
+            [call.kwargs["role"] for call in completion.await_args_list],
+            [ModelRole.STORY_AUTHORING, ModelRole.STORY_REPAIR],
+        )
 
 
 class StoryPublishingTests(unittest.IsolatedAsyncioTestCase):

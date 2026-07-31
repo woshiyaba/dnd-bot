@@ -2,17 +2,15 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
-import os
 from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
 
 from src.common.utils.json_parser import extract_json_object
-from src.common.utils.llm_util import create_chat_model
+from src.common.utils.llm_util import ModelRole, get_chat_model, get_model_name
 from src.model.canon import Canon, validate_authored_canon, validate_canon
 from src.schemas.story import StoryInterviewResponse
 from src.story.prompt import (
@@ -29,32 +27,11 @@ REFERENCE_CANON_PATHS = (
     CANON_DIR / "prodigal_return_quest.json",
     CANON_DIR / "whispers_bell_tower.json",
 )
-DEFAULT_STORY_GENERATION_MODEL = "deepseek-v4-pro"
-STORY_GENERATION_MODEL = os.getenv(
-    "STORY_GENERATION_MODEL", DEFAULT_STORY_GENERATION_MODEL
-)
 MAX_REPAIR_ATTEMPTS = 2
-
-_model: Any | None = None
-_model_lock = asyncio.Lock()
 
 
 class StoryGenerationError(RuntimeError):
     """真实 LLM 未能返回可用的故事结构或 Canon。"""
-
-
-async def _get_model() -> Any:
-    """创建并缓存故事编剧使用的真实聊天模型。"""
-    global _model
-    if _model is not None:
-        return _model
-    async with _model_lock:
-        if _model is None:
-            _model = create_chat_model(
-                model=STORY_GENERATION_MODEL,
-                enable_search=False,
-            )
-        return _model
 
 
 def _load_reference_canons() -> list[dict[str, Any]]:
@@ -77,12 +54,22 @@ def _message_text(message: Any) -> str:
     return str(content or "")
 
 
-async def _complete_json(prompt: str, *, stage: str) -> dict[str, Any]:
+async def _complete_json(
+    prompt: str,
+    *,
+    stage: str,
+    role: ModelRole,
+) -> dict[str, Any]:
     """调用真实 LLM 并提取 JSON；任何失败都显式抛错。"""
+    model_name = get_model_name(role)
     try:
-        response = await (await _get_model()).ainvoke(prompt)
+        response = await get_chat_model(model_name).ainvoke(prompt)
     except Exception as exc:
-        logger.exception("[story_generator] LLM 调用失败 | stage=%s", stage)
+        logger.exception(
+            "[story_generator] LLM 调用失败 | stage=%s | model=%s",
+            stage,
+            model_name,
+        )
         raise StoryGenerationError(f"故事 {stage} 的 LLM 调用失败：{exc}") from exc
     parsed = extract_json_object(_message_text(response))
     if parsed is None:
@@ -100,6 +87,7 @@ async def continue_interview(
             design_brief=design_brief,
         ),
         stage="访谈",
+        role=ModelRole.STORY_INTERVIEW,
     )
     try:
         return StoryInterviewResponse.model_validate(raw)
@@ -130,6 +118,7 @@ async def generate_canon(
             reserved_campaign_ids=reserved_ids,
         ),
         stage="编译",
+        role=ModelRole.STORY_AUTHORING,
     )
 
     for attempt in range(MAX_REPAIR_ATTEMPTS + 1):
@@ -143,6 +132,7 @@ async def generate_canon(
         draft = await _complete_json(
             build_canon_repair_prompt(draft, errors),
             stage=f"修复（第 {attempt + 1} 次）",
+            role=ModelRole.STORY_REPAIR,
         )
 
     raise AssertionError("Canon 修复循环未按预期结束")

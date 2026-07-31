@@ -16,6 +16,7 @@ import logging
 
 from src.combat.dice import current_engine_dice
 from src.combat.rules import in_reach
+from src.common.utils.llm_util import ModelRole, get_model_name
 from src.dm.agent import dm_complete_json, dm_narrate
 from src.dm.tools import set_dice_provider
 from src.model.combatant import Combatant
@@ -80,7 +81,10 @@ async def judge_surprise_llm(
         "如需要，可用骰子做潜行对抗、用 kb_read passive_check 查被动察觉规则。\n"
         '最终只输出 JSON：{"surprised": ["被突袭者的id", ...]}（无人被突袭则空数组）。'
     )
-    data = await dm_complete_json(task)
+    data = await dm_complete_json(
+        task,
+        model_name=get_model_name(ModelRole.COMBAT_DECISION),
+    )
     if not isinstance(data, dict) or "surprised" not in data:
         raise RuntimeError("[combat.dm] 突袭判定未返回合法 JSON")
     ids = data.get("surprised") or []
@@ -139,7 +143,10 @@ async def decide_action_llm(
         + "可 kb_read 查这个怪物的打法倾向来决定目标与风格。\n"
         + output_choices
     )
-    data = await dm_complete_json(task)
+    data = await dm_complete_json(
+        task,
+        model_name=get_model_name(ModelRole.COMBAT_DECISION),
+    )
     if not isinstance(data, dict):
         raise RuntimeError("[combat.dm] 行动决策未返回合法 JSON")
 
@@ -199,7 +206,10 @@ async def adjudicate_player_action_llm(
         '"action_id":"规则行动时填写","target_ids":["可选目标"]}}\n'
         '或 {"accepted":false,"reason":"简短中文反馈"}'
     )
-    data = await dm_complete_json(task)
+    data = await dm_complete_json(
+        task,
+        model_name=get_model_name(ModelRole.COMBAT_DECISION),
+    )
     if not isinstance(data, dict) or not isinstance(data.get("accepted"), bool):
         raise RuntimeError("[combat.dm] 玩家行动裁定未返回合法 JSON")
     if not data["accepted"]:
@@ -308,7 +318,10 @@ async def narrate_combat_opening_llm(
         "请用 2-4 句中文叙述冲突如何正式进入战斗，并让读者清楚谁在对峙。"
         "这只是开场镜头：不要描述任何攻击已经命中、伤害、HP 变化、死亡或胜负。"
     )
-    return await dm_narrate(task)
+    return await dm_narrate(
+        task,
+        model_name=get_model_name(ModelRole.COMBAT_NARRATION),
+    )
 
 
 async def narrate_llm(
@@ -339,4 +352,7 @@ async def narrate_llm(
         "请把它讲成一段简洁、有画面感的中文叙述（2-4 句）。只描述这些已发生的事实，"
         "不要新增伤害数字、命中结果或谁的死活，也不要罗列字段。"
     )
-    return await dm_narrate(task)
+    return await dm_narrate(
+        task,
+        model_name=get_model_name(ModelRole.COMBAT_NARRATION),
+    )
