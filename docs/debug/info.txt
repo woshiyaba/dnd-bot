@@ -1,444 +1,558 @@
-INFO:     127.0.0.1:65107 - "OPTIONS /api/rooms/M6MD9V/messages HTTP/1.1" 200 OK
-2026-07-28 18:27:43,332 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-2026-07-28 18:27:43,336 | INFO | src.session.dm_subgraph | [dm_decide] 调用 DM | location=玄天秘境·石门入口 | user_input=直接迎战
-2026-07-28 18:27:43,837 | INFO | httpx | HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
-2026-07-28 18:27:46,861 | INFO | src.session.dm_subgraph | [dm_decide] 意图=start_combat 世界写入=无
-2026-07-28 18:27:46,864 | INFO | src.session.graph | [run_combat] 进入战斗 | 参战者=2
-2026-07-28 18:27:46,865 | INFO | src.combat.nodes | [enter_combat] 进入战斗 | 参战者=2
-2026-07-28 18:27:47,019 | INFO | httpx | HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
-2026-07-28 18:27:48,543 | INFO | src.combat.nodes | [judge_surprise] 被突袭=[]
-2026-07-28 18:27:48,693 | INFO | httpx | HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
-2026-07-28 18:27:50,797 | INFO | src.session.engine | [session] 房间=M6MD9V 等待中断 类型=roll_initiative 面向={'combatant_id': 'pc_03d1ef5ff883b272', 'user_id': 'user_c56c41a387b325ec'}
-INFO:     127.0.0.1:65107 - "POST /api/rooms/M6MD9V/messages HTTP/1.1" 200 OK
-INFO:     127.0.0.1:65107 - "OPTIONS /api/rooms/M6MD9V/interactions/roll HTTP/1.1" 200 OK
-2026-07-28 18:27:53,778 | INFO | src.session.engine | [session] 房间=M6MD9V 等待中断 类型=roll_initiative 面向={'combatant_id': 'pc_03d1ef5ff883b272', 'user_id': 'user_c56c41a387b325ec'}
-2026-07-28 18:27:53,781 | INFO | src.session.graph | [run_combat] 进入战斗 | 参战者=2
-2026-07-28 18:27:53,783 | INFO | src.combat.nodes | [roll_initiative] 先攻顺序=['blackwind_scout', 'pc_03d1ef5ff883b272']
-2026-07-28 18:27:53,784 | INFO | src.combat.nodes | [next_turn] 轮次=1 指针=0 行动者=blackwind_scout
-2026-07-28 18:27:54,134 | INFO | httpx | HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
-2026-07-28 18:27:55,256 | INFO | httpx | HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
-2026-07-28 18:27:57,410 | INFO | httpx | HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
-2026-07-28 18:28:00,682 | INFO | src.dm.agent | [dm_agent] knowledge 命中 #1 | source=complete_json | tool=kb_search | content=[]
-2026-07-28 18:28:00,682 | INFO | src.dm.agent | [dm_agent] knowledge 命中 #2 | source=complete_json | tool=kb_search | content=[]
-2026-07-28 18:28:00,682 | INFO | src.combat.nodes | [declare_action] blackwind_scout -> {'action_type': 'attack', 'attack_name': '铁剑', 'target_id': 'pc_03d1ef5ff883b272'}
-2026-07-28 18:28:00,684 | INFO | src.combat.nodes | [resolve_action] blackwind_scout 事件=['attack']
-2026-07-28 18:28:00,848 | INFO | httpx | HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
-2026-07-28 18:28:02,776 | INFO | src.combat.nodes | [check_end] 战斗结果=ongoing
-2026-07-28 18:28:02,778 | INFO | src.combat.nodes | [next_turn] 轮次=1 指针=1 行动者=pc_03d1ef5ff883b272
-2026-07-28 18:28:02,780 | INFO | src.session.engine | [session] 房间=M6MD9V 等待中断 类型=declare_action 面向={'combatant_id': 'pc_03d1ef5ff883b272', 'user_id': 'user_c56c41a387b325ec'}
-INFO:     127.0.0.1:65107 - "POST /api/rooms/M6MD9V/interactions/roll HTTP/1.1" 200 OK
-2026-07-28 18:28:04,434 | INFO | src.common.ws.ws_manager | [ws.room] 用户断开连接 | room_code=M6MD9V | user_id=user_c56c41a387b325ec
-INFO:     connection closed
-INFO:     127.0.0.1:65107 - "GET /api/rooms/M6MD9V/lobby HTTP/1.1" 200 OK
-2026-07-28 18:28:04,728 | INFO | src.session.engine | [session] 房间=M6MD9V 等待中断 类型=declare_action 面向={'combatant_id': 'pc_03d1ef5ff883b272', 'user_id': 'user_c56c41a387b325ec'}
-INFO:     127.0.0.1:65108 - "GET /api/rooms/M6MD9V HTTP/1.1" 200 OK
-INFO:     127.0.0.1:65109 - "GET /api/rooms/M6MD9V/lobby HTTP/1.1" 200 OK
-2026-07-28 18:28:04,735 | INFO | src.session.engine | [session] 房间=M6MD9V 等待中断 类型=declare_action 面向={'combatant_id': 'pc_03d1ef5ff883b272', 'user_id': 'user_c56c41a387b325ec'}
-INFO:     127.0.0.1:65107 - "GET /api/rooms/M6MD9V HTTP/1.1" 200 OK
-INFO:     127.0.0.1:65179 - "WebSocket /ws/rooms/M6MD9V?token=_Op3UX5SPwTR3oYLRTwMEKEvd-XdvsCqxUa6vzaLL8Q" [accepted]
-2026-07-28 18:28:05,027 | INFO | src.common.ws.ws_manager | [ws.room] 用户加入连接 | room_code=M6MD9V | user_id=user_c56c41a387b325ec | count=2
-INFO:     connection open
-2026-07-28 18:28:05,028 | INFO | src.session.engine | [session] 房间=M6MD9V 等待中断 类型=declare_action 面向={'combatant_id': 'pc_03d1ef5ff883b272', 'user_id': 'user_c56c41a387b325ec'}
-2026-07-28 18:28:13,914 | INFO | src.common.ws.ws_manager | [ws.room] 用户断开连接 | room_code=M6MD9V | user_id=user_c56c41a387b325ec
-INFO:     connection closed
-INFO:     127.0.0.1:65204 - "WebSocket /ws/rooms/M6MD9V?token=_Op3UX5SPwTR3oYLRTwMEKEvd-XdvsCqxUa6vzaLL8Q" [accepted]
-2026-07-28 18:28:14,396 | INFO | src.common.ws.ws_manager | [ws.room] 用户加入连接 | room_code=M6MD9V | user_id=user_c56c41a387b325ec | count=2
-INFO:     127.0.0.1:65205 - "GET /api/rooms/M6MD9V/lobby HTTP/1.1" 200 OK
-2026-07-28 18:28:14,397 | INFO | src.session.engine | [session] 房间=M6MD9V 等待中断 类型=declare_action 面向={'combatant_id': 'pc_03d1ef5ff883b272', 'user_id': 'user_c56c41a387b325ec'}
-INFO:     127.0.0.1:65206 - "GET /api/rooms/M6MD9V HTTP/1.1" 200 OK
-INFO:     connection open
-2026-07-28 18:28:14,400 | INFO | src.session.engine | [session] 房间=M6MD9V 等待中断 类型=declare_action 面向={'combatant_id': 'pc_03d1ef5ff883b272', 'user_id': 'user_c56c41a387b325ec'}
-INFO:     127.0.0.1:65205 - "OPTIONS /api/rooms/M6MD9V/actions HTTP/1.1" 200 OK
-INFO:     127.0.0.1:65206 - "GET /api/rooms/M6MD9V/lobby HTTP/1.1" 200 OK
-2026-07-28 18:28:14,417 | INFO | src.session.engine | [session] 房间=M6MD9V 等待中断 类型=declare_action 面向={'combatant_id': 'pc_03d1ef5ff883b272', 'user_id': 'user_c56c41a387b325ec'}
-INFO:     127.0.0.1:65205 - "GET /api/rooms/M6MD9V HTTP/1.1" 200 OK
-2026-07-28 18:28:14,436 | INFO | src.session.engine | [session] 房间=M6MD9V 等待中断 类型=declare_action 面向={'combatant_id': 'pc_03d1ef5ff883b272', 'user_id': 'user_c56c41a387b325ec'}
-2026-07-28 18:28:14,437 | INFO | src.session.graph | [run_combat] 进入战斗 | 参战者=2
-2026-07-28 18:28:14,438 | INFO | src.combat.nodes | [declare_action] pc_03d1ef5ff883b272 -> {'action_type': 'attack', 'attack_name': '长剑', 'target_id': 'blackwind_scout'}
-2026-07-28 18:28:14,442 | INFO | src.session.engine | [session] 房间=M6MD9V 等待中断 类型=attack_roll 面向={'combatant_id': 'pc_03d1ef5ff883b272', 'user_id': 'user_c56c41a387b325ec'}
-INFO:     127.0.0.1:65206 - "POST /api/rooms/M6MD9V/actions HTTP/1.1" 200 OK
-2026-07-28 18:28:23,965 | INFO | src.session.engine | [session] 房间=M6MD9V 等待中断 类型=attack_roll 面向={'combatant_id': 'pc_03d1ef5ff883b272', 'user_id': 'user_c56c41a387b325ec'}
-2026-07-28 18:28:23,967 | INFO | src.session.graph | [run_combat] 进入战斗 | 参战者=2
-2026-07-28 18:28:23,969 | INFO | src.session.engine | [session] 房间=M6MD9V 等待中断 类型=damage_roll 面向={'combatant_id': 'pc_03d1ef5ff883b272', 'user_id': 'user_c56c41a387b325ec'}
-INFO:     127.0.0.1:65209 - "POST /api/rooms/M6MD9V/interactions/roll HTTP/1.1" 200 OK
-2026-07-28 18:28:25,729 | INFO | src.session.engine | [session] 房间=M6MD9V 等待中断 类型=damage_roll 面向={'combatant_id': 'pc_03d1ef5ff883b272', 'user_id': 'user_c56c41a387b325ec'}
-2026-07-28 18:28:25,730 | INFO | src.session.graph | [run_combat] 进入战斗 | 参战者=2
-2026-07-28 18:28:25,731 | INFO | src.combat.nodes | [resolve_action] pc_03d1ef5ff883b272 事件=['attack']
-2026-07-28 18:28:26,099 | INFO | httpx | HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
-2026-07-28 18:28:28,596 | INFO | src.combat.nodes | [check_end] 战斗结果=players_win
-2026-07-28 18:28:28,598 | INFO | src.combat.nodes | [settle] 战斗结束 | 结果=players_win
-2026-07-28 18:28:28,598 | INFO | src.session.graph | [run_combat] 战斗结束 | outcome=players_win 伤亡=1
-2026-07-28 18:28:28,600 | INFO | src.session.story_nodes | [evaluate_advancement] 未推进，留在 «gate_exploration»（idle=0，本回合世界写入=1）
-2026-07-28 18:28:29,034 | INFO | httpx | HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
-2026-07-28 18:28:40,286 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-INFO:     127.0.0.1:65209 - "POST /api/rooms/M6MD9V/interactions/roll HTTP/1.1" 200 OK
-2026-07-28 18:28:49,487 | INFO | src.common.ws.ws_manager | [ws.room] 用户断开连接 | room_code=M6MD9V | user_id=user_c56c41a387b325ec
-INFO:     connection closed
-INFO:     127.0.0.1:65210 - "GET /api/rooms/M6MD9V/lobby HTTP/1.1" 200 OK
-2026-07-28 18:28:49,704 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-INFO:     127.0.0.1:65211 - "GET /api/rooms/M6MD9V HTTP/1.1" 200 OK
-INFO:     127.0.0.1:65212 - "GET /api/rooms/M6MD9V/lobby HTTP/1.1" 200 OK
-2026-07-28 18:28:49,708 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-INFO:     127.0.0.1:65210 - "GET /api/rooms/M6MD9V HTTP/1.1" 200 OK
-INFO:     127.0.0.1:65283 - "WebSocket /ws/rooms/M6MD9V?token=_Op3UX5SPwTR3oYLRTwMEKEvd-XdvsCqxUa6vzaLL8Q" [accepted]
-2026-07-28 18:28:50,014 | INFO | src.common.ws.ws_manager | [ws.room] 用户加入连接 | room_code=M6MD9V | user_id=user_c56c41a387b325ec | count=2
-INFO:     connection open
-2026-07-28 18:28:50,017 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-2026-07-28 18:29:09,529 | INFO | src.common.ws.ws_manager | [ws.room] 用户断开连接 | room_code=M6MD9V | user_id=user_c56c41a387b325ec
-INFO:     connection closed
-INFO:     127.0.0.1:65336 - "GET /api/rooms/M6MD9V/lobby HTTP/1.1" 200 OK
-INFO:     127.0.0.1:65337 - "WebSocket /ws/rooms/M6MD9V?token=_Op3UX5SPwTR3oYLRTwMEKEvd-XdvsCqxUa6vzaLL8Q" [accepted]
-2026-07-28 18:29:10,043 | INFO | src.common.ws.ws_manager | [ws.room] 用户加入连接 | room_code=M6MD9V | user_id=user_c56c41a387b325ec | count=2
-2026-07-28 18:29:10,045 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-INFO:     127.0.0.1:65338 - "GET /api/rooms/M6MD9V HTTP/1.1" 200 OK
-INFO:     connection open
-2026-07-28 18:29:10,047 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-INFO:     127.0.0.1:65336 - "GET /api/rooms/M6MD9V/lobby HTTP/1.1" 200 OK
-2026-07-28 18:29:10,049 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-INFO:     127.0.0.1:65338 - "GET /api/rooms/M6MD9V HTTP/1.1" 200 OK
-2026-07-28 18:29:19,556 | INFO | src.common.ws.ws_manager | [ws.room] 用户断开连接 | room_code=M6MD9V | user_id=user_c56c41a387b325ec
-INFO:     connection closed
-INFO:     127.0.0.1:65341 - "GET /api/rooms/M6MD9V/lobby HTTP/1.1" 200 OK
-2026-07-28 18:29:19,739 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-INFO:     127.0.0.1:65342 - "GET /api/rooms/M6MD9V HTTP/1.1" 200 OK
-INFO:     127.0.0.1:65341 - "GET /api/rooms/M6MD9V/lobby HTTP/1.1" 200 OK
-2026-07-28 18:29:19,744 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-INFO:     127.0.0.1:65343 - "GET /api/rooms/M6MD9V HTTP/1.1" 200 OK
-INFO:     127.0.0.1:65367 - "WebSocket /ws/rooms/M6MD9V?token=_Op3UX5SPwTR3oYLRTwMEKEvd-XdvsCqxUa6vzaLL8Q" [accepted]
-2026-07-28 18:29:20,040 | INFO | src.common.ws.ws_manager | [ws.room] 用户加入连接 | room_code=M6MD9V | user_id=user_c56c41a387b325ec | count=2
-INFO:     connection open
-2026-07-28 18:29:20,042 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-2026-07-28 18:30:36,450 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-2026-07-28 18:30:36,454 | INFO | src.session.dm_subgraph | [dm_decide] 调用 DM | location=玄天秘境·石门入口 | user_input=看看信封里写的什么
-2026-07-28 18:30:36,972 | INFO | httpx | HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
-2026-07-28 18:30:44,674 | INFO | src.common.ws.ws_manager | [ws.room] 用户断开连接 | room_code=M6MD9V | user_id=user_c56c41a387b325ec
-INFO:     connection closed
-INFO:     127.0.0.1:65484 - "GET /api/rooms/M6MD9V/lobby HTTP/1.1" 200 OK
-2026-07-28 18:30:44,885 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-INFO:     127.0.0.1:65484 - "GET /api/rooms/M6MD9V HTTP/1.1" 200 OK
-INFO:     127.0.0.1:65484 - "GET /api/rooms/M6MD9V/lobby HTTP/1.1" 200 OK
-2026-07-28 18:30:44,894 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-INFO:     127.0.0.1:65484 - "GET /api/rooms/M6MD9V HTTP/1.1" 200 OK
-INFO:     127.0.0.1:65509 - "WebSocket /ws/rooms/M6MD9V?token=_Op3UX5SPwTR3oYLRTwMEKEvd-XdvsCqxUa6vzaLL8Q" [accepted]
-2026-07-28 18:30:45,196 | INFO | src.common.ws.ws_manager | [ws.room] 用户加入连接 | room_code=M6MD9V | user_id=user_c56c41a387b325ec | count=2
-INFO:     connection open
-2026-07-28 18:30:45,197 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-2026-07-28 18:30:48,270 | WARNING | src.dm.world_bridge | [dm_decide] 第 1 次决策不合法，交回真实 LLM 重评 | error=[dm] discoveries 含非法线索：['key_obtained'] | raw={"intent": "reply", "reply_brief": "你展开那封焦黄的信纸，上面是黑风宗探子的密信——他们已探明秘境深处盘踞一条火蟒，计划用火攻压制它（但不知其寒冰弱点）。此外，探子腰间那柄铜钥也一并到手。", "discoveries": ["clue_corpse_note", "key_obtained"], "narrative_intent": "信纸边缘有一丝焦痕，像被高温燎过——暗示前方火蟒的气息已渗透到外围。"}
-2026-07-28 18:30:48,471 | INFO | httpx | HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
-2026-07-28 18:31:00,933 | INFO | src.session.dm_subgraph | [dm_decide] 意图=reply 世界写入=['clues_delivered', 'discoveries']
-2026-07-28 18:31:00,935 | INFO | src.session.story_nodes | [evaluate_advancement] 未推进，留在 «gate_exploration»（idle=0，本回合世界写入=4）
-2026-07-28 18:31:01,171 | INFO | httpx | HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
-2026-07-28 18:31:06,787 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-INFO:     127.0.0.1:65481 - "POST /api/rooms/M6MD9V/messages HTTP/1.1" 200 OK
-2026-07-28 18:31:13,903 | INFO | src.common.ws.ws_manager | [ws.room] 用户断开连接 | room_code=M6MD9V | user_id=user_c56c41a387b325ec
-INFO:     connection closed
-INFO:     127.0.0.1:65510 - "GET /api/rooms/M6MD9V/lobby HTTP/1.1" 200 OK
-2026-07-28 18:31:14,119 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-INFO:     127.0.0.1:65511 - "GET /api/rooms/M6MD9V HTTP/1.1" 200 OK
-INFO:     127.0.0.1:65512 - "GET /api/rooms/M6MD9V/lobby HTTP/1.1" 200 OK
-2026-07-28 18:31:14,125 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-INFO:     127.0.0.1:65510 - "GET /api/rooms/M6MD9V HTTP/1.1" 200 OK
-INFO:     127.0.0.1:49176 - "WebSocket /ws/rooms/M6MD9V?token=_Op3UX5SPwTR3oYLRTwMEKEvd-XdvsCqxUa6vzaLL8Q" [accepted]
-2026-07-28 18:31:14,434 | INFO | src.common.ws.ws_manager | [ws.room] 用户加入连接 | room_code=M6MD9V | user_id=user_c56c41a387b325ec | count=2
-INFO:     connection open
-2026-07-28 18:31:14,435 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-2026-07-28 18:31:49,777 | INFO | src.common.ws.ws_manager | [ws.room] 用户断开连接 | room_code=M6MD9V | user_id=user_c56c41a387b325ec
-INFO:     connection closed
-INFO:     127.0.0.1:49243 - "WebSocket /ws/rooms/M6MD9V?token=_Op3UX5SPwTR3oYLRTwMEKEvd-XdvsCqxUa6vzaLL8Q" [accepted]
-2026-07-28 18:31:50,286 | INFO | src.common.ws.ws_manager | [ws.room] 用户加入连接 | room_code=M6MD9V | user_id=user_c56c41a387b325ec | count=2
-INFO:     127.0.0.1:49244 - "GET /api/rooms/M6MD9V/lobby HTTP/1.1" 200 OK
-2026-07-28 18:31:50,287 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-INFO:     127.0.0.1:49245 - "GET /api/rooms/M6MD9V HTTP/1.1" 200 OK
-INFO:     connection open
-2026-07-28 18:31:50,290 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-INFO:     127.0.0.1:49244 - "GET /api/rooms/M6MD9V/lobby HTTP/1.1" 200 OK
-2026-07-28 18:31:50,294 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-INFO:     127.0.0.1:49245 - "GET /api/rooms/M6MD9V HTTP/1.1" 200 OK
-2026-07-28 18:32:13,900 | INFO | src.common.ws.ws_manager | [ws.room] 用户断开连接 | room_code=M6MD9V | user_id=user_c56c41a387b325ec
-INFO:     connection closed
-INFO:     127.0.0.1:49248 - "GET /api/rooms/M6MD9V/lobby HTTP/1.1" 200 OK
-2026-07-28 18:32:14,098 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-INFO:     127.0.0.1:49249 - "GET /api/rooms/M6MD9V HTTP/1.1" 200 OK
-INFO:     127.0.0.1:49250 - "GET /api/rooms/M6MD9V/lobby HTTP/1.1" 200 OK
-2026-07-28 18:32:14,107 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-INFO:     127.0.0.1:49248 - "GET /api/rooms/M6MD9V HTTP/1.1" 200 OK
-INFO:     127.0.0.1:49308 - "WebSocket /ws/rooms/M6MD9V?token=_Op3UX5SPwTR3oYLRTwMEKEvd-XdvsCqxUa6vzaLL8Q" [accepted]
-2026-07-28 18:32:14,399 | INFO | src.common.ws.ws_manager | [ws.room] 用户加入连接 | room_code=M6MD9V | user_id=user_c56c41a387b325ec | count=2
-INFO:     connection open
-2026-07-28 18:32:14,400 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-2026-07-28 18:32:18,457 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-2026-07-28 18:32:18,460 | INFO | src.session.dm_subgraph | [dm_decide] 调用 DM | location=玄天秘境·石门入口 | user_input=握住玉佩，与老人谈话
-2026-07-28 18:32:18,959 | INFO | httpx | HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
-2026-07-28 18:32:24,817 | INFO | src.common.ws.ws_manager | [ws.room] 用户断开连接 | room_code=M6MD9V | user_id=user_c56c41a387b325ec
-INFO:     connection closed
-INFO:     127.0.0.1:49331 - "GET /api/rooms/M6MD9V/lobby HTTP/1.1" 200 OK
-INFO:     127.0.0.1:49332 - "WebSocket /ws/rooms/M6MD9V?token=_Op3UX5SPwTR3oYLRTwMEKEvd-XdvsCqxUa6vzaLL8Q" [accepted]
-2026-07-28 18:32:25,310 | INFO | src.common.ws.ws_manager | [ws.room] 用户加入连接 | room_code=M6MD9V | user_id=user_c56c41a387b325ec | count=2
-2026-07-28 18:32:25,311 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-INFO:     127.0.0.1:49333 - "GET /api/rooms/M6MD9V HTTP/1.1" 200 OK
-INFO:     connection open
-2026-07-28 18:32:25,313 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-INFO:     127.0.0.1:49331 - "GET /api/rooms/M6MD9V/lobby HTTP/1.1" 200 OK
-2026-07-28 18:32:25,323 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-INFO:     127.0.0.1:49333 - "GET /api/rooms/M6MD9V HTTP/1.1" 200 OK
-2026-07-28 18:32:27,822 | INFO | src.session.dm_subgraph | [dm_decide] 意图=reply 世界写入=['discoveries']
-2026-07-28 18:32:27,825 | INFO | src.session.story_nodes | [evaluate_advancement] 未推进，留在 «gate_exploration»（idle=0，本回合世界写入=2）
-2026-07-28 18:32:27,971 | INFO | httpx | HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
-2026-07-28 18:32:38,185 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-INFO:     127.0.0.1:49248 - "POST /api/rooms/M6MD9V/messages HTTP/1.1" 200 OK
-2026-07-28 18:32:54,853 | INFO | src.common.ws.ws_manager | [ws.room] 用户断开连接 | room_code=M6MD9V | user_id=user_c56c41a387b325ec
-INFO:     connection closed
-INFO:     127.0.0.1:49336 - "GET /api/rooms/M6MD9V/lobby HTTP/1.1" 200 OK
-2026-07-28 18:32:55,033 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-INFO:     127.0.0.1:49337 - "GET /api/rooms/M6MD9V HTTP/1.1" 200 OK
-INFO:     127.0.0.1:49336 - "GET /api/rooms/M6MD9V/lobby HTTP/1.1" 200 OK
-2026-07-28 18:32:55,039 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-INFO:     127.0.0.1:49337 - "GET /api/rooms/M6MD9V HTTP/1.1" 200 OK
-INFO:     127.0.0.1:49381 - "WebSocket /ws/rooms/M6MD9V?token=_Op3UX5SPwTR3oYLRTwMEKEvd-XdvsCqxUa6vzaLL8Q" [accepted]
-2026-07-28 18:32:55,333 | INFO | src.common.ws.ws_manager | [ws.room] 用户加入连接 | room_code=M6MD9V | user_id=user_c56c41a387b325ec | count=2
-INFO:     connection open
-2026-07-28 18:32:55,334 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-2026-07-28 18:33:04,865 | INFO | src.common.ws.ws_manager | [ws.room] 用户断开连接 | room_code=M6MD9V | user_id=user_c56c41a387b325ec
-INFO:     connection closed
-INFO:     127.0.0.1:49382 - "GET /api/rooms/M6MD9V/lobby HTTP/1.1" 200 OK
-2026-07-28 18:33:05,042 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-INFO:     127.0.0.1:49383 - "GET /api/rooms/M6MD9V HTTP/1.1" 200 OK
-INFO:     127.0.0.1:49382 - "GET /api/rooms/M6MD9V/lobby HTTP/1.1" 200 OK
-2026-07-28 18:33:05,045 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-INFO:     127.0.0.1:49383 - "GET /api/rooms/M6MD9V HTTP/1.1" 200 OK
-INFO:     127.0.0.1:49405 - "WebSocket /ws/rooms/M6MD9V?token=_Op3UX5SPwTR3oYLRTwMEKEvd-XdvsCqxUa6vzaLL8Q" [accepted]
-2026-07-28 18:33:05,345 | INFO | src.common.ws.ws_manager | [ws.room] 用户加入连接 | room_code=M6MD9V | user_id=user_c56c41a387b325ec | count=2
-INFO:     connection open
-2026-07-28 18:33:05,347 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-2026-07-28 18:33:13,904 | INFO | src.common.ws.ws_manager | [ws.room] 用户断开连接 | room_code=M6MD9V | user_id=user_c56c41a387b325ec
-INFO:     connection closed
-INFO:     127.0.0.1:49406 - "GET /api/rooms/M6MD9V/lobby HTTP/1.1" 200 OK
-2026-07-28 18:33:14,074 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-INFO:     127.0.0.1:49407 - "GET /api/rooms/M6MD9V HTTP/1.1" 200 OK
-INFO:     127.0.0.1:49406 - "GET /api/rooms/M6MD9V/lobby HTTP/1.1" 200 OK
-2026-07-28 18:33:14,080 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-INFO:     127.0.0.1:49407 - "GET /api/rooms/M6MD9V HTTP/1.1" 200 OK
-INFO:     127.0.0.1:49431 - "WebSocket /ws/rooms/M6MD9V?token=_Op3UX5SPwTR3oYLRTwMEKEvd-XdvsCqxUa6vzaLL8Q" [accepted]
-2026-07-28 18:33:14,386 | INFO | src.common.ws.ws_manager | [ws.room] 用户加入连接 | room_code=M6MD9V | user_id=user_c56c41a387b325ec | count=2
-INFO:     connection open
-2026-07-28 18:33:14,387 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-2026-07-28 18:33:29,918 | INFO | src.common.ws.ws_manager | [ws.room] 用户断开连接 | room_code=M6MD9V | user_id=user_c56c41a387b325ec
-INFO:     connection closed
-INFO:     127.0.0.1:49432 - "GET /api/rooms/M6MD9V/lobby HTTP/1.1" 200 OK
-2026-07-28 18:33:30,105 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-INFO:     127.0.0.1:49433 - "GET /api/rooms/M6MD9V HTTP/1.1" 200 OK
-INFO:     127.0.0.1:49432 - "GET /api/rooms/M6MD9V/lobby HTTP/1.1" 200 OK
-2026-07-28 18:33:30,111 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-INFO:     127.0.0.1:49433 - "GET /api/rooms/M6MD9V HTTP/1.1" 200 OK
-INFO:     127.0.0.1:49467 - "WebSocket /ws/rooms/M6MD9V?token=_Op3UX5SPwTR3oYLRTwMEKEvd-XdvsCqxUa6vzaLL8Q" [accepted]
-2026-07-28 18:33:30,412 | INFO | src.common.ws.ws_manager | [ws.room] 用户加入连接 | room_code=M6MD9V | user_id=user_c56c41a387b325ec | count=2
-INFO:     connection open
-2026-07-28 18:33:30,414 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-2026-07-28 18:34:13,900 | INFO | src.common.ws.ws_manager | [ws.room] 用户断开连接 | room_code=M6MD9V | user_id=user_c56c41a387b325ec
-INFO:     connection closed
-INFO:     127.0.0.1:49468 - "GET /api/rooms/M6MD9V/lobby HTTP/1.1" 200 OK
-INFO:     127.0.0.1:49469 - "OPTIONS /api/rooms/M6MD9V HTTP/1.1" 200 OK
-INFO:     127.0.0.1:49468 - "OPTIONS /api/rooms/M6MD9V HTTP/1.1" 200 OK
-INFO:     127.0.0.1:49469 - "GET /api/rooms/M6MD9V/lobby HTTP/1.1" 200 OK
-2026-07-28 18:34:14,082 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-INFO:     127.0.0.1:49468 - "GET /api/rooms/M6MD9V HTTP/1.1" 200 OK
-2026-07-28 18:34:14,086 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-INFO:     127.0.0.1:49469 - "GET /api/rooms/M6MD9V HTTP/1.1" 200 OK
-INFO:     127.0.0.1:49604 - "WebSocket /ws/rooms/M6MD9V?token=_Op3UX5SPwTR3oYLRTwMEKEvd-XdvsCqxUa6vzaLL8Q" [accepted]
-2026-07-28 18:34:14,386 | INFO | src.common.ws.ws_manager | [ws.room] 用户加入连接 | room_code=M6MD9V | user_id=user_c56c41a387b325ec | count=2
-INFO:     connection open
-2026-07-28 18:34:14,388 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-2026-07-28 18:35:13,903 | INFO | src.common.ws.ws_manager | [ws.room] 用户断开连接 | room_code=M6MD9V | user_id=user_c56c41a387b325ec
-INFO:     connection closed
-INFO:     127.0.0.1:49605 - "GET /api/rooms/M6MD9V/lobby HTTP/1.1" 200 OK
-2026-07-28 18:35:14,086 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-INFO:     127.0.0.1:49606 - "GET /api/rooms/M6MD9V HTTP/1.1" 200 OK
-INFO:     127.0.0.1:49605 - "GET /api/rooms/M6MD9V/lobby HTTP/1.1" 200 OK
-2026-07-28 18:35:14,091 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-INFO:     127.0.0.1:49606 - "GET /api/rooms/M6MD9V HTTP/1.1" 200 OK
-INFO:     127.0.0.1:49686 - "WebSocket /ws/rooms/M6MD9V?token=_Op3UX5SPwTR3oYLRTwMEKEvd-XdvsCqxUa6vzaLL8Q" [accepted]
-2026-07-28 18:35:14,398 | INFO | src.common.ws.ws_manager | [ws.room] 用户加入连接 | room_code=M6MD9V | user_id=user_c56c41a387b325ec | count=2
-INFO:     connection open
-2026-07-28 18:35:14,400 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-2026-07-28 18:36:13,900 | INFO | src.common.ws.ws_manager | [ws.room] 用户断开连接 | room_code=M6MD9V | user_id=user_c56c41a387b325ec
-INFO:     connection closed
-INFO:     127.0.0.1:49687 - "GET /api/rooms/M6MD9V/lobby HTTP/1.1" 200 OK
-2026-07-28 18:36:14,063 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-INFO:     127.0.0.1:49688 - "GET /api/rooms/M6MD9V HTTP/1.1" 200 OK
-INFO:     127.0.0.1:49687 - "GET /api/rooms/M6MD9V/lobby HTTP/1.1" 200 OK
-2026-07-28 18:36:14,067 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-INFO:     127.0.0.1:49688 - "GET /api/rooms/M6MD9V HTTP/1.1" 200 OK
-INFO:     127.0.0.1:49778 - "WebSocket /ws/rooms/M6MD9V?token=_Op3UX5SPwTR3oYLRTwMEKEvd-XdvsCqxUa6vzaLL8Q" [accepted]
-2026-07-28 18:36:14,379 | INFO | src.common.ws.ws_manager | [ws.room] 用户加入连接 | room_code=M6MD9V | user_id=user_c56c41a387b325ec | count=2
-INFO:     connection open
-2026-07-28 18:36:14,381 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-2026-07-28 18:36:30,441 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-2026-07-28 18:36:30,446 | INFO | src.session.dm_subgraph | [dm_decide] 调用 DM | location=玄天秘境·石门入口 | user_input=捡起钥匙，然后直接进入石门
-2026-07-28 18:36:30,942 | INFO | httpx | HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
-2026-07-28 18:36:42,705 | WARNING | src.dm.world_bridge | [dm_decide] 第 1 次决策不合法，交回真实 LLM 重评 | error=[dm] discoveries 含非法线索：['key_obtained'] | raw={"intent": "reply", "reply_brief": "玩家捡起铜钥匙，推开石门走进幽蓝通道，来到铭文厅——一座宽阔石室，墙壁刻满古文字和火焰纹样，正中央立着一块散发寒气的寒冰浮雕，墙角有一扇紧闭的铜门。", "moved_to": "inscription_hall", "discoveries": ["key_obtained"], "narrative_intent": "玉佩在你踏入厅堂的瞬间轻轻一震，一缕寒气从中央浮雕的方向迎面扑来，像是暗中有物在回应你的到来。"}
-2026-07-28 18:36:42,854 | INFO | httpx | HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
-2026-07-28 18:36:58,868 | WARNING | src.dm.world_bridge | [dm_decide] 第 2 次决策不合法，交回真实 LLM 重评 | error=[dm] 线索 flag 必须通过 discoveries 触发：['key_obtained'] | raw={"intent": "reply", "reply_brief": "yb弯腰捡起探子身上那柄生锈的铜钥匙，铜锈间还沾着几滴未干的血迹。他将钥匙揣好，侧身挤过半掩的石门，走进那道幽蓝微光——石门在他身后缓缓合拢，发出沉闷的摩擦声。通道尽头，一座宽阔的石室映入眼帘：四壁刻满古老的符文与火焰纹样，正中央立着一块寒气逼人的寒冰浮雕，表面隐隐有水光流动。对面的墙壁上有一扇紧闭的铜门，铜锁孔的形状与你刚捡的钥匙颇为吻合。", "narrative_intent": "玉佩在踏入石室的瞬间微微震颤了一下，像在提醒什么，又像只是欢迎你走进这秘境的核心。", "flags_set": {"key_obtained": true}, "moved_to": "inscription_hall"}
-2026-07-28 18:36:59,010 | INFO | httpx | HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
-2026-07-28 18:37:13,900 | INFO | src.common.ws.ws_manager | [ws.room] 用户断开连接 | room_code=M6MD9V | user_id=user_c56c41a387b325ec
-INFO:     connection closed
-INFO:     127.0.0.1:49780 - "GET /api/rooms/M6MD9V/lobby HTTP/1.1" 200 OK
-2026-07-28 18:37:14,118 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-INFO:     127.0.0.1:49780 - "GET /api/rooms/M6MD9V HTTP/1.1" 200 OK
-INFO:     127.0.0.1:49780 - "GET /api/rooms/M6MD9V/lobby HTTP/1.1" 200 OK
-2026-07-28 18:37:14,126 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-INFO:     127.0.0.1:49780 - "GET /api/rooms/M6MD9V HTTP/1.1" 200 OK
-INFO:     127.0.0.1:49885 - "WebSocket /ws/rooms/M6MD9V?token=_Op3UX5SPwTR3oYLRTwMEKEvd-XdvsCqxUa6vzaLL8Q" [accepted]
-2026-07-28 18:37:14,430 | INFO | src.common.ws.ws_manager | [ws.room] 用户加入连接 | room_code=M6MD9V | user_id=user_c56c41a387b325ec | count=2
-INFO:     connection open
-2026-07-28 18:37:14,432 | INFO | src.session.engine | [session] 房间=M6MD9V 回合结束，等待玩家输入
-2026-07-28 18:37:14,907 | WARNING | src.dm.world_bridge | [dm_decide] 第 3 次决策不合法，交回真实 LLM 重评 | error=[dm] discoveries 含非法线索：['key_obtained'] | raw={"intent": "reply", "reply_brief": "玩家弯腰捡起铜钥匙，钥匙入手冰凉，锈迹斑斑但纹路完整。推开石门，幽蓝通道向前延伸，两侧石壁刻满火焰纹样，越走越热。通道尽头是一座宽阔石室——铭文厅，四壁刻满古文字与火焰浮雕，中央立着一块寒气逼人的冰蓝色浮雕。墙角有一扇紧闭的铜门，门缝隐约透出赤红光芒。玩家可以检查寒冰浮雕、研究墙壁铭文、或者尝试打开那扇铜门。", "moved_to": "inscription_hall", "discoveries": ["key_obtained"], "narrative_intent": "玩家踏入通道时，玉佩微微发烫，像是风老在暗中点头；石壁上的火焰纹样在幽蓝光中仿佛在缓缓游动，暗示前方火蟒的威胁正在逼近。"}
-INFO:     127.0.0.1:49779 - "POST /api/rooms/M6MD9V/messages HTTP/1.1" 500 Internal Server Error
-ERROR:    Exception in ASGI application
+"title": "Effect Id", "type": "string"}, "effect_kind": {"enum": ["flag", "item"], "title": "Effect Kind", "type": "string"}, "owner_kind": {"enum": ["discovery", "encounter_win", "initial_state", "rule_action", "dm_free_write"], "title": "Owner Kind", "type": "string"}, "owner_id": {"pattern": "^[a-z][a-z0-9_]*$", "title": "Owner Id", "type": "string"}}, "required": ["effect_id", "effect_kind", "owner_kind", "owner_id"], "title": "EffectOwner", "type": "object"}, "PlanAct": {"additionalProperties": false, "properties": {"id": {"pattern": "^[a-z][a-z0-9_]*$", "title": "Id", "type": "string"}, "purpose": {"minLength": 1, "title": "Purpose", "type": "string"}, "estimated_minutes": {"maximum": 120, "minimum": 1, "title": "Estimated Minutes", "type": "integer"}, "beat_ids": {"items": {"type": "string"}, "minItems": 1, "title": "Beat Ids", "type": "array"}, "turning_point": {"minLength": 1, "title": "Turning Point", "type": "string"}}, "required": ["id", "purpose", "estimated_minutes", "beat_ids", "turning_point"], "title": "PlanAct", "type": "object"}, "PlanBeat": {"additionalProperties": false, "properties": {"id": {"pattern": "^[a-z][a-z0-9_]*$", "title": "Id", "type": "string"}, "act_id": {"pattern": "^[a-z][a-z0-9_]*$", "title": "Act Id", "type": "string"}, "kind": {"enum": ["opening", "exploration", "conflict", "climax", "ending"], "title": "Kind", "type": "string"}, "estimated_minutes": {"maximum": 120, "minimum": 1, "title": "Estimated Minutes", "type": "integer"}, "objective": {"minLength": 1, "title": "Objective", "type": "string"}, "pressure": {"minLength": 1, "title": "Pressure", "type": "string"}, "dramatic_question": {"default": "", "title": "Dramatic Question", "type": "string"}, "entry_hook": {"default": "", "title": "Entry Hook", "type": "string"}, "location_ids": {"items": {"type": "string"}, "title": "Location Ids", "type": "array"}, "actor_ids": {"items": {"type": "string"}, "title": "Actor Ids", "type": "array"}, "clue_ids": {"items": {"type": "string"}, "title": "Clue Ids", "type": "array"}, "encounter_id": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": null, "title": "Encounter Id"}, "exits": {"items": {"$ref": "#/$defs/PlanExit"}, "title": "Exits", "type": "array"}, "fail_forward": {"default": "", "title": "Fail Forward", "type": "string"}, "payoff_flag_ids": {"items": {"type": "string"}, "title": "Payoff Flag Ids", "type": "array"}}, "required": ["id", "act_id", "kind", "estimated_minutes", "objective", "pressure"], "title": "PlanBeat", "type": "object"}, "PlanBranchPoint": {"additionalProperties": false, "properties": {"beat_id": {"pattern": "^[a-z][a-z0-9_]*$", "title": "Beat Id", "type": "string"}, "choices": {"items": {"type": "string"}, "maxItems": 3, "minItems": 2, "title": "Choices", "type": "array"}, "distinct_consequences": {"items": {"type": "string"}, "minItems": 2, "title": "Distinct Consequences", "type": "array"}, "reconverge_at": {"pattern": "^[a-z][a-z0-9_]*$", "title": "Reconverge At", "type": "string"}}, "required": ["beat_id", "choices", "distinct_consequences", "reconverge_at"], "title": "PlanBranchPoint", "type": "object"}, "PlanClueLink": {"additionalProperties": false, "properties": {"clue_id": {"pattern": "^[a-z][a-z0-9_]*$", "title": "Clue Id", "type": "string"}, "answers": {"minLength": 1, "title": "Answers", "type": "string"}, "unlocks": {"items": {"type": "string"}, "title": "Unlocks", "type": "array"}, "acquisition_owner": {"minLength": 1, "title": "Acquisition Owner", "type": "string"}, "alternative_approaches": {"items": {"type": "string"}, "title": "Alternative Approaches", "type": "array"}}, "required": ["clue_id", "answers", "acquisition_owner"], "title": "PlanClueLink", "type": "object"}, "PlanEndingRoute": {"additionalProperties": false, "properties": {"ending_id": {"pattern": "^[a-z][a-z0-9_]*$", "title": "Ending Id", "type": "string"}, "outcome": {"enum": ["win", "lose"], "title": "Outcome", "type": "string"}, "required_facts": {"items": {"type": "string"}, "title": "Required Facts", "type": "array"}, "payoffs": {"items": {"type": "string"}, "title": "Payoffs", "type": "array"}}, "required": ["ending_id", "outcome"], "title": "PlanEndingRoute", "type": "object"}, "PlanEntities": {"additionalProperties": false, "properties": {"actors": {"items": {"$ref": "#/$defs/PlanEntity"}, "title": "Actors", "type": "array"}, "locations": {"items": {"$ref": "#/$defs/PlanEntity"}, "title": "Locations", "type": "array"}, "encounters": {"items": {"$ref": "#/$defs/PlanEntity"}, "title": "Encounters", "type": "array"}, "clues": {"items": {"$ref": "#/$defs/PlanEntity"}, "title": "Clues", "type": "array"}, "flags": {"items": {"$ref": "#/$defs/PlanEntity"}, "title": "Flags", "type": "array"}, "items": {"items": {"$ref": "#/$defs/PlanEntity"}, "title": "Items", "type": "array"}, "actions": {"items": {"$ref": "#/$defs/PlanEntity"}, "title": "Actions", "type": "array"}}, "title": "PlanEntities", "type": "object"}, "PlanEntity": {"additionalProperties": false, "properties": {"id": {"pattern": "^[a-z][a-z0-9_]*$", "title": "Id", "type": "string"}, "name": {"default": "", "title": "Name", "type": "string"}, "summary": {"default": "", "title": "Summary", "type": "string"}}, "required": ["id"], "title": "PlanEntity", "type": "object"}, "PlanExit": {"additionalProperties": false, "properties": {"to_beat_id": {"pattern": "^[a-z][a-z0-9_]*$", "title": "To Beat Id", "type": "string"}, "condition_summary": {"minLength": 1, "title": "Condition Summary", "type": "string"}, "consequence": {"minLength": 1, "title": "Consequence", "type": "string"}}, "required": ["to_beat_id", "condition_summary", "consequence"], "title": "PlanExit", "type": "object"}, "PlanPayoff": {"additionalProperties": false, "properties": {"flag_id": {"pattern": "^[a-z][a-z0-9_]*$", "title": "Flag Id", "type": "string"}, "setup_beat_id": {"pattern": "^[a-z][a-z0-9_]*$", "title": "Setup Beat Id", "type": "string"}, "payoff_beat_id": {"pattern": "^[a-z][a-z0-9_]*$", "title": "Payoff Beat Id", "type": "string"}, "description": {"minLength": 1, "title": "Description", "type": "string"}}, "required": ["flag_id", "setup_beat_id", "payoff_beat_id", "description"], "title": "PlanPayoff", "type": "object"}, "StoryScaleProfile": {"additionalProperties": false, "description": "玩家确认的可量化故事规模；数值是目标而不是宽泛建议。", "properties": {"playable_beats": {"maximum": 12, "minimum": 1, "title": "Playable Beats", "type": "integer"}, "acts": {"maximum": 5, "minimum": 1, "title": "Acts", "type": "integer"}, "locations": {"maximum": 14, "minimum": 1, "title": "Locations", "type": "integer"}, "encounters": {"maximum": 5, "minimum": 0, "title": "Encounters", "type": "integer"}, "clues": {"maximum": 12, "minimum": 0, "title": "Clues", "type": "integer"}}, "required": ["playable_beats", "acts", "locations", "encounters", "clues"], "title": "StoryScaleProfile", "type": "object"}}, "additionalProperties": false, "description": "通过确定性图校验后才允许进入 Canon 分片编译的内部计划。", "properties": {"plan_version": {"default": 1, "minimum": 1, "title": "Plan Version", "type": "integer"}, "campaign_id_candidate": {"pattern": "^[a-z][a-z0-9_]{2,63}$", "title": "Campaign Id Candidate", "type": "string"}, "start_beat_id": {"pattern": "^[a-z][a-z0-9_]*$", "title": "Start Beat Id", "type": "string"}, "scale_profile": {"$ref": "#/$defs/StoryScaleProfile"}, "acts": {"items": {"$ref": "#/$defs/PlanAct"}, "minItems": 1, "title": "Acts", "type": "array"}, "beats": {"items": {"$ref": "#/$defs/PlanBeat"}, "minItems": 1, "title": "Beats", "type": "array"}, "entities": {"$ref": "#/$defs/PlanEntities"}, "clue_graph": {"items": {"$ref": "#/$defs/PlanClueLink"}, "title": "Clue Graph", "type": "array"}, "branch_points": {"items": {"$ref": "#/$defs/PlanBranchPoint"}, "title": "Branch Points", "type": "array"}, "foreshadowing_payoffs": {"items": {"$ref": "#/$defs/PlanPayoff"}, "title": "Foreshadowing Payoffs", "type": "array"}, "ending_routes": {"items": {"$ref": "#/$defs/PlanEndingRoute"}, "maxItems": 2, "minItems": 2, "title": "Ending Routes", "type": "array"}, "effect_owner_ledger": {"items": {"$ref": "#/$defs/EffectOwner"}, "title": "Effect Owner Ledger", "type": "array"}}, "required": ["campaign_id_candidate", "start_beat_id", "scale_profile", "acts", "beats", "entities", "ending_routes"], "title": "StoryPlan", "type": "object"}</story_plan_json_schema>
+<immutable_design_brief>{"contract_version": 2, "revision": 8, "confirmed_revision": 8, "working_title": "焚天逆途", "premise": "灭族幸存者从灭族当夜重伤逃生开始，以修炼变强、探索秘境、收集异火为路径，事件驱动地追查复仇线索，途中完成一段旧识委托的纯情感支线，最终亲手斩杀灭族仇人、幕后主使，并揪出家族内鬼。", "player_role": "灭族惨案中幸存的主角，背负血仇，动机是变强与复仇。", "core_conflict": "主角与灭族仇人及幕后主使的实力对抗；家族内鬼的背叛贯穿始终，复仇路上面对信任、取舍与不惜代价的抉择。", "antagonist_direction": "明面灭族仇人 + 系统秘密设计的幕后主使 + 系统秘密设计的家族内鬼叛徒", "gameplay_focus": ["秘境探索", "机缘寻宝", "战斗成长", "异火收集"], "tone": "爽文热血、逆袭复仇；允许背叛与血腥，但主角始终保持碾压爽感", "content_boundaries": ["不让主角长期处于被碾压、憋屈或受辱的状态"], "content_warnings": ["背叛与血腥场景", "家族惨案情节"], "duration_minutes": 90, "player_count": 1, "ending_direction": "固定胜利结局：不惜代价亲手复仇成功；固定失败结局：主角中途陨落，故事完结。", "must_have": ["秘境历练", "异火收集", "实力提升", "灭族复仇", "家族内鬼", "幕后主使", "亲手复仇", "纯情感/奖励向支线"], "must_avoid": ["复仇不能让主角以外的人代劳", "分支不可破坏单线紧凑感"], "system_design_freedom": ["幕后主使身份", "家族内鬼身份", "异火种类与分布", "秘境具体结构", "旧识委托的具体人物与情节"], "length_mode": "long", "target_sessions": 1, "scale_profile": {"playable_beats": 8, "acts": 4, "locations": 8, "encounters": 3, "clues": 7}, "branching_style": "branch_and_reconverge", "branching_budget": {"meaningful_branch_points": 2, "max_parallel_beats": 1, "reconverge_before_climax": true}, "pacing": {"opening_percent": 10, "exploration_social_percent": 45, "escalation_percent": 20, "climax_percent": 20, "ending_percent": 5}, "set_pieces": ["灭族之夜重伤逃生", "首个秘境试炼", "异火凝奇缘", "旧识委托的情感/奖励支线", "内鬼身份揭露", "最终决战复仇"], "side_content": {"desired_side_threads": 1, "must_resolve_before_ending": true}, "failure_style": "中途陨落完结：主角一旦死亡，故事立即终止，不再进入复仇结局；途中可允许代价性挫折，但不改变最终失败条件。", "replayability": "low", "user_confirmed": true}</immutable_design_brief>
+<story_plan>{"plan_version": 1, "campaign_id_candidate": "burning_sky_vengeance", "start_beat_id": "beat_1", "scale_profile": {"playable_beats": 8, "acts": 4, "locations": 8, "encounters": 3, "clues": 7}, "acts": [{"id": "act_1", "purpose": "灭族之夜重伤逃生，种下复仇种子", "estimated_minutes": 9, "beat_ids": ["beat_1"], "turning_point": "主角失去一切，带着家族信物与复仇誓言存活"}, {"id": "act_2", "purpose": "秘境试炼变强，收集异火，完成旧识委托并追踪仇人线索", "estimated_minutes": 41, "beat_ids": ["beat_2", "beat_3", "beat_4a", "beat_4b", "beat_5"], "turning_point": "获得初火与旧识助力，揭开仇人迷雾一角"}, {"id": "act_3", "purpose": "逼近仇人，揭露内鬼与幕后主使", "estimated_minutes": 18, "beat_ids": ["beat_6a", "beat_6b", "beat_7"], "turning_point": "内鬼身份揭露，锁定最终决战地点"}, {"id": "act_4", "purpose": "最终决战，复仇雪恨", "estimated_minutes": 22, "beat_ids": ["beat_8", "beat_9_win", "beat_10_lose"], "turning_point": "亲手斩杀仇人及幕后主使，制裁背叛者"}], "beats": [{"id": "beat_1", "act_id": "act_1", "kind": "opening", "estimated_minutes": 9, "objective": "从灭族之夜屠杀中重伤逃生，带着家族信物和复仇意志存活", "pressure": "追兵将至，伤势严重，必须找到藏身处", "dramatic_question": "能否活着逃出这片焦土？", "entry_hook": "烈火焚天，家族惨遭屠灭，你被护卫拼死送出后山密道。", "location_ids": ["loc_burning_manor"], "actor_ids": ["actor_protagonist", "actor_pursuers"], "clue_ids": ["clue_heirloom_dagger", "clue_traitor_mark"], "encounter_id": null, "exits": [{"to_beat_id": "beat_2", "condition_summary": "成功逃脱追捕", "consequence": "主角进入疗伤和初阶修炼"}], "fail_forward": "即便重伤，也保留了复仇的火种", "payoff_flag_ids": ["flag_revenge_oath", "flag_heirloom_dagger"]}, {"id": "beat_2", "act_id": "act_2", "kind": "exploration", "estimated_minutes": 12, "objective": "进入首个秘境试炼，获取异火种子“青莲心火”", "pressure": "秘境禁制随时可能崩塌，守护兽灵狂暴", "location_ids": ["loc_azure_depths"], "actor_ids": ["actor_protagonist", "actor_guardian_spirit"], "clue_ids": ["clue_flame_seed"], "encounter_id": "enc_guardian_trial", "exits": [{"to_beat_id": "beat_3", "condition_summary": "击败守护兽灵或通过试炼", "consequence": "获得异火种子，实力提升"}], "payoff_flag_ids": ["flag_first_flame", "flag_power_boost"]}, {"id": "beat_3", "act_id": "act_2", "kind": "exploration", "estimated_minutes": 9, "objective": "应旧识委托，帮助其解除诅咒或挽救重要之人，获取信任与线索", "pressure": "时间紧迫，诅咒即将发作，委托者情绪低落", "location_ids": ["loc_silkveil_village"], "actor_ids": ["actor_protagonist", "actor_old_acquaintance", "actor_cursed_sibling"], "clue_ids": ["clue_antagonist_cult"], "encounter_id": null, "exits": [{"to_beat_id": "beat_4a", "condition_summary": "完成委托并选择追踪仇人踪迹，前往黑市", "consequence": "获得仇人组织初步情报，旧识感激"}, {"to_beat_id": "beat_4b", "condition_summary": "完成委托并选择潜入仇人外围据点搜集信息", "consequence": "发现仇人组织秘密通信，旧识感激"}], "payoff_flag_ids": ["flag_trust_of_acquaintance", "flag_curse_lifted"]}, {"id": "beat_4a", "act_id": "act_2", "kind": "exploration", "estimated_minutes": 10, "objective": "在黑市追踪仇人踪迹，获取关键名册", "pressure": "黑市鱼龙混杂，仇人耳目众多，身份暴露即危险", "location_ids": ["loc_black_market"], "actor_ids": ["actor_protagonist", "actor_info_broker"], "clue_ids": ["clue_antagonist_cult", "clue_traitor_identity"], "encounter_id": null, "exits": [{"to_beat_id": "beat_5", "condition_summary": "成功获取情报并全身而退", "consequence": "锁定仇人身份，得知幕后主使代号"}], "payoff_flag_ids": ["flag_know_antagonist", "flag_shadow_order_info"]}, {"id": "beat_4b", "act_id": "act_2", "kind": "exploration", "estimated_minutes": 10, "objective": "潜入仇人外围据点，窃取核心情报", "pressure": "据点巡逻严密，一旦被发现将被围杀", "location_ids": ["loc_outpost"], "actor_ids": ["actor_protagonist", "actor_outpost_guards"], "clue_ids": ["clue_traitor_letter", "clue_mastermind_identity"], "encounter_id": "enc_outpost_infiltration", "exits": [{"to_beat_id": "beat_5", "condition_summary": "窃取情报并逃脱", "consequence": "获得内鬼往来书信，揭示内鬼身份线索"}], "payoff_flag_ids": ["flag_traitor_clue", "flag_poison_research"]}, {"id": "beat_5", "act_id": "act_2", "kind": "exploration", "estimated_minutes": 10, "objective": "深入第二秘境，收集异火“陨星白焰”", "pressure": "秘境中星力紊乱，异火狂暴动摇神魂", "location_ids": ["loc_starfall_abyss"], "actor_ids": ["actor_protagonist", "actor_starfire_elemental"], "clue_ids": [], "encounter_id": null, "exits": [{"to_beat_id": "beat_6a", "condition_summary": "成功融合异火并选择正面挑战仇人势力", "consequence": "实力大幅提升，引发仇人警觉"}, {"to_beat_id": "beat_6b", "condition_summary": "成功融合异火并选择暗中调查内鬼证据", "consequence": "实力大幅提升，掌握先机"}], "payoff_flag_ids": ["flag_second_flame", "flag_sense_antagonist"]}, {"id": "beat_6a", "act_id": "act_3", "kind": "conflict", "estimated_minutes": 9, "objective": "正面击溃仇人麾下重要据点，逼出内鬼破绽", "pressure": "仇人派出主力，内鬼忍不住出手掩护", "location_ids": ["loc_enemy_stronghold"], "actor_ids": ["actor_protagonist", "actor_enemy_commander", "actor_traitor_shadow"], "clue_ids": ["clue_traitor_identity"], "encounter_id": "enc_stronghold_assault", "exits": [{"to_beat_id": "beat_7", "condition_summary": "击败据点守军并察觉内鬼破绽", "consequence": "内鬼身份暴露，获取幕后主使信物"}], "payoff_flag_ids": ["flag_traitor_revealed", "flag_mastermind_token"]}, {"id": "beat_6b", "act_id": "act_3", "kind": "conflict", "estimated_minutes": 9, "objective": "暗中搜集内鬼与仇人勾结的账册与通信", "pressure": "秘密调查一旦暴露，将遭到内外夹击", "location_ids": ["loc_black_market"], "actor_ids": ["actor_protagonist", "actor_informant"], "clue_ids": ["clue_traitor_letter", "clue_mastermind_identity"], "encounter_id": null, "exits": [{"to_beat_id": "beat_7", "condition_summary": "取得内鬼通敌铁证", "consequence": "内鬼无可抵赖，锁定幕后主使真实身份"}], "payoff_flag_ids": ["flag_conclusive_proof", "flag_mastermind_known"]}, {"id": "beat_7", "act_id": "act_3", "kind": "conflict", "estimated_minutes": 9, "objective": "与内鬼当面对质，将其制裁，并获取最终决战路线图", "pressure": "内鬼拼死反扑，临死诅咒", "location_ids": ["loc_enemy_stronghold"], "actor_ids": ["actor_protagonist", "actor_traitor", "actor_mastermind"], "clue_ids": [], "encounter_id": null, "exits": [{"to_beat_id": "beat_8", "condition_summary": "击败内鬼，获得仇人大本营所在地", "consequence": "主角斗志燃烧，踏上最终复仇之路"}], "payoff_flag_ids": ["flag_traitor_slain", "flag_revenge_path"]}, {"id": "beat_8", "act_id": "act_4", "kind": "climax", "estimated_minutes": 18, "objective": "攻入仇人大本营，手刃灭族仇人与幕后主使", "pressure": "仇人全副武装，幕后主使使用禁术，不成功便成仁", "location_ids": ["loc_final_stronghold"], "actor_ids": ["actor_protagonist", "actor_antagonist", "actor_mastermind"], "clue_ids": [], "encounter_id": null, "exits": [{"to_beat_id": "beat_9_win", "condition_summary": "胜利斩杀仇人与幕后主使", "consequence": "复仇成功，异火大成，开启新纪元"}, {"to_beat_id": "beat_10_lose", "condition_summary": "主角战败陨落", "consequence": "故事终结，血仇未报"}], "fail_forward": "如果失败，便是陨落结局", "payoff_flag_ids": ["flag_final_vengeance", "flag_ashes_of_past"]}, {"id": "beat_9_win", "act_id": "act_4", "kind": "ending", "estimated_minutes": 4, "objective": "复仇成功，焚尽仇寇，重塑家族名誉", "pressure": "", "location_ids": ["loc_final_stronghold"], "actor_ids": ["actor_protagonist"], "clue_ids": [], "encounter_id": null, "exits": [], "payoff_flag_ids": ["flag_victory"]}, {"id": "beat_10_lose", "act_id": "act_4", "kind": "ending", "estimated_minutes": 4, "objective": "主角陨落，烈火熄灭", "pressure": "", "location_ids": ["loc_final_stronghold"], "actor_ids": ["actor_protagonist"], "clue_ids": [], "encounter_id": null, "exits": [], "payoff_flag_ids": ["flag_death"]}], "entities": {"actors": [{"id": "actor_protagonist", "name": "主角", "summary": "灭族幸存者，背负血仇，异火宿主"}, {"id": "actor_pursuers", "name": "灭族追兵", "summary": "灭族当夜追杀主角的蒙面杀手"}, {"id": "actor_guardian_spirit", "name": "秘境守护兽灵", "summary": "青莲秘境守护者，试炼敌人的化身"}, {"id": "actor_old_acquaintance", "name": "旧识故人", "summary": "曾受主角家族恩惠，在复仇路上提供情感支线的委托者"}, {"id": "actor_cursed_sibling", "name": "被诅咒的亲属", "summary": "旧识的亲人，身中恶咒"}, {"id": "actor_info_broker", "name": "黑市情报贩子", "summary": "掌握仇人行踪的情报商，贪婪而谨慎"}, {"id": "actor_outpost_guards", "name": "外围据点守卫", "summary": "仇人外围据点的精锐护卫"}, {"id": "actor_enemy_commander", "name": "仇人麾下指挥官", "summary": "仇人核心据点的指挥者，战力强悍"}, {"id": "actor_traitor_shadow", "name": "内鬼影卫", "summary": "暗中协助内鬼的影卫，在战斗中暴露身份"}, {"id": "actor_informant", "name": "秘密线人", "summary": "了解内鬼过往的线人，提供关键证据"}, {"id": "actor_traitor", "name": "家族内鬼", "summary": "背叛家族的叛徒，身份揭露时的敌人"}, {"id": "actor_mastermind", "name": "幕后主使", "summary": "策划灭族惨案的真正黑手"}, {"id": "actor_antagonist", "name": "灭族仇人", "summary": "直接执行灭族的强敌"}, {"id": "actor_starfire_elemental", "name": "陨星白焰精魂", "summary": "第二秘境异火化身"}], "locations": [{"id": "loc_burning_manor", "name": "焚天庄", "summary": "被屠灭的家族庄园，密道与废墟交织"}, {"id": "loc_azure_depths", "name": "青莲秘渊", "summary": "藏有异火种子“青莲心火”的秘境"}, {"id": "loc_silkveil_village", "name": "锦雾村", "summary": "旧识所在的和美村落，被诅咒阴影笼罩"}, {"id": "loc_black_market", "name": "影墟黑市", "summary": "情报与禁物流通的灰色地带"}, {"id": "loc_outpost", "name": "仇敌外围据点", "summary": "灭族仇人麾下的前哨基地"}, {"id": "loc_starfall_abyss", "name": "落星深窟", "summary": "星力紊乱的第二秘境，陨星白焰所在"}, {"id": "loc_enemy_stronghold", "name": "仇人核心据点", "summary": "仇人主力盘踞之地，内鬼隐藏之处"}, {"id": "loc_final_stronghold", "name": "灭界峰", "summary": "仇人与幕后主使的最终堡垒"}], "encounters": [{"id": "enc_guardian_trial", "name": "守护兽灵试炼", "summary": "在青莲秘渊中与守护兽灵的战斗"}, {"id": "enc_outpost_infiltration", "name": "外围据点潜入战", "summary": "潜入时与据点守卫的不可避免的交锋"}, {"id": "enc_stronghold_assault", "name": "核心据点强攻", "summary": "正面击溃仇人主力部队的激战"}], "clues": [{"id": "clue_heirloom_dagger", "name": "家传短剑", "summary": "刻有内鬼标记的家族信物"}, {"id": "clue_traitor_mark", "name": "内鬼印记", "summary": "叛徒独有暗记，隐藏于家族遗物"}, {"id": "clue_flame_seed", "name": "异火种子", "summary": "青莲心火的存在与获取方法"}, {"id": "clue_antagonist_cult", "name": "血炼宗", "summary": "灭族仇人所属的隐秘组织"}, {"id": "clue_traitor_letter", "name": "内鬼密信", "summary": "叛徒与仇人的往来信件"}, {"id": "clue_traitor_identity", "name": "内鬼真身", "summary": "指向内鬼具体身份的证据"}, {"id": "clue_mastermind_identity", "name": "幕后主使身份", "summary": "血炼宗主的真实身份与动机"}], "flags": [{"id": "flag_revenge_oath", "name": "复仇之誓", "summary": "主角立下的复仇誓言"}, {"id": "flag_heirloom_dagger", "name": "持有家传短剑", "summary": "携带刻有内鬼标记的短剑"}, {"id": "flag_first_flame", "name": "青莲心火", "summary": "第一种异火"}, {"id": "flag_power_boost", "name": "实力初成", "summary": "已经过首轮强化"}, {"id": "flag_trust_of_acquaintance", "name": "旧识信任", "summary": "获得旧识的完全信赖与支持"}, {"id": "flag_curse_lifted", "name": "诅咒解除", "summary": "旧识亲人的诅咒已被化解"}, {"id": "flag_know_antagonist", "name": "仇人身份已知", "summary": "明确灭族仇人的姓名和来历"}, {"id": "flag_shadow_order_info", "name": "幕后组织情报", "summary": "掌握血炼宗的组织结构"}, {"id": "flag_traitor_clue", "name": "叛徒线索", "summary": "获得指向内鬼的初步线索"}, {"id": "flag_poison_research", "name": "毒术研究", "summary": "发现仇人使用毒术的证据"}, {"id": "flag_second_flame", "name": "陨星白焰", "summary": "第二种异火"}, {"id": "flag_sense_antagonist", "name": "仇人感应", "summary": "能模糊感知仇人方位"}, {"id": "flag_traitor_revealed", "name": "内鬼暴露", "summary": "当场识破内鬼身份"}, {"id": "flag_mastermind_token", "name": "幕后信物", "summary": "幕后主使的令牌"}, {"id": "flag_conclusive_proof", "name": "铁证如山", "summary": "掌握内鬼通敌的确凿证据"}, {"id": "flag_mastermind_known", "name": "幕后主使已知", "summary": "完全知晓幕后黑手身份"}, {"id": "flag_traitor_slain", "name": "内鬼已诛", "summary": "内鬼被主角亲手制裁"}, {"id": "flag_revenge_path", "name": "复仇之路", "summary": "明确最终决战的地点"}, {"id": "flag_final_vengeance", "name": "完成复仇", "summary": "已斩杀仇人与幕后主使"}, {"id": "flag_ashes_of_past", "name": "焚尽过往", "summary": "家族仇恨尘埃落定，走向新生"}, {"id": "flag_victory", "name": "胜利", "summary": "最终胜利结局达成"}, {"id": "flag_death", "name": "陨落", "summary": "主角中途陨落，故事终结"}], "items": [], "actions": [{"id": "action_track_black_market", "name": "追踪黑市", "summary": "选择前往黑市调查仇人踪迹"}, {"id": "action_infiltrate_outpost", "name": "潜入据点", "summary": "选择潜入外围据点窃取情报"}, {"id": "action_direct_assault", "name": "正面强攻", "summary": "选择正面击溃仇人据点"}, {"id": "action_covert_investigation", "name": "暗中调查", "summary": "选择秘密搜集内鬼证据"}]}, "clue_graph": [{"clue_id": "clue_heirloom_dagger", "answers": "短剑上的标记指向家族内鬼，曾是高层核心才有的纹饰", "unlocks": ["clue_traitor_mark"], "acquisition_owner": "beat_1", "alternative_approaches": ["在家族废墟中仔细搜寻遗物", "旧识提及家族往事时意外发现"]}, {"clue_id": "clue_traitor_mark", "answers": "内鬼印记与血炼宗的某种符印相符，说明内鬼早已被收买", "unlocks": ["clue_traitor_letter"], "acquisition_owner": "beat_1", "alternative_approaches": ["旧识的诅咒来源中发现相同印记", "黑市的禁术卷宗记录"]}, {"clue_id": "clue_flame_seed", "answers": "青莲心火可焚尽万物，同时净化诅咒之力，藏于青莲秘渊", "unlocks": ["flag_first_flame"], "acquisition_owner": "beat_2", "alternative_approaches": ["古籍残卷记载", "旧识长辈口述的传说"]}, {"clue_id": "clue_antagonist_cult", "answers": "灭族仇人来自“血炼宗”，一个以禁术和血祭壮大的黑暗组织", "unlocks": ["clue_traitor_letter", "clue_mastermind_identity"], "acquisition_owner": "beat_3", "alternative_approaches": ["黑市情报商贩提供", "仇人外围据点缴获的密令"]}, {"clue_id": "clue_traitor_letter", "answers": "内鬼与血炼宗的往来书信，透露了灭族计划的细节和内鬼的代号", "unlocks": ["clue_traitor_identity"], "acquisition_owner": "beat_4b", "alternative_approaches": ["在仇人核心据点的密室里找到副本", "线人截获的密信"]}, {"clue_id": "clue_traitor_identity", "answers": "内鬼的真正身份是主角的某位亲人/长老，曾深受信任", "unlocks": ["flag_traitor_revealed", "flag_conclusive_proof"], "acquisition_owner": "beat_6a", "alternative_approaches": ["内鬼影卫的口供", "旧识意外的证词"]}, {"clue_id": "clue_mastermind_identity", "answers": "幕后主使是血炼宗宗主，图谋主角家族的血脉力量以突破禁术", "unlocks": ["flag_mastermind_known"], "acquisition_owner": "beat_6b", "alternative_approaches": ["从内鬼处逼问", "仇人据点的禁忌文献"]}], "branch_points": [{"beat_id": "beat_3", "choices": ["beat_4a", "beat_4b"], "distinct_consequences": ["通过黑市获取仇人身份与组织情报", "潜入外围据点截获内鬼密信"], "reconverge_at": "beat_5"}, {"beat_id": "beat_5", "choices": ["beat_6a", "beat_6b"], "distinct_consequences": ["正面强攻据点逼出内鬼破绽", "暗中调查取得内鬼通敌铁证"], "reconverge_at": "beat_7"}], "foreshadowing_payoffs": [{"flag_id": "flag_heirloom_dagger", "setup_beat_id": "beat_1", "payoff_beat_id": "beat_7", "description": "家传短剑上的标记最终确认为内鬼印记，成为揭露内鬼的关键证据"}, {"flag_id": "flag_first_flame", "setup_beat_id": "beat_2", "payoff_beat_id": "beat_8", "description": "青莲心火在最终决战中释放净化之力，破除幕后主使的禁术"}, {"flag_id": "flag_trust_of_acquaintance", "setup_beat_id": "beat_3", "payoff_beat_id": "beat_6b", "description": "旧识信物或其情报网络为暗中调查内鬼提供庇护与关键线人"}, {"flag_id": "flag_traitor_clue", "setup_beat_id": "beat_4b", "payoff_beat_id": "beat_7", "description": "在据点截获的密信锁定内鬼代号，直接促成当面对质"}], "ending_routes": [{"ending_id": "beat_9_win", "outcome": "win", "required_facts": ["flag_know_antagonist", "flag_traitor_slain", "flag_mastermind_known", "flag_second_flame"], "payoffs": ["flag_victory", "flag_ashes_of_past"]}, {"ending_id": "beat_10_lose", "outcome": "lose", "required_facts": ["flag_death"], "payoffs": ["flag_death"]}], "effect_owner_ledger": [{"effect_id": "flag_revenge_oath", "effect_kind": "flag", "owner_kind": "initial_state", "owner_id": "beat_1"}, {"effect_id": "flag_heirloom_dagger", "effect_kind": "flag", "owner_kind": "initial_state", "owner_id": "beat_1"}, {"effect_id": "flag_first_flame", "effect_kind": "flag", "owner_kind": "encounter_win", "owner_id": "enc_guardian_trial"}, {"effect_id": "flag_power_boost", "effect_kind": "flag", "owner_kind": "encounter_win", "owner_id": "enc_guardian_trial"}, {"effect_id": "flag_trust_of_acquaintance", "effect_kind": "flag", "owner_kind": "discovery", "owner_id": "beat_3"}, {"effect_id": "flag_curse_lifted", "effect_kind": "flag", "owner_kind": "discovery", "owner_id": "beat_3"}, {"effect_id": "flag_know_antagonist", "effect_kind": "flag", "owner_kind": "discovery", "owner_id": "beat_4a"}, {"effect_id": "flag_shadow_order_info", "effect_kind": "flag", "owner_kind": "discovery", "owner_id": "beat_4a"}, {"effect_id": "flag_traitor_clue", "effect_kind": "flag", "owner_kind": "discovery", "owner_id": "beat_4b"}, {"effect_id": "flag_poison_research", "effect_kind": "flag", "owner_kind": "discovery", "owner_id": "beat_4b"}, {"effect_id": "flag_second_flame", "effect_kind": "flag", "owner_kind": "discovery", "owner_id": "beat_5"}, {"effect_id": "flag_sense_antagonist", "effect_kind": "flag", "owner_kind": "discovery", "owner_id": "beat_5"}, {"effect_id": "flag_traitor_revealed", "effect_kind": "flag", "owner_kind": "encounter_win", "owner_id": "enc_stronghold_assault"}, {"effect_id": "flag_mastermind_token", "effect_kind": "flag", "owner_kind": "encounter_win", "owner_id": "enc_stronghold_assault"}, {"effect_id": "flag_conclusive_proof", "effect_kind": "flag", "owner_kind": "discovery", "owner_id": "beat_6b"}, {"effect_id": "flag_mastermind_known", "effect_kind": "flag", "owner_kind": "discovery", "owner_id": "beat_6b"}, {"effect_id": "flag_traitor_slain", "effect_kind": "flag", "owner_kind": "discovery", "owner_id": "beat_7"}, {"effect_id": "flag_revenge_path", "effect_kind": "flag", "owner_kind": "discovery", "owner_id": "beat_7"}, {"effect_id": "flag_final_vengeance", "effect_kind": "flag", "owner_kind": "discovery", "owner_id": "beat_8"}, {"effect_id": "flag_ashes_of_past", "effect_kind": "flag", "owner_kind": "discovery", "owner_id": "beat_8"}, {"effect_id": "flag_victory", "effect_kind": "flag", "owner_kind": "rule_action", "owner_id": "beat_9_win"}, {"effect_id": "flag_death", "effect_kind": "flag", "owner_kind": "rule_action", "owner_id": "beat_10_lose"}]}</story_plan>
+2026-08-02 23:09:35,225 | INFO | httpx | HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+2026-08-02 23:10:56,082 | INFO | src.story.generator | [story_generator] 开始StoryPlan 修复 | 修复轮次=2/2 | 待修复问题=47 个
+待修复问题：
+  1. StoryPlan playable_beats 数量为 10，必须等于确认目标 8
+  2. Act «act_2» 预计 41 分钟，但所属 Beat 合计 51 分钟
+  3. Act «act_3» 预计 18 分钟，但所属 Beat 合计 27 分钟
+  4. Act «act_4» 预计 22 分钟，但所属 Beat 合计 26 分钟
+  5. 线索 «clue_traitor_identity» 必须且只能属于一个 Beat
+  6. 线索 «clue_traitor_letter» 必须且只能属于一个 Beat
+  7. 线索 «clue_antagonist_cult» 必须且只能属于一个 Beat
+  8. 线索 «clue_mastermind_identity» 必须且只能属于一个 Beat
+  9. branch_points 必须与所有多目标 Beat 一一对应
+  10. 伏笔 «flag_heirloom_dagger» 未登记到回收 Beat 的 payoff_flag_ids
+  11. 伏笔 «flag_first_flame» 未登记到回收 Beat 的 payoff_flag_ids
+  12. 伏笔 «flag_trust_of_acquaintance» 未登记到回收 Beat 的 payoff_flag_ids
+  13. 伏笔 «flag_traitor_clue» 未登记到回收 Beat 的 payoff_flag_ids
+  14. Beat «beat_1» 的 payoff flag «flag_revenge_oath» 缺少伏笔记录
+  15. Beat «beat_2» 的 payoff flag «flag_power_boost» 缺少伏笔记录
+  16. Beat «beat_3» 的 payoff flag «flag_curse_lifted» 缺少伏笔记录
+  17. Beat «beat_4a» 的 payoff flag «flag_know_antagonist» 缺少伏笔记录
+  18. Beat «beat_4a» 的 payoff flag «flag_shadow_order_info» 缺少伏笔记录
+  19. Beat «beat_4b» 的 payoff flag «flag_poison_research» 缺少伏笔记录
+  20. Beat «beat_5» 的 payoff flag «flag_second_flame» 缺少伏笔记录
+  21. Beat «beat_5» 的 payoff flag «flag_sense_antagonist» 缺少伏笔记录
+  22. Beat «beat_6a» 的 payoff flag «flag_traitor_revealed» 缺少伏笔记录
+  23. Beat «beat_6a» 的 payoff flag «flag_mastermind_token» 缺少伏笔记录
+  24. Beat «beat_6b» 的 payoff flag «flag_conclusive_proof» 缺少伏笔记录
+  25. Beat «beat_6b» 的 payoff flag «flag_mastermind_known» 缺少伏笔记录
+  26. Beat «beat_7» 的 payoff flag «flag_traitor_slain» 缺少伏笔记录
+  27. Beat «beat_7» 的 payoff flag «flag_revenge_path» 缺少伏笔记录
+  28. Beat «beat_8» 的 payoff flag «flag_final_vengeance» 缺少伏笔记录
+  29. Beat «beat_8» 的 payoff flag «flag_ashes_of_past» 缺少伏笔记录
+  30. Beat «beat_9_win» 的 payoff flag «flag_victory» 缺少伏笔记录
+  31. Beat «beat_10_lose» 的 payoff flag «flag_death» 缺少伏笔记录
+  32. 效果 «flag_trust_of_acquaintance» 的 owner_id «beat_3» 与 owner_kind 不匹配
+  33. 效果 «flag_curse_lifted» 的 owner_id «beat_3» 与 owner_kind 不匹配
+  34. 效果 «flag_know_antagonist» 的 owner_id «beat_4a» 与 owner_kind 不匹配
+  35. 效果 «flag_shadow_order_info» 的 owner_id «beat_4a» 与 owner_kind 不匹配
+  36. 效果 «flag_traitor_clue» 的 owner_id «beat_4b» 与 owner_kind 不匹配
+  37. 效果 «flag_poison_research» 的 owner_id «beat_4b» 与 owner_kind 不匹配
+  38. 效果 «flag_second_flame» 的 owner_id «beat_5» 与 owner_kind 不匹配
+  39. 效果 «flag_sense_antagonist» 的 owner_id «beat_5» 与 owner_kind 不匹配
+  40. 效果 «flag_conclusive_proof» 的 owner_id «beat_6b» 与 owner_kind 不匹配
+  41. 效果 «flag_mastermind_known» 的 owner_id «beat_6b» 与 owner_kind 不匹配
+  42. 效果 «flag_traitor_slain» 的 owner_id «beat_7» 与 owner_kind 不匹配
+  43. 效果 «flag_revenge_path» 的 owner_id «beat_7» 与 owner_kind 不匹配
+  44. 效果 «flag_final_vengeance» 的 owner_id «beat_8» 与 owner_kind 不匹配
+  45. 效果 «flag_ashes_of_past» 的 owner_id «beat_8» 与 owner_kind 不匹配
+  46. 效果 «flag_victory» 的 owner_id «beat_9_win» 与 owner_kind 不匹配
+  47. 效果 «flag_death» 的 owner_id «beat_10_lose» 与 owner_kind 不匹配
+系统提示词：
+你是 StoryPlan 确定性校验修复器。只修复本轮列出的问题，保持玩家确认稿、所有已有 ID、未报错 owner 和未受影响结构不变。
+<validation_errors>["StoryPlan playable_beats 数量为 10，必须等于确认目标 8", "Act «act_2» 预计 41 分钟，但所属 Beat 合计 51 分钟", "Act «act_3» 预计 18 分钟，但所属 Beat 合计 27 分钟", "Act «act_4» 预计 22 分钟，但所属 Beat 合计 26 分钟", "线索 «clue_traitor_identity» 必须且只能属于一个 Beat", "线索 «clue_traitor_letter» 必须且只能属于一个 Beat", "线索 «clue_antagonist_cult» 必须且只能属于一个 Beat", "线索 «clue_mastermind_identity» 必须且只能属于一个 Beat", "branch_points 必须与所有多目标 Beat 一一对应", "伏笔 «flag_heirloom_dagger» 未登记到回收 Beat 的 payoff_flag_ids", "伏笔 «flag_first_flame» 未登记到回收 Beat 的 payoff_flag_ids", "伏笔 «flag_trust_of_acquaintance» 未登记到回收 Beat 的 payoff_flag_ids", "伏笔 «flag_traitor_clue» 未登记到回收 Beat 的 payoff_flag_ids", "Beat «beat_1» 的 payoff flag «flag_revenge_oath» 缺少伏笔记录", "Beat «beat_2» 的 payoff flag «flag_power_boost» 缺少伏笔记录", "Beat «beat_3» 的 payoff flag «flag_curse_lifted» 缺少伏笔记录", "Beat «beat_4a» 的 payoff flag «flag_know_antagonist» 缺少伏笔记录", "Beat «beat_4a» 的 payoff flag «flag_shadow_order_info» 缺少伏笔记录", "Beat «beat_4b» 的 payoff flag «flag_poison_research» 缺少伏笔记录", "Beat «beat_5» 的 payoff flag «flag_second_flame» 缺少伏笔记录", "Beat «beat_5» 的 payoff flag «flag_sense_antagonist» 缺少伏笔记录", "Beat «beat_6a» 的 payoff flag «flag_traitor_revealed» 缺少伏笔记录", "Beat «beat_6a» 的 payoff flag «flag_mastermind_token» 缺少伏笔记录", "Beat «beat_6b» 的 payoff flag «flag_conclusive_proof» 缺少伏笔记录", "Beat «beat_6b» 的 payoff flag «flag_mastermind_known» 缺少伏笔记录", "Beat «beat_7» 的 payoff flag «flag_traitor_slain» 缺少伏笔记录", "Beat «beat_7» 的 payoff flag «flag_revenge_path» 缺少伏笔记录", "Beat «beat_8» 的 payoff flag «flag_final_vengeance» 缺少伏笔记录", "Beat «beat_8» 的 payoff flag «flag_ashes_of_past» 缺少伏笔记录", "Beat «beat_9_win» 的 payoff flag «flag_victory» 缺少伏笔记录", "Beat «beat_10_lose» 的 payoff flag «flag_death» 缺少伏笔记录", "效果 «flag_trust_of_acquaintance» 的 owner_id «beat_3» 与 owner_kind 不匹配", "效果 «flag_curse_lifted» 的 owner_id «beat_3» 与 owner_kind 不匹配", "效果 «flag_know_antagonist» 的 owner_id «beat_4a» 与 owner_kind 不匹配", "效果 «flag_shadow_order_info» 的 owner_id «beat_4a» 与 owner_kind 不匹配", "效果 «flag_traitor_clue» 的 owner_id «beat_4b» 与 owner_kind 不匹配", "效果 «flag_poison_research» 的 owner_id «beat_4b» 与 owner_kind 不匹配", "效果 «flag_second_flame» 的 owner_id «beat_5» 与 owner_kind 不匹配", "效果 «flag_sense_antagonist» 的 owner_id «beat_5» 与 owner_kind 不匹配", "效果 «flag_conclusive_proof» 的 owner_id «beat_6b» 与 owner_kind 不匹配", "效果 «flag_mastermind_known» 的 owner_id «beat_6b» 与 owner_kind 不匹配", "效果 «flag_traitor_slain» 的 owner_id «beat_7» 与 owner_kind 不匹配", "效果 «flag_revenge_path» 的 owner_id «beat_7» 与 owner_kind 不匹配", "效果 «flag_final_vengeance» 的 owner_id «beat_8» 与 owner_kind 不匹配", "效果 «flag_ashes_of_past» 的 owner_id «beat_8» 与 owner_kind 不匹配", "效果 «flag_victory» 的 owner_id «beat_9_win» 与 owner_kind 不匹配", "效果 «flag_death» 的 owner_id «beat_10_lose» 与 owner_kind 不匹配"]</validation_errors>
+<repair_contract>{"mutable_top_level_sections": ["acts", "beats", "branch_points", "clue_graph", "effect_owner_ledger", "entities", "foreshadowing_payoffs"], "branch_rules": ["branch_points 数量必须等于 meaningful_branch_points", "branch_points[].beat_id 必须是具有至少两个不同 to_beat_id 的非结局 Beat", "choices 只能填写源 Beat exits 的不同 to_beat_id，不能填写选项文案", "每条 choice 路线须在 1–2 条边后到达同一 reconverge_at；汇流点不能是 choice 自身", "reconverge_before_climax=true 时，汇流点不能是 climax 或 ending", "最终 win/lose 是运行时结局，不登记为 meaningful branch；不要让高潮 Beat 同时指向两个 ending", "max_parallel_beats=1 与 choices 至少为 2 同时出现时，表示每条路线最多占一个独立 Beat", "所有具有多个不同出口目标的 Beat 都必须且只能有一条 branch_points 记录"], "effect_owner_rules": ["owner_kind 与 owner_id 必须成对修复，不能只改其中一个", "discovery 的 owner_id 必须是 clue ID", "encounter_win 的 owner_id 必须是 encounter ID", "initial_state 的 owner_id 必须是 beat ID", "rule_action 的 owner_id 必须是 action ID", "dm_free_write 的 owner_id 必须是 flag ID；通常使用该效果自身或控制该效果的 flag ID", "不存在 owner_kind=beat；若该 owner 报错，可以同时修改其 owner_kind 和 owner_id"], "payoff_rules": ["每条 foreshadowing_payoffs 的 flag_id 必须出现在 payoff_beat_id 对应 Beat.payoff_flag_ids", "payoff_beat_id 必须在 DAG 中晚于 setup_beat_id"], "preservation_rules": ["一次修完 validation_errors 中全部问题，并返回完整 StoryPlan JSON 对象", "不得新增、删除或重命名已有 ID", "只修改 mutable_top_level_sections；程序会丢弃其它顶层区段的改动", "修复 beats 后同步对应 acts 的 beat_ids 与 estimated_minutes", "返回前自行核对 schema、DAG、出口、汇流、payoff 和 owner 配对，不要解释"]}</repair_contract>
+<valid_id_context>{"beats": ["beat_1", "beat_2", "beat_3", "beat_4a", "beat_4b", "beat_5", "beat_6a", "beat_6b", "beat_7", "beat_8", "beat_9_win", "beat_10_lose"], "clues": ["clue_heirloom_dagger", "clue_traitor_mark", "clue_flame_seed", "clue_antagonist_cult", "clue_traitor_letter", "clue_traitor_identity", "clue_mastermind_identity"], "encounters": ["enc_guardian_trial", "enc_outpost_infiltration", "enc_stronghold_assault"], "flags": ["flag_revenge_oath", "flag_heirloom_dagger", "flag_first_flame", "flag_power_boost", "flag_trust_of_acquaintance", "flag_curse_lifted", "flag_know_antagonist", "flag_shadow_order_info", "flag_traitor_clue", "flag_poison_research", "flag_second_flame", "flag_sense_antagonist", "flag_traitor_revealed", "flag_mastermind_token", "flag_conclusive_proof", "flag_mastermind_known", "flag_traitor_slain", "flag_revenge_path", "flag_final_vengeance", "flag_ashes_of_past", "flag_victory", "flag_death"], "items": [], "actions": ["action_track_black_market", "action_infiltrate_outpost", "action_direct_assault", "action_covert_investigation"], "owner_id_by_owner_kind": {"discovery": ["clue_heirloom_dagger", "clue_traitor_mark", "clue_flame_seed", "clue_antagonist_cult", "clue_traitor_letter", "clue_traitor_identity", "clue_mastermind_identity"], "encounter_win": ["enc_guardian_trial", "enc_outpost_infiltration", "enc_stronghold_assault"], "initial_state": ["beat_1", "beat_2", "beat_3", "beat_4a", "beat_4b", "beat_5", "beat_6a", "beat_6b", "beat_7", "beat_8", "beat_9_win", "beat_10_lose"], "rule_action": ["action_track_black_market", "action_infiltrate_outpost", "action_direct_assault", "action_covert_investigation"], "dm_free_write": ["flag_revenge_oath", "flag_heirloom_dagger", "flag_first_flame", "flag_power_boost", "flag_trust_of_acquaintance", "flag_curse_lifted", "flag_know_antagonist", "flag_shadow_order_info", "flag_traitor_clue", "flag_poison_research", "flag_second_flame", "flag_sense_antagonist", "flag_traitor_revealed", "flag_mastermind_token", "flag_conclusive_proof", "flag_mastermind_known", "flag_traitor_slain", "flag_revenge_path", "flag_final_vengeance", "flag_ashes_of_past", "flag_victory", "flag_death"]}}</valid_id_context>
+<recent_failed_error_sets>[["StoryPlan 字段不合法：beats.10.pressure: String should have at least 1 character [string_too_short]", "StoryPlan 字段不合法：beats.11.pressure: String should have at least 1 character [string_too_short]"]]</recent_failed_error_sets>
+<story_plan_json_schema>{"$defs": {"EffectOwner": {"additionalProperties": false, "properties": {"effect_id": {"pattern": "^[a-z][a-z0-9_]*$", "title": "Effect Id", "type": "string"}, "effect_kind": {"enum": ["flag", "item"], "title": "Effect Kind", "type": "string"}, "owner_kind": {"enum": ["discovery", "encounter_win", "initial_state", "rule_action", "dm_free_write"], "title": "Owner Kind", "type": "string"}, "owner_id": {"pattern": "^[a-z][a-z0-9_]*$", "title": "Owner Id", "type": "string"}}, "required": ["effect_id", "effect_kind", "owner_kind", "owner_id"], "title": "EffectOwner", "type": "object"}, "PlanAct": {"additionalProperties": false, "properties": {"id": {"pattern": "^[a-z][a-z0-9_]*$", "title": "Id", "type": "string"}, "purpose": {"minLength": 1, "title": "Purpose", "type": "string"}, "estimated_minutes": {"maximum": 120, "minimum": 1, "title": "Estimated Minutes", "type": "integer"}, "beat_ids": {"items": {"type": "string"}, "minItems": 1, "title": "Beat Ids", "type": "array"}, "turning_point": {"minLength": 1, "title": "Turning Point", "type": "string"}}, "required": ["id", "purpose", "estimated_minutes", "beat_ids", "turning_point"], "title": "PlanAct", "type": "object"}, "PlanBeat": {"additionalProperties": false, "properties": {"id": {"pattern": "^[a-z][a-z0-9_]*$", "title": "Id", "type": "string"}, "act_id": {"pattern": "^[a-z][a-z0-9_]*$", "title": "Act Id", "type": "string"}, "kind": {"enum": ["opening", "exploration", "conflict", "climax", "ending"], "title": "Kind", "type": "string"}, "estimated_minutes": {"maximum": 120, "minimum": 1, "title": "Estimated Minutes", "type": "integer"}, "objective": {"minLength": 1, "title": "Objective", "type": "string"}, "pressure": {"minLength": 1, "title": "Pressure", "type": "string"}, "dramatic_question": {"default": "", "title": "Dramatic Question", "type": "string"}, "entry_hook": {"default": "", "title": "Entry Hook", "type": "string"}, "location_ids": {"items": {"type": "string"}, "title": "Location Ids", "type": "array"}, "actor_ids": {"items": {"type": "string"}, "title": "Actor Ids", "type": "array"}, "clue_ids": {"items": {"type": "string"}, "title": "Clue Ids", "type": "array"}, "encounter_id": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": null, "title": "Encounter Id"}, "exits": {"items": {"$ref": "#/$defs/PlanExit"}, "title": "Exits", "type": "array"}, "fail_forward": {"default": "", "title": "Fail Forward", "type": "string"}, "payoff_flag_ids": {"items": {"type": "string"}, "title": "Payoff Flag Ids", "type": "array"}}, "required": ["id", "act_id", "kind", "estimated_minutes", "objective", "pressure"], "title": "PlanBeat", "type": "object"}, "PlanBranchPoint": {"additionalProperties": false, "properties": {"beat_id": {"pattern": "^[a-z][a-z0-9_]*$", "title": "Beat Id", "type": "string"}, "choices": {"items": {"type": "string"}, "maxItems": 3, "minItems": 2, "title": "Choices", "type": "array"}, "distinct_consequences": {"items": {"type": "string"}, "minItems": 2, "title": "Distinct Consequences", "type": "array"}, "reconverge_at": {"pattern": "^[a-z][a-z0-9_]*$", "title": "Reconverge At", "type": "string"}}, "required": ["beat_id", "choices", "distinct_consequences", "reconverge_at"], "title": "PlanBranchPoint", "type": "object"}, "PlanClueLink": {"additionalProperties": false, "properties": {"clue_id": {"pattern": "^[a-z][a-z0-9_]*$", "title": "Clue Id", "type": "string"}, "answers": {"minLength": 1, "title": "Answers", "type": "string"}, "unlocks": {"items": {"type": "string"}, "title": "Unlocks", "type": "array"}, "acquisition_owner": {"minLength": 1, "title": "Acquisition Owner", "type": "string"}, "alternative_approaches": {"items": {"type": "string"}, "title": "Alternative Approaches", "type": "array"}}, "required": ["clue_id", "answers", "acquisition_owner"], "title": "PlanClueLink", "type": "object"}, "PlanEndingRoute": {"additionalProperties": false, "properties": {"ending_id": {"pattern": "^[a-z][a-z0-9_]*$", "title": "Ending Id", "type": "string"}, "outcome": {"enum": ["win", "lose"], "title": "Outcome", "type": "string"}, "required_facts": {"items": {"type": "string"}, "title": "Required Facts", "type": "array"}, "payoffs": {"items": {"type": "string"}, "title": "Payoffs", "type": "array"}}, "required": ["ending_id", "outcome"], "title": "PlanEndingRoute", "type": "object"}, "PlanEntities": {"additionalProperties": false, "properties": {"actors": {"items": {"$ref": "#/$defs/PlanEntity"}, "title": "Actors", "type": "array"}, "locations": {"items": {"$ref": "#/$defs/PlanEntity"}, "title": "Locations", "type": "array"}, "encounters": {"items": {"$ref": "#/$defs/PlanEntity"}, "title": "Encounters", "type": "array"}, "clues": {"items": {"$ref": "#/$defs/PlanEntity"}, "title": "Clues", "type": "array"}, "flags": {"items": {"$ref": "#/$defs/PlanEntity"}, "title": "Flags", "type": "array"}, "items": {"items": {"$ref": "#/$defs/PlanEntity"}, "title": "Items", "type": "array"}, "actions": {"items": {"$ref": "#/$defs/PlanEntity"}, "title": "Actions", "type": "array"}}, "title": "PlanEntities", "type": "object"}, "PlanEntity": {"additionalProperties": false, "properties": {"id": {"pattern": "^[a-z][a-z0-9_]*$", "title": "Id", "type": "string"}, "name": {"default": "", "title": "Name", "type": "string"}, "summary": {"default": "", "title": "Summary", "type": "string"}}, "required": ["id"], "title": "PlanEntity", "type": "object"}, "PlanExit": {"additionalProperties": false, "properties": {"to_beat_id": {"pattern": "^[a-z][a-z0-9_]*$", "title": "To Beat Id", "type": "string"}, "condition_summary": {"minLength": 1, "title": "Condition Summary", "type": "string"}, "consequence": {"minLength": 1, "title": "Consequence", "type": "string"}}, "required": ["to_beat_id", "condition_summary", "consequence"], "title": "PlanExit", "type": "object"}, "PlanPayoff": {"additionalProperties": false, "properties": {"flag_id": {"pattern": "^[a-z][a-z0-9_]*$", "title": "Flag Id", "type": "string"}, "setup_beat_id": {"pattern": "^[a-z][a-z0-9_]*$", "title": "Setup Beat Id", "type": "string"}, "payoff_beat_id": {"pattern": "^[a-z][a-z0-9_]*$", "title": "Payoff Beat Id", "type": "string"}, "description": {"minLength": 1, "title": "Description", "type": "string"}}, "required": ["flag_id", "setup_beat_id", "payoff_beat_id", "description"], "title": "PlanPayoff", "type": "object"}, "StoryScaleProfile": {"additionalProperties": false, "description": "玩家确认的可量化故事规模；数值是目标而不是宽泛建议。", "properties": {"playable_beats": {"maximum": 12, "minimum": 1, "title": "Playable Beats", "type": "integer"}, "acts": {"maximum": 5, "minimum": 1, "title": "Acts", "type": "integer"}, "locations": {"maximum": 14, "minimum": 1, "title": "Locations", "type": "integer"}, "encounters": {"maximum": 5, "minimum": 0, "title": "Encounters", "type": "integer"}, "clues": {"maximum": 12, "minimum": 0, "title": "Clues", "type": "integer"}}, "required": ["playable_beats", "acts", "locations", "encounters", "clues"], "title": "StoryScaleProfile", "type": "object"}}, "additionalProperties": false, "description": "通过确定性图校验后才允许进入 Canon 分片编译的内部计划。", "properties": {"plan_version": {"default": 1, "minimum": 1, "title": "Plan Version", "type": "integer"}, "campaign_id_candidate": {"pattern": "^[a-z][a-z0-9_]{2,63}$", "title": "Campaign Id Candidate", "type": "string"}, "start_beat_id": {"pattern": "^[a-z][a-z0-9_]*$", "title": "Start Beat Id", "type": "string"}, "scale_profile": {"$ref": "#/$defs/StoryScaleProfile"}, "acts": {"items": {"$ref": "#/$defs/PlanAct"}, "minItems": 1, "title": "Acts", "type": "array"}, "beats": {"items": {"$ref": "#/$defs/PlanBeat"}, "minItems": 1, "title": "Beats", "type": "array"}, "entities": {"$ref": "#/$defs/PlanEntities"}, "clue_graph": {"items": {"$ref": "#/$defs/PlanClueLink"}, "title": "Clue Graph", "type": "array"}, "branch_points": {"items": {"$ref": "#/$defs/PlanBranchPoint"}, "title": "Branch Points", "type": "array"}, "foreshadowing_payoffs": {"items": {"$ref": "#/$defs/PlanPayoff"}, "title": "Foreshadowing Payoffs", "type": "array"}, "ending_routes": {"items": {"$ref": "#/$defs/PlanEndingRoute"}, "maxItems": 2, "minItems": 2, "title": "Ending Routes", "type": "array"}, "effect_owner_ledger": {"items": {"$ref": "#/$defs/EffectOwner"}, "title": "Effect Owner Ledger", "type": "array"}}, "required": ["campaign_id_candidate", "start_beat_id", "scale_profile", "acts", "beats", "entities", "ending_routes"], "title": "StoryPlan", "type": "object"}</story_plan_json_schema>
+<immutable_design_brief>{"contract_version": 2, "revision": 8, "confirmed_revision": 8, "working_title": "焚天逆途", "premise": "灭族幸存者从灭族当夜重伤逃生开始，以修炼变强、探索秘境、收集异火为路径，事件驱动地追查复仇线索，途中完成一段旧识委托的纯情感支线，最终亲手斩杀灭族仇人、幕后主使，并揪出家族内鬼。", "player_role": "灭族惨案中幸存的主角，背负血仇，动机是变强与复仇。", "core_conflict": "主角与灭族仇人及幕后主使的实力对抗；家族内鬼的背叛贯穿始终，复仇路上面对信任、取舍与不惜代价的抉择。", "antagonist_direction": "明面灭族仇人 + 系统秘密设计的幕后主使 + 系统秘密设计的家族内鬼叛徒", "gameplay_focus": ["秘境探索", "机缘寻宝", "战斗成长", "异火收集"], "tone": "爽文热血、逆袭复仇；允许背叛与血腥，但主角始终保持碾压爽感", "content_boundaries": ["不让主角长期处于被碾压、憋屈或受辱的状态"], "content_warnings": ["背叛与血腥场景", "家族惨案情节"], "duration_minutes": 90, "player_count": 1, "ending_direction": "固定胜利结局：不惜代价亲手复仇成功；固定失败结局：主角中途陨落，故事完结。", "must_have": ["秘境历练", "异火收集", "实力提升", "灭族复仇", "家族内鬼", "幕后主使", "亲手复仇", "纯情感/奖励向支线"], "must_avoid": ["复仇不能让主角以外的人代劳", "分支不可破坏单线紧凑感"], "system_design_freedom": ["幕后主使身份", "家族内鬼身份", "异火种类与分布", "秘境具体结构", "旧识委托的具体人物与情节"], "length_mode": "long", "target_sessions": 1, "scale_profile": {"playable_beats": 8, "acts": 4, "locations": 8, "encounters": 3, "clues": 7}, "branching_style": "branch_and_reconverge", "branching_budget": {"meaningful_branch_points": 2, "max_parallel_beats": 1, "reconverge_before_climax": true}, "pacing": {"opening_percent": 10, "exploration_social_percent": 45, "escalation_percent": 20, "climax_percent": 20, "ending_percent": 5}, "set_pieces": ["灭族之夜重伤逃生", "首个秘境试炼", "异火凝奇缘", "旧识委托的情感/奖励支线", "内鬼身份揭露", "最终决战复仇"], "side_content": {"desired_side_threads": 1, "must_resolve_before_ending": true}, "failure_style": "中途陨落完结：主角一旦死亡，故事立即终止，不再进入复仇结局；途中可允许代价性挫折，但不改变最终失败条件。", "replayability": "low", "user_confirmed": true}</immutable_design_brief>
+<story_plan>{"plan_version": 1, "campaign_id_candidate": "burning_sky_vengeance", "start_beat_id": "beat_1", "scale_profile": {"playable_beats": 8, "acts": 4, "locations": 8, "encounters": 3, "clues": 7}, "acts": [{"id": "act_1", "purpose": "灭族之夜重伤逃生，种下复仇种子", "estimated_minutes": 9, "beat_ids": ["beat_1"], "turning_point": "主角失去一切，带着家族信物与复仇誓言存活"}, {"id": "act_2", "purpose": "秘境试炼变强，收集异火，完成旧识委托并追踪仇人线索", "estimated_minutes": 41, "beat_ids": ["beat_2", "beat_3", "beat_4a", "beat_4b", "beat_5"], "turning_point": "获得初火与旧识助力，揭开仇人迷雾一角"}, {"id": "act_3", "purpose": "逼近仇人，揭露内鬼与幕后主使", "estimated_minutes": 18, "beat_ids": ["beat_6a", "beat_6b", "beat_7"], "turning_point": "内鬼身份揭露，锁定最终决战地点"}, {"id": "act_4", "purpose": "最终决战，复仇雪恨", "estimated_minutes": 22, "beat_ids": ["beat_8", "beat_9_win", "beat_10_lose"], "turning_point": "亲手斩杀仇人及幕后主使，制裁背叛者"}], "beats": [{"id": "beat_1", "act_id": "act_1", "kind": "opening", "estimated_minutes": 9, "objective": "从灭族之夜屠杀中重伤逃生，带着家族信物和复仇意志存活", "pressure": "追兵将至，伤势严重，必须找到藏身处", "dramatic_question": "能否活着逃出这片焦土？", "entry_hook": "烈火焚天，家族惨遭屠灭，你被护卫拼死送出后山密道。", "location_ids": ["loc_burning_manor"], "actor_ids": ["actor_protagonist", "actor_pursuers"], "clue_ids": ["clue_heirloom_dagger", "clue_traitor_mark"], "encounter_id": null, "exits": [{"to_beat_id": "beat_2", "condition_summary": "成功逃脱追捕", "consequence": "主角进入疗伤和初阶修炼"}], "fail_forward": "即便重伤，也保留了复仇的火种", "payoff_flag_ids": ["flag_revenge_oath", "flag_heirloom_dagger"]}, {"id": "beat_2", "act_id": "act_2", "kind": "exploration", "estimated_minutes": 12, "objective": "进入首个秘境试炼，获取异火种子“青莲心火”", "pressure": "秘境禁制随时可能崩塌，守护兽灵狂暴", "location_ids": ["loc_azure_depths"], "actor_ids": ["actor_protagonist", "actor_guardian_spirit"], "clue_ids": ["clue_flame_seed"], "encounter_id": "enc_guardian_trial", "exits": [{"to_beat_id": "beat_3", "condition_summary": "击败守护兽灵或通过试炼", "consequence": "获得异火种子，实力提升"}], "payoff_flag_ids": ["flag_first_flame", "flag_power_boost"]}, {"id": "beat_3", "act_id": "act_2", "kind": "exploration", "estimated_minutes": 9, "objective": "应旧识委托，帮助其解除诅咒或挽救重要之人，获取信任与线索", "pressure": "时间紧迫，诅咒即将发作，委托者情绪低落", "location_ids": ["loc_silkveil_village"], "actor_ids": ["actor_protagonist", "actor_old_acquaintance", "actor_cursed_sibling"], "clue_ids": ["clue_antagonist_cult"], "encounter_id": null, "exits": [{"to_beat_id": "beat_4a", "condition_summary": "完成委托并选择追踪仇人踪迹，前往黑市", "consequence": "获得仇人组织初步情报，旧识感激"}, {"to_beat_id": "beat_4b", "condition_summary": "完成委托并选择潜入仇人外围据点搜集信息", "consequence": "发现仇人组织秘密通信，旧识感激"}], "payoff_flag_ids": ["flag_trust_of_acquaintance", "flag_curse_lifted"]}, {"id": "beat_4a", "act_id": "act_2", "kind": "exploration", "estimated_minutes": 10, "objective": "在黑市追踪仇人踪迹，获取关键名册", "pressure": "黑市鱼龙混杂，仇人耳目众多，身份暴露即危险", "location_ids": ["loc_black_market"], "actor_ids": ["actor_protagonist", "actor_info_broker"], "clue_ids": ["clue_antagonist_cult", "clue_traitor_identity"], "encounter_id": null, "exits": [{"to_beat_id": "beat_5", "condition_summary": "成功获取情报并全身而退", "consequence": "锁定仇人身份，得知幕后主使代号"}], "payoff_flag_ids": ["flag_know_antagonist", "flag_shadow_order_info"]}, {"id": "beat_4b", "act_id": "act_2", "kind": "exploration", "estimated_minutes": 10, "objective": "潜入仇人外围据点，窃取核心情报", "pressure": "据点巡逻严密，一旦被发现将被围杀", "location_ids": ["loc_outpost"], "actor_ids": ["actor_protagonist", "actor_outpost_guards"], "clue_ids": ["clue_traitor_letter", "clue_mastermind_identity"], "encounter_id": "enc_outpost_infiltration", "exits": [{"to_beat_id": "beat_5", "condition_summary": "窃取情报并逃脱", "consequence": "获得内鬼往来书信，揭示内鬼身份线索"}], "payoff_flag_ids": ["flag_traitor_clue", "flag_poison_research"]}, {"id": "beat_5", "act_id": "act_2", "kind": "exploration", "estimated_minutes": 10, "objective": "深入第二秘境，收集异火“陨星白焰”", "pressure": "秘境中星力紊乱，异火狂暴动摇神魂", "location_ids": ["loc_starfall_abyss"], "actor_ids": ["actor_protagonist", "actor_starfire_elemental"], "clue_ids": [], "encounter_id": null, "exits": [{"to_beat_id": "beat_6a", "condition_summary": "成功融合异火并选择正面挑战仇人势力", "consequence": "实力大幅提升，引发仇人警觉"}, {"to_beat_id": "beat_6b", "condition_summary": "成功融合异火并选择暗中调查内鬼证据", "consequence": "实力大幅提升，掌握先机"}], "payoff_flag_ids": ["flag_second_flame", "flag_sense_antagonist"]}, {"id": "beat_6a", "act_id": "act_3", "kind": "conflict", "estimated_minutes": 9, "objective": "正面击溃仇人麾下重要据点，逼出内鬼破绽", "pressure": "仇人派出主力，内鬼忍不住出手掩护", "location_ids": ["loc_enemy_stronghold"], "actor_ids": ["actor_protagonist", "actor_enemy_commander", "actor_traitor_shadow"], "clue_ids": ["clue_traitor_identity"], "encounter_id": "enc_stronghold_assault", "exits": [{"to_beat_id": "beat_7", "condition_summary": "击败据点守军并察觉内鬼破绽", "consequence": "内鬼身份暴露，获取幕后主使信物"}], "payoff_flag_ids": ["flag_traitor_revealed", "flag_mastermind_token"]}, {"id": "beat_6b", "act_id": "act_3", "kind": "conflict", "estimated_minutes": 9, "objective": "暗中搜集内鬼与仇人勾结的账册与通信", "pressure": "秘密调查一旦暴露，将遭到内外夹击", "location_ids": ["loc_black_market"], "actor_ids": ["actor_protagonist", "actor_informant"], "clue_ids": ["clue_traitor_letter", "clue_mastermind_identity"], "encounter_id": null, "exits": [{"to_beat_id": "beat_7", "condition_summary": "取得内鬼通敌铁证", "consequence": "内鬼无可抵赖，锁定幕后主使真实身份"}], "payoff_flag_ids": ["flag_conclusive_proof", "flag_mastermind_known"]}, {"id": "beat_7", "act_id": "act_3", "kind": "conflict", "estimated_minutes": 9, "objective": "与内鬼当面对质，将其制裁，并获取最终决战路线图", "pressure": "内鬼拼死反扑，临死诅咒", "location_ids": ["loc_enemy_stronghold"], "actor_ids": ["actor_protagonist", "actor_traitor", "actor_mastermind"], "clue_ids": [], "encounter_id": null, "exits": [{"to_beat_id": "beat_8", "condition_summary": "击败内鬼，获得仇人大本营所在地", "consequence": "主角斗志燃烧，踏上最终复仇之路"}], "payoff_flag_ids": ["flag_traitor_slain", "flag_revenge_path"]}, {"id": "beat_8", "act_id": "act_4", "kind": "climax", "estimated_minutes": 18, "objective": "攻入仇人大本营，手刃灭族仇人与幕后主使", "pressure": "仇人全副武装，幕后主使使用禁术，不成功便成仁", "location_ids": ["loc_final_stronghold"], "actor_ids": ["actor_protagonist", "actor_antagonist", "actor_mastermind"], "clue_ids": [], "encounter_id": null, "exits": [{"to_beat_id": "beat_9_win", "condition_summary": "胜利斩杀仇人与幕后主使", "consequence": "复仇成功，异火大成，开启新纪元"}, {"to_beat_id": "beat_10_lose", "condition_summary": "主角战败陨落", "consequence": "故事终结，血仇未报"}], "fail_forward": "如果失败，便是陨落结局", "payoff_flag_ids": ["flag_final_vengeance", "flag_ashes_of_past"]}, {"id": "beat_9_win", "act_id": "act_4", "kind": "ending", "estimated_minutes": 4, "objective": "复仇成功，焚尽仇寇，重塑家族名誉", "pressure": "复仇已了，再无牵挂", "location_ids": ["loc_final_stronghold"], "actor_ids": ["actor_protagonist"], "clue_ids": [], "encounter_id": null, "exits": [], "payoff_flag_ids": ["flag_victory"]}, {"id": "beat_10_lose", "act_id": "act_4", "kind": "ending", "estimated_minutes": 4, "objective": "主角陨落，烈火熄灭", "pressure": "生命走向终点，血仇未雪", "location_ids": ["loc_final_stronghold"], "actor_ids": ["actor_protagonist"], "clue_ids": [], "encounter_id": null, "exits": [], "payoff_flag_ids": ["flag_death"]}], "entities": {"actors": [{"id": "actor_protagonist", "name": "主角", "summary": "灭族幸存者，背负血仇，异火宿主"}, {"id": "actor_pursuers", "name": "灭族追兵", "summary": "灭族当夜追杀主角的蒙面杀手"}, {"id": "actor_guardian_spirit", "name": "秘境守护兽灵", "summary": "青莲秘境守护者，试炼敌人的化身"}, {"id": "actor_old_acquaintance", "name": "旧识故人", "summary": "曾受主角家族恩惠，在复仇路上提供情感支线的委托者"}, {"id": "actor_cursed_sibling", "name": "被诅咒的亲属", "summary": "旧识的亲人，身中恶咒"}, {"id": "actor_info_broker", "name": "黑市情报贩子", "summary": "掌握仇人行踪的情报商，贪婪而谨慎"}, {"id": "actor_outpost_guards", "name": "外围据点守卫", "summary": "仇人外围据点的精锐护卫"}, {"id": "actor_enemy_commander", "name": "仇人麾下指挥官", "summary": "仇人核心据点的指挥者，战力强悍"}, {"id": "actor_traitor_shadow", "name": "内鬼影卫", "summary": "暗中协助内鬼的影卫，在战斗中暴露身份"}, {"id": "actor_informant", "name": "秘密线人", "summary": "了解内鬼过往的线人，提供关键证据"}, {"id": "actor_traitor", "name": "家族内鬼", "summary": "背叛家族的叛徒，身份揭露时的敌人"}, {"id": "actor_mastermind", "name": "幕后主使", "summary": "策划灭族惨案的真正黑手"}, {"id": "actor_antagonist", "name": "灭族仇人", "summary": "直接执行灭族的强敌"}, {"id": "actor_starfire_elemental", "name": "陨星白焰精魂", "summary": "第二秘境异火化身"}], "locations": [{"id": "loc_burning_manor", "name": "焚天庄", "summary": "被屠灭的家族庄园，密道与废墟交织"}, {"id": "loc_azure_depths", "name": "青莲秘渊", "summary": "藏有异火种子“青莲心火”的秘境"}, {"id": "loc_silkveil_village", "name": "锦雾村", "summary": "旧识所在的和美村落，被诅咒阴影笼罩"}, {"id": "loc_black_market", "name": "影墟黑市", "summary": "情报与禁物流通的灰色地带"}, {"id": "loc_outpost", "name": "仇敌外围据点", "summary": "灭族仇人麾下的前哨基地"}, {"id": "loc_starfall_abyss", "name": "落星深窟", "summary": "星力紊乱的第二秘境，陨星白焰所在"}, {"id": "loc_enemy_stronghold", "name": "仇人核心据点", "summary": "仇人主力盘踞之地，内鬼隐藏之处"}, {"id": "loc_final_stronghold", "name": "灭界峰", "summary": "仇人与幕后主使的最终堡垒"}], "encounters": [{"id": "enc_guardian_trial", "name": "守护兽灵试炼", "summary": "在青莲秘渊中与守护兽灵的战斗"}, {"id": "enc_outpost_infiltration", "name": "外围据点潜入战", "summary": "潜入时与据点守卫的不可避免的交锋"}, {"id": "enc_stronghold_assault", "name": "核心据点强攻", "summary": "正面击溃仇人主力部队的激战"}], "clues": [{"id": "clue_heirloom_dagger", "name": "家传短剑", "summary": "刻有内鬼标记的家族信物"}, {"id": "clue_traitor_mark", "name": "内鬼印记", "summary": "叛徒独有暗记，隐藏于家族遗物"}, {"id": "clue_flame_seed", "name": "异火种子", "summary": "青莲心火的存在与获取方法"}, {"id": "clue_antagonist_cult", "name": "血炼宗", "summary": "灭族仇人所属的隐秘组织"}, {"id": "clue_traitor_letter", "name": "内鬼密信", "summary": "叛徒与仇人的往来信件"}, {"id": "clue_traitor_identity", "name": "内鬼真身", "summary": "指向内鬼具体身份的证据"}, {"id": "clue_mastermind_identity", "name": "幕后主使身份", "summary": "血炼宗主的真实身份与动机"}], "flags": [{"id": "flag_revenge_oath", "name": "复仇之誓", "summary": "主角立下的复仇誓言"}, {"id": "flag_heirloom_dagger", "name": "持有家传短剑", "summary": "携带刻有内鬼标记的短剑"}, {"id": "flag_first_flame", "name": "青莲心火", "summary": "第一种异火"}, {"id": "flag_power_boost", "name": "实力初成", "summary": "已经过首轮强化"}, {"id": "flag_trust_of_acquaintance", "name": "旧识信任", "summary": "获得旧识的完全信赖与支持"}, {"id": "flag_curse_lifted", "name": "诅咒解除", "summary": "旧识亲人的诅咒已被化解"}, {"id": "flag_know_antagonist", "name": "仇人身份已知", "summary": "明确灭族仇人的姓名和来历"}, {"id": "flag_shadow_order_info", "name": "幕后组织情报", "summary": "掌握血炼宗的组织结构"}, {"id": "flag_traitor_clue", "name": "叛徒线索", "summary": "获得指向内鬼的初步线索"}, {"id": "flag_poison_research", "name": "毒术研究", "summary": "发现仇人使用毒术的证据"}, {"id": "flag_second_flame", "name": "陨星白焰", "summary": "第二种异火"}, {"id": "flag_sense_antagonist", "name": "仇人感应", "summary": "能模糊感知仇人方位"}, {"id": "flag_traitor_revealed", "name": "内鬼暴露", "summary": "当场识破内鬼身份"}, {"id": "flag_mastermind_token", "name": "幕后信物", "summary": "幕后主使的令牌"}, {"id": "flag_conclusive_proof", "name": "铁证如山", "summary": "掌握内鬼通敌的确凿证据"}, {"id": "flag_mastermind_known", "name": "幕后主使已知", "summary": "完全知晓幕后黑手身份"}, {"id": "flag_traitor_slain", "name": "内鬼已诛", "summary": "内鬼被主角亲手制裁"}, {"id": "flag_revenge_path", "name": "复仇之路", "summary": "明确最终决战的地点"}, {"id": "flag_final_vengeance", "name": "完成复仇", "summary": "已斩杀仇人与幕后主使"}, {"id": "flag_ashes_of_past", "name": "焚尽过往", "summary": "家族仇恨尘埃落定，走向新生"}, {"id": "flag_victory", "name": "胜利", "summary": "最终胜利结局达成"}, {"id": "flag_death", "name": "陨落", "summary": "主角中途陨落，故事终结"}], "items": [], "actions": [{"id": "action_track_black_market", "name": "追踪黑市", "summary": "选择前往黑市调查仇人踪迹"}, {"id": "action_infiltrate_outpost", "name": "潜入据点", "summary": "选择潜入外围据点窃取情报"}, {"id": "action_direct_assault", "name": "正面强攻", "summary": "选择正面击溃仇人据点"}, {"id": "action_covert_investigation", "name": "暗中调查", "summary": "选择秘密搜集内鬼证据"}]}, "clue_graph": [{"clue_id": "clue_heirloom_dagger", "answers": "短剑上的标记指向家族内鬼，曾是高层核心才有的纹饰", "unlocks": ["clue_traitor_mark"], "acquisition_owner": "beat_1", "alternative_approaches": ["在家族废墟中仔细搜寻遗物", "旧识提及家族往事时意外发现"]}, {"clue_id": "clue_traitor_mark", "answers": "内鬼印记与血炼宗的某种符印相符，说明内鬼早已被收买", "unlocks": ["clue_traitor_letter"], "acquisition_owner": "beat_1", "alternative_approaches": ["旧识的诅咒来源中发现相同印记", "黑市的禁术卷宗记录"]}, {"clue_id": "clue_flame_seed", "answers": "青莲心火可焚尽万物，同时净化诅咒之力，藏于青莲秘渊", "unlocks": ["flag_first_flame"], "acquisition_owner": "beat_2", "alternative_approaches": ["古籍残卷记载", "旧识长辈口述的传说"]}, {"clue_id": "clue_antagonist_cult", "answers": "灭族仇人来自“血炼宗”，一个以禁术和血祭壮大的黑暗组织", "unlocks": ["clue_traitor_letter", "clue_mastermind_identity"], "acquisition_owner": "beat_3", "alternative_approaches": ["黑市情报商贩提供", "仇人外围据点缴获的密令"]}, {"clue_id": "clue_traitor_letter", "answers": "内鬼与血炼宗的往来书信，透露了灭族计划的细节和内鬼的代号", "unlocks": ["clue_traitor_identity"], "acquisition_owner": "beat_4b", "alternative_approaches": ["在仇人核心据点的密室里找到副本", "线人截获的密信"]}, {"clue_id": "clue_traitor_identity", "answers": "内鬼的真正身份是主角的某位亲人/长老，曾深受信任", "unlocks": ["flag_traitor_revealed", "flag_conclusive_proof"], "acquisition_owner": "beat_6a", "alternative_approaches": ["内鬼影卫的口供", "旧识意外的证词"]}, {"clue_id": "clue_mastermind_identity", "answers": "幕后主使是血炼宗宗主，图谋主角家族的血脉力量以突破禁术", "unlocks": ["flag_mastermind_known"], "acquisition_owner": "beat_6b", "alternative_approaches": ["从内鬼处逼问", "仇人据点的禁忌文献"]}], "branch_points": [{"beat_id": "beat_3", "choices": ["beat_4a", "beat_4b"], "distinct_consequences": ["通过黑市获取仇人身份与组织情报", "潜入外围据点截获内鬼密信"], "reconverge_at": "beat_5"}, {"beat_id": "beat_5", "choices": ["beat_6a", "beat_6b"], "distinct_consequences": ["正面强攻据点逼出内鬼破绽", "暗中调查取得内鬼通敌铁证"], "reconverge_at": "beat_7"}], "foreshadowing_payoffs": [{"flag_id": "flag_heirloom_dagger", "setup_beat_id": "beat_1", "payoff_beat_id": "beat_7", "description": "家传短剑上的标记最终确认为内鬼印记，成为揭露内鬼的关键证据"}, {"flag_id": "flag_first_flame", "setup_beat_id": "beat_2", "payoff_beat_id": "beat_8", "description": "青莲心火在最终决战中释放净化之力，破除幕后主使的禁术"}, {"flag_id": "flag_trust_of_acquaintance", "setup_beat_id": "beat_3", "payoff_beat_id": "beat_6b", "description": "旧识信物或其情报网络为暗中调查内鬼提供庇护与关键线人"}, {"flag_id": "flag_traitor_clue", "setup_beat_id": "beat_4b", "payoff_beat_id": "beat_7", "description": "在据点截获的密信锁定内鬼代号，直接促成当面对质"}], "ending_routes": [{"ending_id": "beat_9_win", "outcome": "win", "required_facts": ["flag_know_antagonist", "flag_traitor_slain", "flag_mastermind_known", "flag_second_flame"], "payoffs": ["flag_victory", "flag_ashes_of_past"]}, {"ending_id": "beat_10_lose", "outcome": "lose", "required_facts": ["flag_death"], "payoffs": ["flag_death"]}], "effect_owner_ledger": [{"effect_id": "flag_revenge_oath", "effect_kind": "flag", "owner_kind": "initial_state", "owner_id": "beat_1"}, {"effect_id": "flag_heirloom_dagger", "effect_kind": "flag", "owner_kind": "initial_state", "owner_id": "beat_1"}, {"effect_id": "flag_first_flame", "effect_kind": "flag", "owner_kind": "encounter_win", "owner_id": "enc_guardian_trial"}, {"effect_id": "flag_power_boost", "effect_kind": "flag", "owner_kind": "encounter_win", "owner_id": "enc_guardian_trial"}, {"effect_id": "flag_trust_of_acquaintance", "effect_kind": "flag", "owner_kind": "discovery", "owner_id": "beat_3"}, {"effect_id": "flag_curse_lifted", "effect_kind": "flag", "owner_kind": "discovery", "owner_id": "beat_3"}, {"effect_id": "flag_know_antagonist", "effect_kind": "flag", "owner_kind": "discovery", "owner_id": "beat_4a"}, {"effect_id": "flag_shadow_order_info", "effect_kind": "flag", "owner_kind": "discovery", "owner_id": "beat_4a"}, {"effect_id": "flag_traitor_clue", "effect_kind": "flag", "owner_kind": "discovery", "owner_id": "beat_4b"}, {"effect_id": "flag_poison_research", "effect_kind": "flag", "owner_kind": "discovery", "owner_id": "beat_4b"}, {"effect_id": "flag_second_flame", "effect_kind": "flag", "owner_kind": "discovery", "owner_id": "beat_5"}, {"effect_id": "flag_sense_antagonist", "effect_kind": "flag", "owner_kind": "discovery", "owner_id": "beat_5"}, {"effect_id": "flag_traitor_revealed", "effect_kind": "flag", "owner_kind": "encounter_win", "owner_id": "enc_stronghold_assault"}, {"effect_id": "flag_mastermind_token", "effect_kind": "flag", "owner_kind": "encounter_win", "owner_id": "enc_stronghold_assault"}, {"effect_id": "flag_conclusive_proof", "effect_kind": "flag", "owner_kind": "discovery", "owner_id": "beat_6b"}, {"effect_id": "flag_mastermind_known", "effect_kind": "flag", "owner_kind": "discovery", "owner_id": "beat_6b"}, {"effect_id": "flag_traitor_slain", "effect_kind": "flag", "owner_kind": "discovery", "owner_id": "beat_7"}, {"effect_id": "flag_revenge_path", "effect_kind": "flag", "owner_kind": "discovery", "owner_id": "beat_7"}, {"effect_id": "flag_final_vengeance", "effect_kind": "flag", "owner_kind": "discovery", "owner_id": "beat_8"}, {"effect_id": "flag_ashes_of_past", "effect_kind": "flag", "owner_kind": "discovery", "owner_id": "beat_8"}, {"effect_id": "flag_victory", "effect_kind": "flag", "owner_kind": "rule_action", "owner_id": "beat_9_win"}, {"effect_id": "flag_death", "effect_kind": "flag", "owner_kind": "rule_action", "owner_id": "beat_10_lose"}]}</story_plan>
+2026-08-02 23:10:56,220 | INFO | httpx | HTTP Request: POST https://api.deepseek.com/chat/completions "HTTP/1.1 200 OK"
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51072 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50449 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53562 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54772 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63785 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63786 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50819 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52123 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51626 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51626 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51626 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51626 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51626 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51626 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51626 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51626 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51626 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51626 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51626 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51626 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51626 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51626 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51626 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51626 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51626 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51626 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51626 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51626 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51626 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51626 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51626 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51626 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51626 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51626 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51626 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51626 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51626 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51626 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51626 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51626 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51626 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51626 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51626 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51626 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51626 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51626 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51626 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51626 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54745 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49559 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51167 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63785 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63786 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49813 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51673 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54005 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49851 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49851 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49851 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49851 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49851 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49851 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49851 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49851 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49851 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49851 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49851 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49851 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49851 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49851 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49851 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK
+2026-08-02 23:35:59,611 | ERROR | src.services.story_service | [story_worker] 任务失败 | task_id=Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q
 Traceback (most recent call last):
-  File "F:\game\dnd-bot\.venv\Lib\site-packages\uvicorn\protocols\http\httptools_impl.py", line 421, in run_asgi
-    result = await app(  # type: ignore[func-returns-value]
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-        self.scope, self.receive, self.send
-        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    )
-    ^
-  File "F:\game\dnd-bot\.venv\Lib\site-packages\uvicorn\middleware\proxy_headers.py", line 62, in __call__
-    return await self.app(scope, receive, send)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "F:\game\dnd-bot\.venv\Lib\site-packages\fastapi\applications.py", line 1163, in __call__
-    await super().__call__(scope, receive, send)
-  File "F:\game\dnd-bot\.venv\Lib\site-packages\starlette\applications.py", line 90, in __call__
-    await self.middleware_stack(scope, receive, send)
-  File "F:\game\dnd-bot\.venv\Lib\site-packages\starlette\middleware\errors.py", line 186, in __call__
-    raise exc
-  File "F:\game\dnd-bot\.venv\Lib\site-packages\starlette\middleware\errors.py", line 164, in __call__
-    await self.app(scope, receive, _send)
-  File "F:\game\dnd-bot\.venv\Lib\site-packages\starlette\middleware\cors.py", line 96, in __call__
-    await self.simple_response(scope, receive, send, request_headers=headers)
-  File "F:\game\dnd-bot\.venv\Lib\site-packages\starlette\middleware\cors.py", line 154, in simple_response
-    await self.app(scope, receive, send)
-  File "F:\game\dnd-bot\.venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
-    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
-  File "F:\game\dnd-bot\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "F:\game\dnd-bot\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "F:\game\dnd-bot\.venv\Lib\site-packages\fastapi\middleware\asyncexitstack.py", line 18, in __call__
-    await self.app(scope, receive, send)
-  File "F:\game\dnd-bot\.venv\Lib\site-packages\starlette\routing.py", line 660, in __call__
-    await self.middleware_stack(scope, receive, send)
-  File "F:\game\dnd-bot\.venv\Lib\site-packages\fastapi\routing.py", line 2531, in app
-    await route.handle(scope, receive, send)
-  File "F:\game\dnd-bot\.venv\Lib\site-packages\fastapi\routing.py", line 1700, in handle
-    await self.original_router.handle(scope, receive, send)
-  File "F:\game\dnd-bot\.venv\Lib\site-packages\fastapi\routing.py", line 2586, in handle
-    await included_router._handle_selected(scope, receive, send)
-  File "F:\game\dnd-bot\.venv\Lib\site-packages\fastapi\routing.py", line 1720, in _handle_selected
-    await original_route.handle(scope, receive, send)
-  File "F:\game\dnd-bot\.venv\Lib\site-packages\fastapi\routing.py", line 1239, in handle
-    await app(scope, receive, send)
-  File "F:\game\dnd-bot\.venv\Lib\site-packages\fastapi\routing.py", line 150, in app
-    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
-  File "F:\game\dnd-bot\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "F:\game\dnd-bot\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "F:\game\dnd-bot\.venv\Lib\site-packages\fastapi\routing.py", line 136, in app
-    response = await f(request)
-               ^^^^^^^^^^^^^^^^
-  File "F:\game\dnd-bot\.venv\Lib\site-packages\fastapi\routing.py", line 690, in app
-    raw_response = await run_endpoint_function(
-                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    ...<3 lines>...
-    )
-    ^
-  File "F:\game\dnd-bot\.venv\Lib\site-packages\fastapi\routing.py", line 344, in run_endpoint_function
-    return await dependant.call(**values)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "F:\game\dnd-bot\src\api\sessions.py", line 32, in send_message
-    payload = await session_service.message(room, member, request.content)
-              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "F:\game\dnd-bot\src\services\session_service.py", line 81, in message
-    payload = await self._get_engine().message_stream(
-              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\App\dnd\dnd-bot\src\services\story_service.py", line 339, in _run_task
+    raw, canon, quality = await generate_staged_canon(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
     ...<6 lines>...
     )
     ^
-  File "F:\game\dnd-bot\src\session\engine.py", line 113, in message_stream
-    return await self._astream_interpret(
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    ...<8 lines>...
+  File "D:\App\dnd\dnd-bot\src\story\generator.py", line 602, in generate_staged_canon
+    plan, repairs = await _generate_story_plan(brief, reserved)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\App\dnd\dnd-bot\src\story\generator.py", line 803, in _generate_story_plan
+    raise StoryGenerationError(
+    ...<2 lines>...
     )
-    ^
-  File "F:\game\dnd-bot\src\session\engine.py", line 238, in _astream_interpret
-    result = await astream_graph_values(
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    ...<4 lines>...
-    )
-    ^
-  File "F:\game\dnd-bot\src\common\utils\graph_stream.py", line 33, in astream_graph_values
-    async for item in graph.astream(
-    ...<19 lines>...
-                await event_sink(debug_event)
-  File "F:\game\dnd-bot\.venv\Lib\site-packages\langgraph\pregel\main.py", line 3455, in astream
-    async for _ in runner.atick(
-    ...<16 lines>...
-            yield o
-  File "F:\game\dnd-bot\.venv\Lib\site-packages\langgraph\pregel\_runner.py", line 557, in atick
-    _panic_or_proceed(
-    ~~~~~~~~~~~~~~~~~^
-        futures.done.union(f for f, t in futures.items() if t is not None),
-        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    ...<3 lines>...
-        handled_futures=handled_futures,
-        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    )
-    ^
-  File "F:\game\dnd-bot\.venv\Lib\site-packages\langgraph\pregel\_runner.py", line 687, in _panic_or_proceed
-    raise exc
-  File "F:\game\dnd-bot\.venv\Lib\site-packages\langgraph\pregel\_retry.py", line 744, in arun_with_retry
-    return await task.proc.ainvoke(task.input, config)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "F:\game\dnd-bot\.venv\Lib\site-packages\langgraph\_internal\_runnable.py", line 733, in ainvoke
-    input = await asyncio.create_task(
-            ^^^^^^^^^^^^^^^^^^^^^^^^^^
-        step.ainvoke(input, config, **kwargs), context=context
-        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    )
-    ^
-  File "F:\game\dnd-bot\.venv\Lib\site-packages\langgraph\pregel\main.py", line 4105, in ainvoke
-    async for chunk in self.astream(
-    ...<30 lines>...
-            chunks.append(chunk)
-  File "F:\game\dnd-bot\.venv\Lib\site-packages\langgraph\pregel\main.py", line 3455, in astream
-    async for _ in runner.atick(
-    ...<16 lines>...
-            yield o
-  File "F:\game\dnd-bot\.venv\Lib\site-packages\langgraph\pregel\_runner.py", line 396, in atick
-    await arun_with_retry(
-    ...<15 lines>...
-    )
-  File "F:\game\dnd-bot\.venv\Lib\site-packages\langgraph\pregel\_retry.py", line 744, in arun_with_retry
-    return await task.proc.ainvoke(task.input, config)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "F:\game\dnd-bot\.venv\Lib\site-packages\langgraph\_internal\_runnable.py", line 733, in ainvoke
-    input = await asyncio.create_task(
-            ^^^^^^^^^^^^^^^^^^^^^^^^^^
-        step.ainvoke(input, config, **kwargs), context=context
-        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    )
-    ^
-  File "F:\game\dnd-bot\.venv\Lib\site-packages\langgraph\_internal\_runnable.py", line 501, in ainvoke
-    ret = await self.afunc(*args, **kwargs)
-          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "F:\game\dnd-bot\src\session\dm_subgraph.py", line 98, in dm_decide
-    decision = await world_bridge.decide_turn(
-               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    ...<9 lines>...
-    )
-    ^
-  File "F:\game\dnd-bot\src\dm\world_bridge.py", line 202, in decide_turn
-    raise RuntimeError(f"[dm] decide_turn LLM 连续输出非法决策：{last_error}")
-RuntimeError: [dm] decide_turn LLM 连续输出非法决策：[dm] discoveries 含非法线索：['key_obtained']
-During task with name 'dm_decide' and id '43e0f6a5-27d5-1c66-1f40-e66571f354f7'
-During task with name 'dm_turn' and id '6a4025d2-af86-a5fd-09d2-8bb3952bca95'
+src.story.generator.StoryGenerationError: StoryPlan 在 2 次修复后仍不合法：StoryPlan playable_beats 数量为 10，必须等于确认目标 8；伏笔 «flag_first_flame» 未登记到回收 Beat 的 payoff_flag_ids；伏笔 «flag_trust_of_acquaintance» 未登记到回收 Beat 的 payoff_flag_ids；伏笔 «flag_revenge_oath» 未登记到回收 Beat 的 payoff_flag_ids；伏笔 «flag_sense_antagonist» 未登记到回收 Beat 的 payoff_flag_ids；伏笔 «flag_traitor_revealed» 未登记到回收 Beat 的 payoff_flag_ids；伏笔 «flag_final_vengeance» 未登记到回收 Beat 的 payoff_flag_ids；伏笔 «flag_ashes_of_past» 未登记到回收 Beat 的 payoff_flag_ids；伏笔 «flag_death» 的回收必须晚于铺垫
+INFO:     127.0.0.1:49851 - "GET /api/stories/generation-tasks/Tu3IumewvaKDzmhiYBKQHLabWI78Y33Q HTTP/1.1" 200 OK

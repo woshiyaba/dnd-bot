@@ -19,6 +19,7 @@ from src.services.story_service import StoryService
 from src.story.generator import (
     StoryGenerationError,
     _fragment_errors,
+    _generate_story_plan,
     _load_reference_fragments,
 )
 from src.story.loader import get_registry
@@ -570,6 +571,26 @@ class StoryGenerationStoreTests(unittest.TestCase):
 
 
 class StoryGenerationServiceFailureTests(unittest.IsolatedAsyncioTestCase):
+    async def test_story_plan_repair_logs_round_issues_and_full_prompt(self):
+        invalid = {"plan_version": 1}
+        repaired = _standard_plan().model_dump()
+        completion = AsyncMock(side_effect=[invalid, repaired])
+
+        with (
+            patch("src.story.generator._complete_json", completion),
+            self.assertLogs("src.story.generator", level="INFO") as repair_logs,
+        ):
+            plan, repair_count = await _generate_story_plan(_brief(), [])
+
+        self.assertEqual(plan.campaign_id_candidate, "moon_astrolabe")
+        self.assertEqual(repair_count, 1)
+        repair_prompt = completion.await_args_list[1].args[0]
+        log_output = "\n".join(repair_logs.output)
+        self.assertIn("修复轮次=1/", log_output)
+        self.assertIn("StoryPlan 字段不合法", log_output)
+        self.assertIn("系统提示词：", log_output)
+        self.assertIn(repair_prompt, log_output)
+
     async def test_continuity_or_validation_failure_creates_no_public_draft(self):
         with tempfile.TemporaryDirectory() as directory:
             service = StoryService(

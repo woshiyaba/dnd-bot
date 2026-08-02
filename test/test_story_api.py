@@ -303,7 +303,10 @@ class StoryGeneratorTests(unittest.IsolatedAsyncioTestCase):
         }
         completion = AsyncMock(side_effect=[invalid, repaired])
 
-        with patch("src.story.generator._complete_json", completion):
+        with (
+            patch("src.story.generator._complete_json", completion),
+            self.assertLogs("src.story.generator", level="INFO") as repair_logs,
+        ):
             response = await continue_interview(
                 conversation=[{"role": "user", "content": "保留旧友委托支线"}],
                 design_brief={"tone": "悬疑"},
@@ -321,6 +324,13 @@ class StoryGeneratorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("design_brief.side_content.focus", repair_prompt)
         self.assertIn("soft_choices_only", repair_prompt)
         self.assertIn("StoryInterviewResponse", repair_prompt)
+        log_output = "\n".join(repair_logs.output)
+        self.assertIn(f"修复轮次=1/{story_generator.MAX_REPAIR_ATTEMPTS}", log_output)
+        self.assertIn("待修复问题=2 个", log_output)
+        self.assertIn("design_brief.branching_budget.choice_scope", log_output)
+        self.assertIn("design_brief.side_content.focus", log_output)
+        self.assertIn("系统提示词：", log_output)
+        self.assertIn(repair_prompt, log_output)
 
     async def test_story_interview_repairs_all_long_scale_conflicts_at_once(self):
         invalid = {
