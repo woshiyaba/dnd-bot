@@ -66,7 +66,7 @@ class DMState(TypedDict, total=False):
     campaign_id: str  # 本局 canon 的注册表 key（canon 本体不入 state，按引用存）
     story: dict  # 进度工作区：current_beat_id/visited_beats/flags/delivered_clues/
     #   visited_locations/current_location_id/beat_entered_turn/idle_turns/
-    #   turn_index/pending_next_beat_id/removed_actor_ids/critical_npc_deaths
+    #   turn_index/pending_next_beat_id/removed_actor_ids/critical_npc_deaths/act_recap
     #   （纯 dict，JSON 可序列化，规避 serde）
     world_writes: (
         dict | None
@@ -251,7 +251,11 @@ def build_beat_scene(
         if not scene["description"]:
             scene["description"] = loc.description
     # 预置遭遇参数下放到 scene（run_combat._build_combat_input 会读取）
-    if beat.encounter is not None:
+    if beat.encounter is not None and (
+        not canon.runtime_location_scoping
+        or beat.encounter.location_id is None
+        or beat.encounter.location_id == active_location_id
+    ):
         if beat.encounter.loot_table:
             scene["loot_table"] = list(beat.encounter.loot_table)
         scene["xp_reward"] = beat.encounter.xp_reward
@@ -288,5 +292,6 @@ def init_story(canon: Canon) -> tuple[dict, dict]:
         "pending_next_beat_id": None,  # 待切入的下一拍（evaluate_advancement 命中时写）
         "removed_actor_ids": [],  # 已战败/离场的 actor，重建场景时不得复活
         "critical_npc_deaths": [],  # 已死亡关键 NPC id，供 DM 持续承接后果
+        "act_recap": "",  # 跨 Act 真实模型生成的非权威叙事摘要
     }
     return story, scene

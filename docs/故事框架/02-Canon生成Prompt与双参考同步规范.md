@@ -1,7 +1,7 @@
 # Canon 生成 Prompt 与双参考同步规范
 
-> 基线日期：2026-07-29  
-> 适用模块：故事访谈、Canon 编译、Canon 修复与发布前校验  
+> 基线日期：2026-08-02
+> 适用模块：故事访谈、StoryPlan、分片编译、连贯性复核与发布前校验
 > 参考剧本：`canon/prodigal_return_quest.json`、`canon/whispers_bell_tower.json`
 
 ## 一、目标与事实源
@@ -13,15 +13,15 @@
 玩家构思
   → 故事策划访谈
   → 玩家确认 design_brief
-  → Canon 编译 Prompt
-     ├─ 当前字段与规则契约
-     ├─ 两份实时读取的内置 Canon
-     └─ 已占用 campaign_id
-  → Canon JSON 草稿
-  → Canon.from_dict
-  → validate_canon + validate_authored_canon
-     ├─ 成功：形成可发布草稿
-     └─ 失败：携带确定性错误最多修复两次
+  → StoryPlan（DAG、ID registry、owner ledger）
+  → 顶层 / Cast / Locations / 逐 Act Beats / Actions / Endings 分片编译
+     ├─ 确认稿、已验证计划和不可变 ID
+     └─ 从两份参考 Canon 自动提取的依赖闭合功能片段
+  → 分片校验与 SQLite 持久化
+  → Canon.from_dict + 全部确定性校验
+  → Pro 连贯性复核
+     ├─ 成功：形成可发布限时草稿
+     └─ 失败：仅修复受影响 Act 并重跑全部校验/复核
 ```
 
 不同信息的唯一事实源如下：
@@ -29,10 +29,10 @@
 | 信息 | 唯一事实源 | 说明 |
 |---|---|---|
 | Canon 数据形状与默认值 | `src/model/canon.py`、`src/model/rule_action.py` | JSON 能否被引擎解析，以这里为准 |
-| 引用闭合、可达性、唯一原子入口 | `validate_canon`、`validate_authored_canon` | Prompt 不能代替确定性校验 |
+| 计划图、引用闭合、运行时兼容与 owner | `src/story/validation.py`、`validate_canon`、`validate_authored_canon` | Prompt 不能代替确定性校验 |
 | 访谈、编译与修复约束 | `src/story/prompt.py` | 这是实际发送给模型的可执行 Prompt |
-| 当前合法结构范例 | 两份 `canon/*.json` | 每次编译重新读盘，不在 Python 中复制一份静态快照 |
-| 故事生成模型 | `STORY_INTERVIEW_MODEL`、`STORY_AUTHORING_MODEL`、`STORY_REPAIR_MODEL` | 从中央模型目录按职责选择 |
+| 当前合法结构范例 | 两份 `canon/*.json` | 每次生成重新读盘并自动抽取短功能片段 |
+| 故事生成模型 | 六个 `STORY_*_MODEL` 职责 | Interview/Recap 用 Fast，Planning/Authoring/Repair/Continuity 用 Reasoning |
 
 文档用于说明契约和维护顺序，不应成为第三份可执行 Schema。当文档、Prompt、样例与模型代码
 不一致时，先按模型和校验器修复实现，再同步本文。
@@ -60,37 +60,36 @@ design_brief.confirmed_revision == design_brief.revision
 validate_confirmed_design_brief(design_brief) == []
 ```
 
-### 2. Canon 编译 Prompt
+### 2. StoryPlan 与分片编译 Prompt
 
-一次编译请求由四段组成：
+Planning 阶段只产出严格 `StoryPlan`：Act、Beat DAG、实体概要、线索图、分支汇流、
+伏笔回收、双结局路线与效果 owner ledger。全局 ID registry 由代码从已验证计划派生，
+分片不得新建 ID。
 
-1. `CANON_AUTHORING_RULE`：角色、合法字段、枚举、引用和机械效果的硬约束。
-2. `<confirmed_design_brief>`：玩家已确认的唯一创作方向。
-3. `<reference_canons>`：每次请求重新读取的两份完整 Canon JSON。
-4. `<reserved_campaign_ids>`：`canon/` 目录中所有已占用的剧本 ID。
+随后按顶层、Cast/Card、Locations、逐 Act Beats、Actions 和 Endings 顺序编译。每个请求只携带
+确认稿、计划、不可变 ID、owner ledger、必要相邻片段，以及从两份参考 Canon 自动抽取的
+多地点探索、战后线索、硬门槛、规则行动和 Boss 结算等依赖闭合短片段。
 
-两份参考 Canon 只证明“这种字段组织和引用方式能被当前引擎接受”，不能覆盖 Prompt 的硬规则，
-也不能成为复制人物、地点、谜底、数值或专有名词的素材库。若参考内容与模型或校验器发生冲突，
-以模型和校验器为准，并立即修正参考 Canon。
-
-编译器的核心任务描述可以归纳为：
+两份参考只证明“这种字段组织和引用方式能被当前引擎接受”，不能覆盖 Prompt 硬规则，
+也不能成为复制剧情内容的素材库。编译器的核心任务可归纳为：
 
 ```text
-你是 D&D 短篇冒险的 Canon 编译器，不是运行时 DM。
-只把玩家明确确认的 design_brief 编译为一个完整 JSON 对象。
+你是 D&D 单 Session 冒险的 Canon 分片编译器，不是运行时 DM。
+只把确认稿和 StoryPlan 编译为当前阶段要求的完整分片 JSON。
 使用当前引擎已经实现的字段、枚举和封闭效果；所有 ID 与引用必须闭合。
 Canon 定义世界事实和规则入口，DM 负责叙述，引擎负责状态与结算。
 不得从参考 Canon 复制剧情内容，不得以 loot_table 代替背包物品发放，
 不得让同一 flag 或 item_id 拥有多个原子写入入口。
-提交前检查起始拍、胜败结局、拍可达性、固定战斗卡、出口、线索、遭遇和行动定义。
+不得新建或改名 ID、owner 或玩家确认方向。
 最终只输出 JSON，不要 Markdown、解释、注释或代码围栏。
 ```
 
-### 3. Canon 修复 Prompt
+### 3. 分片修复与连贯性复核 Prompt
 
-修复 Prompt 只接收上一份完整草稿和确定性校验错误。模型可以修复字段、引用、所有权与可达性，
-但不能趁修复改变玩家确认的主题、角色关系或核心冲突。修复后仍返回完整 Canon JSON，并再次走
-相同的两个校验器；最多修复两次，之后显式失败，不生成离线或模板故事兜底。
+单阶段确定性校验失败时，修复 Prompt 只接收该完整分片和错误，最多修复两次。汇总通过后，
+Continuity 模型返回结构化 issue 和 `affected_act_ids`；如有 error，只允许一次受影响 Act 定向修复，
+随后重跑所有校验与复核。修复不得改变 ID、owner 或确认稿；仍有 error 时显式失败，
+不产生草稿，也不提供模板、启发式或离线故事兜底。
 
 ## 三、两份 Canon 的互补结构
 
@@ -128,6 +127,9 @@ Canon 定义世界事实和规则入口，DM 负责叙述，引擎负责状态�
   "theme": "主题",
   "tone": "基调",
   "duration_minutes": 20,
+  "length_mode": "short",
+  "act_count": 2,
+  "runtime_location_scoping": true,
   "recommended_player_count": 1,
   "gameplay_focus": ["调查", "探索", "战斗"],
   "content_warnings": [],
@@ -142,7 +144,7 @@ Canon 定义世界事实和规则入口，DM 负责叙述，引擎负责状态�
 }
 ```
 
-- 时长只能是 10～30 分钟，推荐人数只能是 1～6。
+- 时长按 `short` 10～30、`standard` 31～60、`long` 61～120 分钟分档，仍只支持单 Session；推荐人数为 1～6。
 - `campaign_id` 不能与已发布 Canon 重复。
 - 所有技术 ID 使用小写 ASCII `snake_case`，同类 ID 唯一。
 - `declared_flags` 必须覆盖线索、遭遇、规则行动和受限世界状态可能写入的全部 flag。
@@ -165,7 +167,8 @@ Canon 定义世界事实和规则入口，DM 负责叙述，引擎负责状态�
 
 每个 `Beat` 包含：
 
-- `id`、`title`、`kind`、`location_ids`。
+- `id`、`title`、`kind`、`act_id`、`estimated_minutes`、`location_ids`。
+- `objective`、`pressure`、`relevant_clue_ids`、`payoff_flag_ids`。
 - `entry_state`：进入地点、场景事实、在场 actor、可理解出口和威胁。
 - `key_info`：本拍可能发现的受控线索。
 - `advance_conditions` 与 `exits`：触发器到下一拍的确定映射。
@@ -199,6 +202,8 @@ Canon 定义世界事实和规则入口，DM 负责叙述，引擎负责状态�
 {
   "id": "clue_id",
   "text": "玩家真正发现后可知的正文",
+  "location_id": "location_id",
+  "discovery_hints": ["可观察征兆", "可交互入口"],
   "discovery_effects": {
     "flags_set": {"declared_flag": true},
     "grant_items": [
@@ -218,7 +223,7 @@ Canon 定义世界事实和规则入口，DM 负责叙述，引擎负责状态�
 
 ### 6. Encounter
 
-`Encounter` 可以包含 `id`、`monster_ids`、`surprised`、`random_seed`、`xp_reward`、
+`Encounter` 可以包含 `id`、`location_id`、`monster_ids`、`surprised`、`random_seed`、`xp_reward`、
 `on_win_flags`、`on_win_discoveries` 和 `loot_table`。其中：
 
 - `monster_ids` 至少一项，并引用本拍在场且拥有固定卡面的 actor。
@@ -246,7 +251,7 @@ Canon 定义世界事实和规则入口，DM 负责叙述，引擎负责状态�
 Prompt 的自检清单和后端校验至少覆盖：
 
 1. `start_beat_id` 存在，时长、人数和公开元数据合法。
-2. 至少有一个 `win` 结局和一个 `lose` 结局。
+2. 恰好有一个 `win` 结局和一个 `lose` 结局。
 3. 所有非结局拍有出口，所有拍从起始拍或全局结局路径可达。
 4. beat、location、actor、trigger、encounter、clue、flag、item、action 引用闭合。
 5. 关键 NPC 有死亡续接，所有遭遇 actor 有固定战斗卡。
@@ -255,7 +260,9 @@ Prompt 的自检清单和后端校验至少覆盖：
 8. `on_win_discoveries` 仅含同拍、不重复的敌人随身线索。
 9. 每个持久化 flag 与 `item_id` 只有一个原子 owner。
 10. `loot_table` 不承担持久化入库，所有规则行动使用引擎支持的封闭效果。
-11. 最终内容是单一、可直接解析的 JSON 对象。
+11. StoryPlan 是 DAG，全部非结局 Beat 可达且能通向结局，分支在 1～2 Beat 后汇流，路径时长和节奏合法。
+12. 每拍最多一个 Encounter，遭遇和线索绑定当前拍地点，`combat_outcome` 显式绑定 `encounter_id`。
+13. 最终内容是单一、可直接解析的 JSON 对象。
 
 ## 六、JSON 实时修改时的同步规则
 
@@ -267,7 +274,7 @@ Prompt 的自检清单和后端校验至少覆盖：
 2. 运行 Canon 加载与校验测试。
 3. 确认没有破坏引用闭合、可达性和唯一原子入口。
 
-生成器在每次 Canon 编译前重新读取两份参考文件，因此不需要把相同内容再复制进 Python Prompt。
+生成器在每次分片编译前重新读取两份参考文件，并自动抽取所需功能片段，不发送两份完整 Canon。
 已经缓存的是聊天模型实例，不是参考 Canon 内容。
 
 ### 新增或改变字段、枚举、效果语义
@@ -294,11 +301,11 @@ Prompt 的自检清单和后端校验至少覆盖：
 | 线索与物品结算 | discovery effect、Session 状态/API、Prompt、Canon、幂等测试 |
 | 公开故事元数据 | Canon、Pydantic schema、服务接口、前端类型与故事广场 |
 | 参考 Canon 内容 | 两份 Canon 的加载/校验测试；字段不变时无需改 Prompt 源码 |
-| 故事生成模型 | 三个 `STORY_*_MODEL` 职责、`.env.example`、模型注册表与路由测试 |
+| 故事生成模型 | 六个 `STORY_*_MODEL` 职责、`.env.example`、模型注册表与路由测试 |
 
 ## 七、模型配置
 
-故事模块从中央目录按职责选择模型；未提供职责覆盖时，访谈使用 Fast，编译与修复使用 Pro：
+故事模块从中央目录按职责选择模型；未提供职责覆盖时，访谈和跨幕回顾使用 Fast，计划、编译、修复和连贯性复核使用 Reasoning：
 
 ```dotenv
 LLM_MODELS=deepseek/deepseek-v4-pro,deepseek/deepseek-v4-flash
@@ -307,8 +314,11 @@ LLM_FAST_MODEL=deepseek/deepseek-v4-flash
 
 # 可选职责覆盖
 STORY_INTERVIEW_MODEL=deepseek/deepseek-v4-flash
+STORY_PLANNING_MODEL=deepseek/deepseek-v4-pro
 STORY_AUTHORING_MODEL=deepseek/deepseek-v4-pro
 STORY_REPAIR_MODEL=deepseek/deepseek-v4-pro
+STORY_CONTINUITY_MODEL=deepseek/deepseek-v4-pro
+STORY_RECAP_MODEL=deepseek/deepseek-v4-flash
 ```
 
 职责变量必须引用 `LLM_MODELS` 中登记的 `供应商/模型 ID` 复合名。缺少目录配置、引用未知模型

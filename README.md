@@ -186,6 +186,11 @@ uv run python main.py
 - `POST /session/{room_id}/submit`
 - `POST /session/{room_id}/roll`：由服务端生成当前玩家虚拟骰并恢复中断。
 - `GET /session/{room_id}/state`
+- `POST /api/stories/interview`：继续一轮严格结构化故事访谈。
+- `POST /api/stories/generation-tasks`：提交可恢复的分阶段故事生成任务，返回 `202`。
+- `GET /api/stories/generation-tasks/{task_id}`：轮询阶段、进度、脱敏错误和公开草稿。
+- `DELETE /api/stories/generation-tasks/{task_id}`：在最近阶段边界请求取消。
+- `POST /api/stories/drafts/{draft_id}/publish`：从 SQLite 草稿原子发布 Canon，不覆盖已有剧本。
 
 `GET /session/{room_id}/state` 返回统一会话负载，包含当前 `status`、公开状态投影和待处理
 `interrupt`，可用于小程序切后台或断线后的恢复。
@@ -205,6 +210,7 @@ copy .env.example .env
 - `LLM_MODELS`：可用的 `供应商/模型 ID` 复合名列表。
 - `LLM_REASONING_MODEL` / `LLM_FAST_MODEL`：默认推理模型与快速模型。
 - `DM_*_MODEL`、`COMBAT_*_MODEL`、`ACTION_COMPILER_MODEL`、`STORY_*_MODEL`：可选的职责级覆盖，完整示例见 `.env.example`。
+- `STORY_GENERATION_DB_PATH`：故事任务、中间产物、ID 预留与限时草稿 SQLite 路径；默认 `.data/story_generation.sqlite3`。
 - `MYSQL_HOST`
 - `MYSQL_PORT`
 - `MYSQL_DATABASE`

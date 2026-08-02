@@ -5,6 +5,8 @@
   "theme": "执念与救赎",
   "tone": "阴郁、悬疑、带一线希望",
   "duration_minutes": 20,
+  "length_mode": "short",
+  "act_count": 2,
   "recommended_player_count": 1,
   "gameplay_focus": ["调查", "探索", "战斗"],
   "content_warnings": ["儿童失踪", "灵异恐怖"],
@@ -84,7 +86,10 @@
   "lose_condition": {
     "id": "lose_party_wiped",
     "kind": "combat_outcome",
-    "predicate": { "outcome": "players_lose" },
+    "predicate": {
+      "encounter_id": "boss_bell_spirit",
+      "outcome": "players_lose"
+    },
     "description": "冒险队在钟楼之巅全灭"
   },
   "cast": [
@@ -232,6 +237,10 @@
       "id": "tavern_quest",
       "title": "开场·破钟酒馆的委托",
       "kind": "opening",
+      "act_id": "act_village_hook",
+      "estimated_minutes": 4,
+      "objective": "理解失踪事件并决定介入",
+      "pressure": "下一次钟声前可能再有孩子失踪",
       "location_ids": ["tavern"],
       "entry_state": {
         "location_id": "tavern",
@@ -250,7 +259,9 @@
       "key_info": [
         {
           "id": "hook_missing_children",
-          "text": "近一个月里，灰岩村夜夜响起本该锈死的钟声，已有三个孩子在钟声后失踪；村长求你去废弃的钟楼查明真相。"
+          "text": "近一个月里，灰岩村夜夜响起本该锈死的钟声，已有三个孩子在钟声后失踪；村长求你去废弃的钟楼查明真相。",
+          "location_id": "tavern",
+          "discovery_hints": ["听村长说明委托", "查看墙上的锈钟与失踪告示"]
         }
       ],
       "advance_conditions": [
@@ -271,6 +282,10 @@
       "id": "ruined_village",
       "title": "探索·废村三处",
       "kind": "exploration",
+      "act_id": "act_village_hook",
+      "estimated_minutes": 8,
+      "objective": "在废村调查钟灵的身份与弱点",
+      "pressure": "夜里钟声渐密，低语不断逼近",
       "location_ids": ["bell_tower_hall", "dry_well", "graveyard"],
       "entry_state": {
         "location_id": "bell_tower_hall",
@@ -290,6 +305,8 @@
         {
           "id": "clue_bell_crack",
           "text": "钟楼前厅的吊钟上有一道熔痕——古钟曾被强行熔毁过，它的怨念由此而生。",
+          "location_id": "bell_tower_hall",
+          "discovery_hints": ["检查吊钟熔痕", "请艾达辨认钟体伤痕"],
           "discovery_effects": {
             "flags_set": { "clue_bell_crack": true }
           }
@@ -297,6 +314,8 @@
         {
           "id": "clue_spirit_name",
           "text": "枯井底的木牌上刻着一个名字「赫尔薇」——那是被熔进钟里的少女的真名，呼唤真名能让它动摇。",
+          "location_id": "dry_well",
+          "discovery_hints": ["下井搜索木牌", "从井壁抓痕追查失踪者"],
           "discovery_effects": {
             "flags_set": { "clue_spirit_name": true }
           }
@@ -304,6 +323,8 @@
         {
           "id": "clue_holy_water",
           "text": "墓园无名碑下藏着一小瓶圣水——唯有圣水能在决战中削弱古钟之灵。",
+          "location_id": "graveyard",
+          "discovery_hints": ["检查无名碑底座", "沿艾达祷文指向搜索墓园"],
           "discovery_effects": {
             "flags_set": { "clue_holy_water": true },
             "grant_items": [
@@ -340,6 +361,12 @@
       "id": "bell_tower_summit",
       "title": "高潮·钟楼之灵",
       "kind": "climax",
+      "act_id": "act_bell_climax",
+      "estimated_minutes": 6,
+      "objective": "运用调查所得终止古钟之灵",
+      "pressure": "钟灵正在吞噬更多活人的低语",
+      "relevant_clue_ids": ["clue_bell_crack", "clue_spirit_name", "clue_holy_water"],
+      "payoff_flag_ids": ["clue_bell_crack", "clue_spirit_name", "clue_holy_water"],
       "location_ids": ["bell_tower_summit"],
       "entry_state": {
         "location_id": "bell_tower_summit",
@@ -382,14 +409,16 @@
       "key_info": [
         {
           "id": "climax_weakness",
-          "text": "呼唤真名「赫尔薇」并泼洒圣水，能让古钟之灵动摇，是击败它的关键。"
+          "text": "呼唤真名「赫尔薇」并泼洒圣水，能让古钟之灵动摇，是击败它的关键。",
+          "location_id": "bell_tower_summit",
+          "discovery_hints": ["回忆已发现的真名", "观察钟灵对圣水与熔痕的反应"]
         }
       ],
       "advance_conditions": [
         {
           "id": "t_boss_win",
           "kind": "combat_outcome",
-          "predicate": { "outcome": "players_win" },
+          "predicate": { "outcome": "players_win", "encounter_id": "boss_bell_spirit" },
           "description": "击败古钟之灵后，钟声止息，迎来结局"
         }
       ],
@@ -399,6 +428,7 @@
       },
       "encounter": {
         "id": "boss_bell_spirit",
+        "location_id": "bell_tower_summit",
         "xp_reward": 300,
         "monster_ids": ["bell_spirit"],
         "surprised": [],
@@ -411,6 +441,10 @@
       "id": "ending_win",
       "title": "结局·钟声止息",
       "kind": "ending",
+      "act_id": "act_bell_climax",
+      "estimated_minutes": 2,
+      "objective": "回应玩家的调查选择与获救者命运",
+      "pressure": "无",
       "ending_outcome": "win",
       "location_ids": ["bell_tower_summit"],
       "entry_state": {
@@ -429,6 +463,10 @@
       "id": "ending_lose",
       "title": "结局·钟声不息",
       "kind": "ending",
+      "act_id": "act_bell_climax",
+      "estimated_minutes": 2,
+      "objective": "呈现失败代价并回应未完成的选择",
+      "pressure": "无",
       "ending_outcome": "lose",
       "location_ids": ["bell_tower_summit"],
       "entry_state": {

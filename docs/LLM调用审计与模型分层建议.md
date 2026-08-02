@@ -1,9 +1,14 @@
 # LLM 调用审计与模型分层建议
 
-> 文档状态：阶段 1 模型分层已实施；后续阶段待办继续有效
-> 评审基线：2026-07-31
+> 文档状态：阶段 1 与分阶段故事生成职责已实施；其余待办继续有效
+> 实现补记：2026-08-02
 > 评审范围：`src/`、`test/`、两个前端、现有 Canon 与故事生成链
 > 第三至第五节的“当前”描述保留为实施前审计基线；第六节起已同步实际配置。
+
+2026-08-02 补记：故事链现已拆为 `STORY_INTERVIEW`（Fast）、`STORY_PLANNING`
+（Reasoning）、`STORY_AUTHORING`（Reasoning）、`STORY_REPAIR`（Reasoning）、
+`STORY_CONTINUITY`（Reasoning）和 `STORY_RECAP`（Fast）。下文提到全部故事任务复用
+`STORY_GENERATION_MODEL` 的段落属于 2026-07-31 的历史审计结论。
 
 ## 一、结论
 
@@ -410,7 +415,7 @@ current-act recap
 2. Canon 有明确突袭结果时跳过突袭判断。
 3. 限制每拍 `semantic` trigger 数量，优先使用 flag/item/location/combat/action。
 4. 删除未使用的叙述 helper 和重复调用工具。
-5. 把故事生成改成 StoryPlan → 分段编译 → 完整校验。
+5. [已完成] 把故事生成改成 StoryPlan → 分段编译 → 完整校验 → 连贯性复核。
 
 ### 阶段 4：用数据决定进一步降级
 

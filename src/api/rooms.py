@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from src.api.dependencies import require_room_member
 from src.common.ws.ws_manager import manager as ws_manager
@@ -19,6 +19,7 @@ from src.schemas.room import (
 )
 from src.services.room_service import GameRoom, RoomMember, room_service
 from src.services.session_service import session_service
+from src.story.loader import get_registry
 
 router = APIRouter(prefix="/api/rooms", tags=["rooms"])
 RoomIdentity = Annotated[tuple[GameRoom, RoomMember], Depends(require_room_member)]
@@ -80,6 +81,26 @@ async def join_room(room_code: str, request: JoinRoomRequest) -> RoomAuthRespons
 async def start_room(request: StartRoomRequest, identity: RoomIdentity) -> SessionView:
     """由房主锁定阵容并启动真实 LLM 冒险。"""
     room, member = identity
+    canon = get_registry().get(room.campaign_id)
+    recommended = canon.recommended_player_count if canon is not None else None
+    actual = len(room.members)
+    if (
+        recommended is not None
+        and actual != recommended
+        and not request.confirm_player_count_mismatch
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "player_count_mismatch",
+                "message": (
+                    f"当前队伍为 {actual} 人，剧本按 {recommended} 人静态设计敌人；"
+                    "仍可继续，但不会自动缩放敌人数值。"
+                ),
+                "actual_player_count": actual,
+                "recommended_player_count": recommended,
+            },
+        )
     payload = await session_service.start(room, member, request.opening)
     await session_service.broadcast_session(room, payload)
     return session_service.session_view(room, member, payload)

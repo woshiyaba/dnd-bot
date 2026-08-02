@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import AsyncMock, patch
 
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
+from src.api.rooms import start_room
 from src.app import app
+from src.schemas.room import CharacterDraft, StartRoomRequest
 from src.services.room_service import room_service
 
 
@@ -104,6 +108,55 @@ class RoomApiTests(unittest.TestCase):
         self.assertEqual(len(body["races"]), 6)
         self.assertEqual(len(body["classes"]), 5)
         self.assertEqual(body["point_buy"]["budget"], 27)
+
+
+class RoomStartCountWarningTests(unittest.IsolatedAsyncioTestCase):
+    """人数偏离静态卡面时必须由房主显式确认。"""
+
+    async def asyncSetUp(self):
+        room_service.reset()
+        draft = CharacterDraft.model_validate(_character())
+        self.room, self.host = await room_service.create_room(
+            display_name="甲",
+            character=draft,
+            campaign_id="whispers_bell_tower",
+        )
+        await room_service.join_room(
+            self.room.room_code,
+            display_name="乙",
+            character=draft,
+        )
+
+    async def test_host_can_confirm_mismatch_without_runtime_scaling(self):
+        with self.assertRaises(HTTPException) as raised:
+            await start_room(StartRoomRequest(), (self.room, self.host))
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertEqual(raised.exception.detail["code"], "player_count_mismatch")
+        self.assertEqual(raised.exception.detail["actual_player_count"], 2)
+        self.assertEqual(raised.exception.detail["recommended_player_count"], 1)
+
+        payload = {"status": "awaiting_input", "state": {}}
+        with (
+            patch(
+                "src.api.rooms.session_service.start",
+                new=AsyncMock(return_value=payload),
+            ) as start,
+            patch(
+                "src.api.rooms.session_service.broadcast_session",
+                new=AsyncMock(),
+            ),
+            patch(
+                "src.api.rooms.session_service.session_view",
+                return_value={"confirmed": True},
+            ),
+        ):
+            result = await start_room(
+                StartRoomRequest(confirm_player_count_mismatch=True),
+                (self.room, self.host),
+            )
+
+        self.assertEqual(result, {"confirmed": True})
+        start.assert_awaited_once()
 
 
 if __name__ == "__main__":

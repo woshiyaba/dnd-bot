@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from pydantic import ValidationError
@@ -12,11 +13,32 @@ from pydantic import ValidationError
 from src.common.utils.json_parser import extract_json_object
 from src.common.utils.llm_util import ModelRole, get_chat_model, get_model_name
 from src.model.canon import Canon, validate_authored_canon, validate_canon
-from src.schemas.story import StoryInterviewResponse
+from src.schemas.story import (
+    StoryDesignBrief,
+    StoryInterviewResponse,
+    StoryPlan,
+    StoryQualityMetrics,
+)
 from src.story.prompt import (
     build_canon_authoring_prompt,
     build_canon_repair_prompt,
+    build_continuity_repair_prompt,
+    build_continuity_review_prompt,
+    build_fragment_prompt,
+    build_fragment_repair_prompt,
+    build_story_plan_prompt,
     build_story_interview_prompt,
+    build_story_interview_repair_prompt,
+    normalize_confirmed_design_brief,
+)
+from src.story.validation import (
+    canon_quality_metrics,
+    story_plan_id_registry,
+    validate_fragment_ids,
+    validate_fragment_runtime,
+    validate_effect_owner_ledger,
+    validate_generated_canon,
+    validate_story_plan,
 )
 
 logger = logging.getLogger(__name__)
@@ -29,6 +51,9 @@ REFERENCE_CANON_PATHS = (
 )
 MAX_REPAIR_ATTEMPTS = 2
 
+ArtifactCallback = Callable[[str, str, dict[str, Any], int], Awaitable[None]]
+StageStartCallback = Callable[[str], Awaitable[None]]
+
 
 class StoryGenerationError(RuntimeError):
     """真实 LLM 未能返回可用的故事结构或 Canon。"""
@@ -39,6 +64,122 @@ def _load_reference_canons() -> list[dict[str, Any]]:
     return [
         json.loads(path.read_text(encoding="utf-8")) for path in REFERENCE_CANON_PATHS
     ]
+
+
+def _load_reference_fragments() -> list[dict[str, Any]]:
+    """从两份短篇参考自动提取依赖闭合的功能片段，避免传送两份完整 Canon。"""
+    fragments: list[dict[str, Any]] = []
+    for raw in _load_reference_canons():
+        action_beat_ids = {
+            str(beat_id)
+            for action in raw.get("action_definitions", [])
+            for beat_id in (action.get("requirements") or {}).get("beat_ids", [])
+        }
+        candidates: list[tuple[dict[str, Any], set[str]]] = []
+        for beat in raw.get("beats", []):
+            functions: set[str] = set()
+            if len(beat.get("location_ids", [])) > 1:
+                functions.add("multi_location_exploration")
+            encounter = beat.get("encounter") or {}
+            if encounter.get("on_win_discoveries"):
+                functions.add("post_combat_discovery")
+            if beat.get("id") in action_beat_ids:
+                functions.add("hard_gate_and_rule_action")
+            if beat.get("kind") == "climax" and encounter:
+                functions.add("boss_settlement")
+            if functions:
+                candidates.append((beat, functions))
+        # 贪心覆盖功能类别；同分时保持 Canon 原顺序，通常每份只留下 1～2 拍。
+        uncovered = {
+            "multi_location_exploration",
+            "post_combat_discovery",
+            "hard_gate_and_rule_action",
+            "boss_settlement",
+        }
+        selected_ids: set[str] = set()
+        selected_functions: set[str] = set()
+        while candidates and uncovered:
+            index, (beat, functions) = max(
+                enumerate(candidates),
+                key=lambda item: (len(item[1][1] & uncovered), -item[0]),
+            )
+            covered = functions & uncovered
+            if not covered:
+                break
+            selected_ids.add(str(beat.get("id")))
+            selected_functions.update(functions)
+            uncovered -= covered
+            candidates.pop(index)
+        beats = [
+            beat for beat in raw.get("beats", []) if beat.get("id") in selected_ids
+        ]
+        location_ids = {
+            location_id
+            for beat in beats
+            for location_id in beat.get("location_ids", [])
+        }
+        actor_ids = {
+            actor.get("actor_id") or actor.get("npc_ref")
+            for beat in beats
+            for actor in (beat.get("entry_state") or {}).get("actors", [])
+        }
+        encounter_ids = {
+            beat["encounter"]["id"]
+            for beat in beats
+            if isinstance(beat.get("encounter"), dict) and beat["encounter"].get("id")
+        }
+        actions = [
+            action
+            for action in raw.get("action_definitions", [])
+            if selected_ids.intersection(
+                (action.get("requirements") or {}).get("beat_ids", [])
+            )
+            or encounter_ids.intersection(
+                (action.get("requirements") or {}).get("encounter_ids", [])
+            )
+        ]
+        external_beat_ids = {
+            str(exit_.get("next_beat_id"))
+            for beat in beats
+            for exit_ in beat.get("exits", [])
+            if str(exit_.get("next_beat_id")) not in selected_ids
+        }
+        external_beats = [
+            {
+                "id": beat.get("id"),
+                "kind": beat.get("kind"),
+                "ending_outcome": beat.get("ending_outcome"),
+            }
+            for beat in raw.get("beats", [])
+            if beat.get("id") in external_beat_ids
+        ]
+        fragments.append(
+            {
+                "source": raw.get("campaign_id"),
+                "functions": sorted(selected_functions),
+                "declared_flags": raw.get("declared_flags", []),
+                "cast": [
+                    item for item in raw.get("cast", []) if item.get("id") in actor_ids
+                ],
+                "locations": [
+                    item
+                    for item in raw.get("locations", [])
+                    if item.get("id") in location_ids
+                ],
+                "action_definitions": actions,
+                "beats": beats,
+                "external_beat_stubs": external_beats,
+                "win_condition": (
+                    raw.get("win_condition")
+                    if (raw.get("win_condition") or {})
+                    .get("predicate", {})
+                    .get("encounter_id")
+                    in encounter_ids
+                    else None
+                ),
+            }
+        )
+    return fragments
 
 
 def _message_text(message: Any) -> str:
@@ -89,10 +230,39 @@ async def continue_interview(
         stage="访谈",
         role=ModelRole.STORY_INTERVIEW,
     )
-    try:
-        return StoryInterviewResponse.model_validate(raw)
-    except ValidationError as exc:
-        raise StoryGenerationError(f"故事访谈输出结构不合法：{exc}") from exc
+    for attempt in range(MAX_REPAIR_ATTEMPTS + 1):
+        try:
+            return StoryInterviewResponse.model_validate(raw)
+        except ValidationError as exc:
+            errors = _story_interview_validation_errors(exc)
+            if attempt == MAX_REPAIR_ATTEMPTS:
+                raise StoryGenerationError(
+                    "故事访谈输出在两次修复后仍不合法：" + "；".join(errors)
+                ) from exc
+        raw = await _complete_json(
+            build_story_interview_repair_prompt(
+                conversation=conversation,
+                design_brief=design_brief,
+                invalid_response=raw,
+                validation_errors=errors,
+            ),
+            stage=f"访谈修复（第 {attempt + 1} 次）",
+            role=ModelRole.STORY_REPAIR,
+        )
+
+    raise AssertionError("故事访谈修复循环未按预期结束")
+
+
+def _story_interview_validation_errors(exc: ValidationError) -> list[str]:
+    """把 Pydantic 错误压缩成可交给修复模型的稳定字段路径。"""
+    errors: list[str] = []
+    for item in exc.errors(include_url=False):
+        location = ".".join(str(part) for part in item.get("loc", ())) or "<root>"
+        errors.append(
+            f"{location}: {item.get('msg', '校验失败')} "
+            f"[{item.get('type', 'validation_error')}]"
+        )
+    return errors
 
 
 def _canon_errors(draft: dict[str, Any]) -> tuple[Canon | None, list[str]]:
@@ -136,3 +306,524 @@ async def generate_canon(
         )
 
     raise AssertionError("Canon 修复循环未按预期结束")
+
+
+async def generate_staged_canon(
+    *,
+    confirmed_brief: dict[str, Any] | StoryDesignBrief,
+    reserved_campaign_ids: list[str] | None = None,
+    resume_artifacts: dict[str, dict[str, Any]] | None = None,
+    on_artifact: ArtifactCallback | None = None,
+    on_stage_start: StageStartCallback | None = None,
+    initial_repair_count: int = 0,
+) -> tuple[dict[str, Any], Canon, StoryQualityMetrics]:
+    """严格执行 StoryPlan → 分片 → 全校验 → 连贯性复核 → 定向修复。"""
+    brief = normalize_confirmed_design_brief(confirmed_brief)
+    reserved = sorted(
+        set(reserved_campaign_ids or [])
+        | {path.stem for path in CANON_DIR.glob("*.json")}
+    )
+    artifacts = dict(resume_artifacts or {})
+    total_repairs = max(0, initial_repair_count)
+
+    resumed_plan = "plan" in artifacts
+    if resumed_plan:
+        plan = StoryPlan.model_validate(artifacts["plan"])
+        plan_errors = validate_story_plan(plan, brief)
+        if plan_errors:
+            raise StoryGenerationError(
+                "已持久化 StoryPlan 校验失败：" + "；".join(plan_errors)
+            )
+    else:
+        if on_stage_start:
+            await on_stage_start("plan")
+        plan, repairs = await _generate_story_plan(brief, reserved)
+        total_repairs += repairs
+        if on_artifact:
+            await on_artifact("planning", "plan", plan.model_dump(), repairs)
+        artifacts["plan"] = plan.model_dump()
+
+    if plan.campaign_id_candidate in reserved and not resumed_plan:
+        raise StoryGenerationError("StoryPlan 使用了已占用的 campaign_id")
+    registry = story_plan_id_registry(plan)
+    plan_data = plan.model_dump()
+    ledger = [item.model_dump() for item in plan.effect_owner_ledger]
+    references = _load_reference_fragments()
+    fragments: dict[str, dict[str, Any]] = {}
+
+    fragment_order = ["top_level", "cast", "locations"]
+    fragment_order.extend(f"act:{act.id}" for act in plan.acts)
+    fragment_order.extend(["actions", "endings"])
+    for fragment_kind in fragment_order:
+        artifact_key = f"fragment:{fragment_kind}"
+        if artifact_key in artifacts:
+            fragment = artifacts[artifact_key]
+            errors = _fragment_errors(
+                fragment_kind, fragment, plan, registry, fragments
+            )
+            if errors:
+                raise StoryGenerationError(
+                    f"已持久化分片 {fragment_kind} 校验失败：" + "；".join(errors)
+                )
+        else:
+            if on_stage_start:
+                await on_stage_start(artifact_key)
+            adjacent = _adjacent_fragment_summaries(fragment_kind, fragments, plan)
+            fragment, repairs = await _generate_fragment(
+                fragment_kind=fragment_kind,
+                brief=brief,
+                plan=plan,
+                registry=registry,
+                ledger=ledger,
+                reference_fragments=references,
+                adjacent_fragments=adjacent,
+                compiled_fragments=fragments,
+            )
+            total_repairs += repairs
+            if on_artifact:
+                await on_artifact("compiling", artifact_key, fragment, repairs)
+            artifacts[artifact_key] = fragment
+        fragments[fragment_kind] = fragment
+
+    raw = _assemble_canon(plan, fragments)
+    canon, errors = _canon_errors(raw)
+    if canon is not None:
+        errors.extend(validate_generated_canon(canon, brief))
+        errors.extend(validate_effect_owner_ledger(canon, plan))
+    if canon is None or errors:
+        raise StoryGenerationError(
+            "分片汇总 Canon 未通过完整校验：" + "；".join(errors)
+        )
+    if on_artifact:
+        await on_artifact("validating", "assembled_canon", raw, 0)
+
+    review = artifacts.get("continuity_review")
+    if review is None:
+        if on_stage_start:
+            await on_stage_start("continuity_review")
+        review = await _complete_json(
+            build_continuity_review_prompt(confirmed_brief=brief, canon=raw),
+            stage="连贯性复核",
+            role=ModelRole.STORY_CONTINUITY,
+        )
+        _validate_continuity_review(review)
+        if on_artifact:
+            await on_artifact("continuity", "continuity_review", review, 0)
+    issues = [
+        item
+        for item in review.get("issues", [])
+        if str(item.get("severity")) == "error"
+    ]
+    if issues:
+        affected_ids = sorted(
+            {
+                str(act_id)
+                for issue in issues
+                for act_id in issue.get("affected_act_ids", [])
+                if str(act_id) in {act.id for act in plan.acts}
+            }
+        )
+        if not affected_ids:
+            raise StoryGenerationError(
+                "连贯性复核发现错误但未提供合法 affected_act_ids"
+            )
+        repair_marker = artifacts.get("continuity_repair")
+        if repair_marker is not None:
+            if set(repair_marker.get("affected_act_ids", [])) != set(affected_ids):
+                raise StoryGenerationError("已持久化连贯性修复标记与原始问题不一致")
+        else:
+            if on_stage_start:
+                await on_stage_start("continuity_repair")
+            repaired = await _complete_json(
+                build_continuity_repair_prompt(
+                    confirmed_brief=brief,
+                    story_plan=plan_data,
+                    id_registry=registry,
+                    effect_owner_ledger=ledger,
+                    issues=issues,
+                    act_fragments={
+                        act_id: fragments[f"act:{act_id}"] for act_id in affected_ids
+                    },
+                ),
+                stage="连贯性定向修复",
+                role=ModelRole.STORY_REPAIR,
+            )
+            replacement = repaired.get("act_fragments")
+            if not isinstance(replacement, dict) or set(replacement) != set(
+                affected_ids
+            ):
+                raise StoryGenerationError("连贯性修复必须只返回全部受影响 Act 分片")
+            for act_id, fragment in replacement.items():
+                fragment_errors = _fragment_errors(
+                    f"act:{act_id}", fragment, plan, registry, fragments
+                )
+                if fragment_errors:
+                    raise StoryGenerationError(
+                        f"连贯性修复后的 Act «{act_id}» 非法："
+                        + "；".join(fragment_errors)
+                    )
+                fragments[f"act:{act_id}"] = fragment
+                if on_artifact:
+                    await on_artifact(
+                        "continuity_repair",
+                        f"fragment:act:{act_id}",
+                        fragment,
+                        0,
+                    )
+            total_repairs += 1
+            repair_marker = {"affected_act_ids": affected_ids}
+            if on_artifact:
+                await on_artifact(
+                    "continuity_repair", "continuity_repair", repair_marker, 1
+                )
+            artifacts["continuity_repair"] = repair_marker
+        raw = _assemble_canon(plan, fragments)
+        canon, errors = _canon_errors(raw)
+        if canon is not None:
+            errors.extend(validate_generated_canon(canon, brief))
+            errors.extend(validate_effect_owner_ledger(canon, plan))
+        if canon is None or errors:
+            raise StoryGenerationError(
+                "连贯性修复后 Canon 未通过完整校验：" + "；".join(errors)
+            )
+        final_review = artifacts.get("continuity_review_final")
+        if final_review is None:
+            if on_stage_start:
+                await on_stage_start("continuity_review_final")
+            final_review = await _complete_json(
+                build_continuity_review_prompt(confirmed_brief=brief, canon=raw),
+                stage="修复后连贯性复核",
+                role=ModelRole.STORY_CONTINUITY,
+            )
+            if on_artifact:
+                await on_artifact(
+                    "continuity", "continuity_review_final", final_review, 0
+                )
+        review = final_review
+        _validate_continuity_review(review)
+        remaining = [
+            item
+            for item in review.get("issues", [])
+            if str(item.get("severity")) == "error"
+        ]
+        if remaining:
+            raise StoryGenerationError("定向修复后仍有连贯性错误，任务终止")
+
+    metrics = canon_quality_metrics(
+        canon, repair_count=total_repairs, continuity_passed=True
+    )
+    return raw, canon, metrics
+
+
+async def _generate_story_plan(
+    brief: StoryDesignBrief, reserved_campaign_ids: list[str]
+) -> tuple[StoryPlan, int]:
+    """生成并最多局部修复两次 StoryPlan。"""
+    raw = await _complete_json(
+        build_story_plan_prompt(brief, reserved_campaign_ids=reserved_campaign_ids),
+        stage="计划",
+        role=ModelRole.STORY_PLANNING,
+    )
+    for attempt in range(MAX_REPAIR_ATTEMPTS + 1):
+        try:
+            plan = StoryPlan.model_validate(raw)
+            errors = validate_story_plan(plan, brief)
+        except ValidationError as exc:
+            plan = None
+            errors = [f"StoryPlan 字段不合法：{exc}"]
+        if plan is not None and not errors:
+            return plan, attempt
+        if attempt == MAX_REPAIR_ATTEMPTS:
+            raise StoryGenerationError(
+                "StoryPlan 在两次修复后仍不合法：" + "；".join(errors)
+            )
+        raw = await _complete_json(
+            "只修复下列 StoryPlan 错误，保持确认稿、已有 ID、owner 与未受影响结构不变，"
+            "返回完整 StoryPlan JSON。\n"
+            f"<validation_errors>{json.dumps(errors, ensure_ascii=False)}</validation_errors>\n"
+            f"<immutable_design_brief>{json.dumps(brief.model_dump(), ensure_ascii=False)}</immutable_design_brief>\n"
+            f"<story_plan>{json.dumps(raw, ensure_ascii=False)}</story_plan>",
+            stage=f"计划修复（第 {attempt + 1} 次）",
+            role=ModelRole.STORY_REPAIR,
+        )
+    raise AssertionError("StoryPlan 修复循环未按预期结束")
+
+
+async def _generate_fragment(
+    *,
+    fragment_kind: str,
+    brief: StoryDesignBrief,
+    plan: StoryPlan,
+    registry: dict[str, list[str]],
+    ledger: list[dict[str, Any]],
+    reference_fragments: list[dict[str, Any]],
+    adjacent_fragments: list[dict[str, Any]],
+    compiled_fragments: dict[str, dict[str, Any]],
+) -> tuple[dict[str, Any], int]:
+    raw = await _complete_json(
+        build_fragment_prompt(
+            fragment_kind=fragment_kind,
+            confirmed_brief=brief,
+            story_plan=plan.model_dump(),
+            id_registry=registry,
+            effect_owner_ledger=ledger,
+            reference_fragments=reference_fragments,
+            adjacent_fragments=adjacent_fragments,
+        ),
+        stage=f"分片 {fragment_kind}",
+        role=ModelRole.STORY_AUTHORING,
+    )
+    for attempt in range(MAX_REPAIR_ATTEMPTS + 1):
+        errors = _fragment_errors(
+            fragment_kind, raw, plan, registry, compiled_fragments
+        )
+        if not errors:
+            return raw, attempt
+        if attempt == MAX_REPAIR_ATTEMPTS:
+            raise StoryGenerationError(
+                f"分片 {fragment_kind} 在两次修复后仍不合法：" + "；".join(errors)
+            )
+        raw = await _complete_json(
+            build_fragment_repair_prompt(
+                fragment_kind=fragment_kind,
+                fragment=raw,
+                validation_errors=errors,
+                confirmed_brief=brief,
+                story_plan=plan.model_dump(),
+                id_registry=registry,
+                effect_owner_ledger=ledger,
+            ),
+            stage=f"分片 {fragment_kind} 修复（第 {attempt + 1} 次）",
+            role=ModelRole.STORY_REPAIR,
+        )
+    raise AssertionError("分片修复循环未按预期结束")
+
+
+def _fragment_errors(
+    fragment_kind: str,
+    fragment: dict[str, Any],
+    plan: StoryPlan,
+    registry: dict[str, list[str]],
+    compiled_fragments: dict[str, dict[str, Any]] | None = None,
+) -> list[str]:
+    errors = [
+        *validate_fragment_ids(fragment_kind, fragment, registry),
+        *validate_fragment_runtime(fragment_kind, fragment, plan, compiled_fragments),
+    ]
+    allowed_keys = {
+        "cast": {"cast"},
+        "locations": {"locations"},
+        "actions": {"action_definitions"},
+        "endings": {"beats"},
+    }
+    if fragment_kind.startswith("act:"):
+        allowed = {"beats"}
+    else:
+        allowed = allowed_keys.get(fragment_kind)
+    if allowed is not None and set(fragment) != allowed:
+        errors.append(f"分片 {fragment_kind} 顶层字段必须精确为 {sorted(allowed)}")
+    expected: set[str] = set()
+    actual: set[str] = set()
+    key = ""
+    if fragment_kind == "cast":
+        key, expected = "cast", set(registry["actors"])
+    elif fragment_kind == "locations":
+        key, expected = "locations", set(registry["locations"])
+    elif fragment_kind == "actions":
+        key, expected = "action_definitions", set(registry["actions"])
+    elif fragment_kind.startswith("act:"):
+        key = "beats"
+        act_id = fragment_kind.partition(":")[2]
+        expected = {
+            beat.id
+            for beat in plan.beats
+            if beat.act_id == act_id and beat.kind != "ending"
+        }
+    elif fragment_kind == "endings":
+        key = "beats"
+        expected = {beat.id for beat in plan.beats if beat.kind == "ending"}
+    elif fragment_kind == "top_level":
+        required = {
+            "campaign_id",
+            "title",
+            "premise",
+            "theme",
+            "tone",
+            "duration_minutes",
+            "length_mode",
+            "act_count",
+            "runtime_location_scoping",
+            "recommended_player_count",
+            "gameplay_focus",
+            "content_warnings",
+            "declared_flags",
+            "start_beat_id",
+            "win_condition",
+            "lose_condition",
+        }
+        missing = sorted(required - set(fragment))
+        if missing:
+            errors.append("top_level 缺少字段：" + "、".join(missing))
+        unexpected = sorted(set(fragment) - required)
+        if unexpected:
+            errors.append("top_level 包含阶段外字段：" + "、".join(unexpected))
+        if fragment.get("campaign_id") != plan.campaign_id_candidate:
+            errors.append("top_level.campaign_id 必须等于计划候选 ID")
+        if fragment.get("start_beat_id") != plan.start_beat_id:
+            errors.append("top_level.start_beat_id 必须等于 StoryPlan")
+        if fragment.get("runtime_location_scoping") is not True:
+            errors.append("top_level.runtime_location_scoping 必须为 true")
+        actual_flags = {str(value) for value in fragment.get("declared_flags", [])}
+        if actual_flags != set(registry["flags"]):
+            errors.append("top_level.declared_flags 必须精确匹配 StoryPlan flags")
+        actual_condition_ids = {
+            str(fragment[name].get("id"))
+            for name in ("win_condition", "lose_condition")
+            if isinstance(fragment.get(name), dict)
+        }
+        if actual_condition_ids != {"win_condition", "lose_condition"}:
+            errors.append(
+                "top_level 必须使用固定 win_condition/lose_condition Trigger ID"
+            )
+        return errors
+    else:
+        return [f"未知 fragment_kind：{fragment_kind}"]
+    values = fragment.get(key)
+    if not isinstance(values, list):
+        errors.append(f"分片 {fragment_kind} 必须返回 {key} 数组")
+        return errors
+    actual = {str(item.get("id")) for item in values if isinstance(item, dict)}
+    if actual != expected:
+        errors.append(
+            f"分片 {fragment_kind} 的 {key} 覆盖必须精确匹配 StoryPlan："
+            f"缺少 {sorted(expected - actual)}，多出 {sorted(actual - expected)}"
+        )
+    if key == "beats":
+        plan_beats = {beat.id: beat for beat in plan.beats}
+        for raw_beat in values:
+            if not isinstance(raw_beat, dict) or raw_beat.get("id") not in plan_beats:
+                continue
+            planned = plan_beats[str(raw_beat["id"])]
+            comparisons = {
+                "act_id": planned.act_id,
+                "kind": planned.kind,
+                "estimated_minutes": planned.estimated_minutes,
+                "location_ids": planned.location_ids,
+            }
+            for field, planned_value in comparisons.items():
+                if raw_beat.get(field) != planned_value:
+                    errors.append(
+                        f"Beat «{planned.id}» 的 {field} 必须与 StoryPlan 完全一致"
+                    )
+            if not raw_beat.get("objective") or not raw_beat.get("pressure"):
+                errors.append(f"Beat «{planned.id}» 缺少 objective 或 pressure")
+            actual_clues = {
+                str(item.get("id")) for item in raw_beat.get("key_info", [])
+            }
+            if actual_clues != set(planned.clue_ids):
+                errors.append(
+                    f"Beat «{planned.id}» 的 KeyInfo 必须精确匹配计划 clue_ids"
+                )
+            encounter = raw_beat.get("encounter")
+            actual_encounter_id = (
+                str(encounter.get("id")) if isinstance(encounter, dict) else None
+            )
+            if actual_encounter_id != planned.encounter_id:
+                errors.append(f"Beat «{planned.id}» 的 Encounter 必须与 StoryPlan 一致")
+            planned_targets = [exit_.to_beat_id for exit_ in planned.exits]
+            actual_targets = [
+                str(exit_.get("next_beat_id")) for exit_ in raw_beat.get("exits", [])
+            ]
+            if actual_targets != planned_targets:
+                errors.append(
+                    f"Beat «{planned.id}» 的出口顺序与目标必须与 StoryPlan 一致"
+                )
+            expected_triggers = [
+                f"trigger_{planned.id}_{index + 1}"
+                for index, _ in enumerate(planned.exits)
+            ]
+            actual_triggers = [
+                str(item.get("id")) for item in raw_beat.get("advance_conditions", [])
+            ]
+            if actual_triggers != expected_triggers:
+                errors.append(
+                    f"Beat «{planned.id}» 必须使用代码派生的不可变 Trigger ID"
+                )
+            actual_exit_triggers = [
+                str(item.get("trigger_id")) for item in raw_beat.get("exits", [])
+            ]
+            if actual_exit_triggers != expected_triggers:
+                errors.append(
+                    f"Beat «{planned.id}» 的出口必须按顺序绑定派生 Trigger ID"
+                )
+            actual_actor_ids = {
+                str(item.get("actor_id") or item.get("npc_ref"))
+                for item in (raw_beat.get("entry_state") or {}).get("actors", [])
+            }
+            if actual_actor_ids != set(planned.actor_ids):
+                errors.append(f"Beat «{planned.id}» 的在场角色必须精确匹配 StoryPlan")
+    return errors
+
+
+def _assemble_canon(
+    plan: StoryPlan, fragments: dict[str, dict[str, Any]]
+) -> dict[str, Any]:
+    raw = dict(fragments["top_level"])
+    raw["cast"] = list(fragments["cast"].get("cast", []))
+    raw["locations"] = list(fragments["locations"].get("locations", []))
+    raw["action_definitions"] = list(fragments["actions"].get("action_definitions", []))
+    raw["beats"] = [
+        beat
+        for act in plan.acts
+        for beat in fragments[f"act:{act.id}"].get("beats", [])
+    ]
+    raw["beats"].extend(fragments["endings"].get("beats", []))
+    return raw
+
+
+def _adjacent_fragment_summaries(
+    fragment_kind: str,
+    fragments: dict[str, dict[str, Any]],
+    plan: StoryPlan,
+) -> list[dict[str, Any]]:
+    if not fragment_kind.startswith("act:"):
+        return []
+    act_id = fragment_kind.partition(":")[2]
+    index = next((i for i, act in enumerate(plan.acts) if act.id == act_id), -1)
+    keys = [
+        f"act:{plan.acts[i].id}"
+        for i in (index - 1, index + 1)
+        if 0 <= i < len(plan.acts)
+    ]
+    return [
+        {
+            "fragment_kind": key,
+            "beats": [
+                {
+                    "id": beat.get("id"),
+                    "act_id": beat.get("act_id"),
+                    "objective": beat.get("objective"),
+                    "exits": beat.get("exits", []),
+                }
+                for beat in fragments.get(key, {}).get("beats", [])
+            ],
+        }
+        for key in keys
+        if key in fragments
+    ]
+
+
+def _validate_continuity_review(review: dict[str, Any]) -> None:
+    if not isinstance(review.get("passed"), bool) or not isinstance(
+        review.get("issues"), list
+    ):
+        raise StoryGenerationError("连贯性复核输出结构不合法")
+    for issue in review["issues"]:
+        if not isinstance(issue, dict) or issue.get("severity") not in {
+            "error",
+            "warning",
+        }:
+            raise StoryGenerationError("连贯性复核 issue 结构不合法")
+    has_errors = any(issue.get("severity") == "error" for issue in review["issues"])
+    if review["passed"] == has_errors:
+        raise StoryGenerationError("连贯性复核的 passed 与 error issues 不一致")

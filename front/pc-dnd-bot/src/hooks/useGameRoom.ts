@@ -192,9 +192,31 @@ export function useGameRoom(credential: RoomCredential) {
   )
 
   const startRoom = useCallback(async () => {
-    const next = await run(() => gameApi.start(credential))
-    if (next) acceptSession(next)
-  }, [acceptSession, credential, run])
+    setIsBusy(true)
+    setError('')
+    try {
+      let next: SessionView
+      try {
+        next = await gameApi.start(credential)
+      } catch (reason) {
+        if (
+          !(reason instanceof ApiError) ||
+          reason.status !== 409 ||
+          reason.code !== 'player_count_mismatch'
+        ) {
+          throw reason
+        }
+        const confirmed = window.confirm(`${reason.message}\n\n是否仍按静态敌人配置开始冒险？`)
+        if (!confirmed) return
+        next = await gameApi.start(credential, true)
+      }
+      acceptSession(next)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '开局失败')
+    } finally {
+      setIsBusy(false)
+    }
+  }, [acceptSession, credential])
 
   const sendMessage = useCallback(
     async (content: string) => {

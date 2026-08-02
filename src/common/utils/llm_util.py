@@ -39,8 +39,11 @@ class ModelRole(StrEnum):
     COMBAT_NARRATION = "combat_narration"
     ACTION_COMPILER = "action_compiler"
     STORY_INTERVIEW = "story_interview"
+    STORY_PLANNING = "story_planning"
     STORY_AUTHORING = "story_authoring"
     STORY_REPAIR = "story_repair"
+    STORY_CONTINUITY = "story_continuity"
+    STORY_RECAP = "story_recap"
     LEGACY_AGENT = "legacy_agent"
 
 
@@ -53,14 +56,19 @@ _ROLE_ENV_NAMES: dict[ModelRole, str] = {
     ModelRole.COMBAT_NARRATION: "COMBAT_NARRATION_MODEL",
     ModelRole.ACTION_COMPILER: "ACTION_COMPILER_MODEL",
     ModelRole.STORY_INTERVIEW: "STORY_INTERVIEW_MODEL",
+    ModelRole.STORY_PLANNING: "STORY_PLANNING_MODEL",
     ModelRole.STORY_AUTHORING: "STORY_AUTHORING_MODEL",
     ModelRole.STORY_REPAIR: "STORY_REPAIR_MODEL",
+    ModelRole.STORY_CONTINUITY: "STORY_CONTINUITY_MODEL",
+    ModelRole.STORY_RECAP: "STORY_RECAP_MODEL",
     ModelRole.LEGACY_AGENT: "LEGACY_AGENT_MODEL",
 }
 _REASONING_ROLES = {
     ModelRole.DM_DECISION,
     ModelRole.STORY_AUTHORING,
     ModelRole.STORY_REPAIR,
+    ModelRole.STORY_PLANNING,
+    ModelRole.STORY_CONTINUITY,
 }
 
 

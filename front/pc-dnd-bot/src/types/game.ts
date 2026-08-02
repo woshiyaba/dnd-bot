@@ -302,4 +302,37 @@ export type StoryDraftResponse = {
   draft_id: string
   expires_at: string
   story: StorySummary
+  quality?: StoryQualityMetrics | null
+}
+
+export type StoryQualityMetrics = {
+  act_count: number
+  playable_beat_count: number
+  location_count: number
+  clue_count: number
+  encounter_count: number
+  branch_count: number
+  semantic_trigger_count: number
+  shortest_minutes: number
+  longest_minutes: number
+  repair_count: number
+  continuity_passed: boolean
+  quality_notes: string[]
+}
+
+export type StoryGenerationTaskResponse = {
+  task_id: string
+  status:
+    | 'queued'
+    | 'running'
+    | 'completed'
+    | 'failed'
+    | 'cancel_requested'
+    | 'cancelled'
+  stage: string
+  progress: number
+  created_at: string
+  updated_at: string
+  error?: string | null
+  draft?: StoryDraftResponse | null
 }

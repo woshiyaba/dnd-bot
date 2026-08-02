@@ -9,6 +9,7 @@ import type {
   SessionView,
   StoryConversationMessage,
   StoryDraftResponse,
+  StoryGenerationTaskResponse,
   StoryInterviewResponse,
   StorySummary,
 } from '../types/game'
@@ -17,10 +18,14 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3238
 
 export class ApiError extends Error {
   status: number
+  code?: string
+  detail?: unknown
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, code?: string, detail?: unknown) {
     super(message)
     this.status = status
+    this.code = code
+    this.detail = detail
   }
 }
 
@@ -39,13 +44,22 @@ async function requestJson<T>(
   const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers })
   if (!response.ok) {
     let message = `请求失败（${response.status}）`
+    let code: string | undefined
+    let detail: unknown
     try {
-      const data = (await response.json()) as { detail?: string }
-      if (data.detail) message = data.detail
+      const data = (await response.json()) as {
+        detail?: string | { code?: string; message?: string }
+      }
+      if (typeof data.detail === 'string') message = data.detail
+      if (data.detail && typeof data.detail === 'object') {
+        message = data.detail.message ?? message
+        code = data.detail.code
+        detail = data.detail
+      }
     } catch {
       // 保留统一错误文本。
     }
-    throw new ApiError(response.status, message)
+    throw new ApiError(response.status, message, code, detail)
   }
   return response.json() as Promise<T>
 }
@@ -88,10 +102,13 @@ export const gameApi = {
       {},
       credential.accessToken,
     ),
-  start: (credential: RoomCredential) =>
+  start: (credential: RoomCredential, confirmPlayerCountMismatch = false) =>
     post<SessionView>(
       `/api/rooms/${credential.roomCode}/start`,
-      { opening: '冒险者们已经集结，准备踏入这段未知的旅程。' },
+      {
+        opening: '冒险者们已经集结，准备踏入这段未知的旅程。',
+        confirm_player_count_mismatch: confirmPlayerCountMismatch,
+      },
       credential.accessToken,
     ),
   message: (credential: RoomCredential, content: string) =>
@@ -140,6 +157,19 @@ export const gameApi = {
     post<StoryDraftResponse>('/api/stories/drafts', {
       design_brief: designBrief,
     }),
+  createStoryGenerationTask: (designBrief: Record<string, unknown>) =>
+    post<StoryGenerationTaskResponse>('/api/stories/generation-tasks', {
+      design_brief: designBrief,
+    }),
+  storyGenerationTask: (taskId: string) =>
+    requestJson<StoryGenerationTaskResponse>(
+      `/api/stories/generation-tasks/${encodeURIComponent(taskId)}`,
+    ),
+  cancelStoryGenerationTask: (taskId: string) =>
+    requestJson<StoryGenerationTaskResponse>(
+      `/api/stories/generation-tasks/${encodeURIComponent(taskId)}`,
+      { method: 'DELETE' },
+    ),
   publishStory: (draftId: string) =>
     post<{ story: StorySummary }>(
       `/api/stories/drafts/${encodeURIComponent(draftId)}/publish`,

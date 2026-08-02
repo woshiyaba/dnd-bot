@@ -13,6 +13,7 @@ from src.story.prompt import (
     build_canon_authoring_prompt,
     build_canon_repair_prompt,
     build_story_interview_prompt,
+    build_story_interview_repair_prompt,
     validate_confirmed_design_brief,
 )
 
@@ -64,6 +65,7 @@ class CanonAuthoringPromptTests(unittest.TestCase):
             "不能跳过用户确认",
         ):
             self.assertIn(required, STORY_INTERVIEW_RULE)
+        self.assertIn("封闭结构", STORY_INTERVIEW_RULE)
 
         prompt = build_story_interview_prompt(
             conversation=[{"role": "user", "content": "我想玩海上幽灵船故事"}],
@@ -71,6 +73,49 @@ class CanonAuthoringPromptTests(unittest.TestCase):
         )
         self.assertIn("海上幽灵船故事", prompt)
         self.assertIn("previous_design_brief", prompt)
+        for required in (
+            "duration_minutes 61–120",
+            "playable_beats 8–12",
+            "acts 4–5",
+            "locations 8–14",
+            "encounters 3–5",
+            "clues 7–12",
+            "meaningful_branch_points 至少 2",
+        ):
+            self.assertIn(required, prompt)
+
+    def test_interview_repair_prompt_includes_schema_errors_and_context(self):
+        prompt = build_story_interview_repair_prompt(
+            conversation=[{"role": "user", "content": "我想保留旧友委托"}],
+            design_brief={"tone": "悬疑"},
+            invalid_response={
+                "status": "ready_for_confirmation",
+                "assistant_message": "请确认。",
+                "design_brief": {
+                    "branching_budget": {"choice_scope": "soft_choices_only"},
+                    "side_content": {"focus": "旧友委托"},
+                },
+                "questions": [],
+            },
+            validation_errors=[
+                "design_brief.branching_budget.choice_scope: Extra inputs are not permitted [extra_forbidden]",
+                "design_brief.side_content.focus: Extra inputs are not permitted [extra_forbidden]",
+            ],
+        )
+
+        for required in (
+            "story_interview_json_schema",
+            "additionalProperties",
+            "design_brief.branching_budget.choice_scope",
+            "design_brief.side_content.focus",
+            "soft_choices_only",
+            "我想保留旧友委托",
+            "previous_design_brief",
+            "完整 StoryInterviewResponse JSON",
+            "playable_beats 8–12",
+            "clues 7–12",
+        ):
+            self.assertIn(required, prompt)
 
     def test_unconfirmed_brief_cannot_enter_compilation(self):
         with self.assertRaises(ValueError):

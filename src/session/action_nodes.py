@@ -114,6 +114,13 @@ def execute_world_action(state: DMState) -> dict:
     if not isinstance(plan, dict):
         raise ValueError("世界规则行动缺少已校验计划")
     events, writes = execute_world_plan(state, actor, plan)
+    writes = {
+        **writes,
+        "_source": {
+            "kind": "rule_action",
+            "action_id": str(plan.get("definition_id") or ""),
+        },
+    }
     campaign_log = list(state.get("campaign_log", []) or [])
     for event in events:
         campaign_log = log_event({"campaign_log": campaign_log}, event)

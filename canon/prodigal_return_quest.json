@@ -5,6 +5,8 @@
   "theme": "逆袭与证明",
   "tone": "轻松、爽快、轻度热血",
   "duration_minutes": 25,
+  "length_mode": "short",
+  "act_count": 2,
   "recommended_player_count": 1,
   "gameplay_focus": [
     "战斗",
@@ -133,6 +135,7 @@
     "id": "lose_party_defeated",
     "kind": "combat_outcome",
     "predicate": {
+      "encounter_id": "boss_vermillion_serpent",
       "outcome": "players_lose"
     },
     "description": "冒险者在战斗中倒下，夺宝失败。"
@@ -288,6 +291,10 @@
       "id": "trail_opening",
       "title": "山道奇遇·老爷爷现身",
       "kind": "opening",
+      "act_id": "act_secret_realm",
+      "estimated_minutes": 5,
+      "objective": "理解风老的指引并进入秘境",
+      "pressure": "黑风宗探子也在赶往龙血玉",
       "location_ids": [
         "mountain_trail"
       ],
@@ -303,6 +310,8 @@
         {
           "id": "hook_elder_summon",
           "text": "你腰间的玉佩突然绽放青光，一位白发老者的虚影浮现——风老自述曾为玄天秘境守护者，现在秘境中藏有龙血玉可助你脱胎换骨、重返家族。他催促你尽快前往，因为黑风宗也已派人动身。",
+          "location_id": "mountain_trail",
+          "discovery_hints": ["回应玉佩中的风老", "观察远处秘境石门与黑风宗踪迹"],
           "discovery_effects": {
             "flags_set": {
               "accepted_quest": true
@@ -335,6 +344,10 @@
       "id": "gate_exploration",
       "title": "秘境入口·探子阻击",
       "kind": "exploration",
+      "act_id": "act_secret_realm",
+      "estimated_minutes": 10,
+      "objective": "突破探子阻击并找到进入藏宝室的方法",
+      "pressure": "探子封锁石门且秘境内温度持续升高",
       "location_ids": [
         "ruined_gate",
         "inscription_hall"
@@ -359,6 +372,8 @@
         {
           "id": "clue_elder_weakness",
           "text": "风老通过玉佩传音：‘火蟒畏寒，若能找到铭文厅的寒冰符箓，可重创它的防御。’",
+          "location_id": "ruined_gate",
+          "discovery_hints": ["向风老询问守护兽", "观察探子准备的火攻器材"],
           "discovery_effects": {
             "flags_set": {
               "clue_elder_weakness": true
@@ -368,6 +383,8 @@
         {
           "id": "clue_sigil_frost",
           "text": "你仔细研究铭文厅墙壁上的寒冰浮雕，发现其中隐藏着‘寒冰符箓’的绘制方法——只需注入灵力即可激活。你将符箓拓印在掌心（获得寒冰符箓）。",
+          "location_id": "inscription_hall",
+          "discovery_hints": ["研究寒冰浮雕", "让风老辨认铭文排列"],
           "discovery_effects": {
             "flags_set": {
               "clue_sigil_frost": true
@@ -384,6 +401,8 @@
         {
           "id": "clue_corpse_note",
           "text": "你在探子尸体上搜到一封黑风宗密信，内容显示他们打算用火攻压制火蟒，但不知道寒冰弱点。此外，你在他腰间找到一把铜钥。",
+          "location_id": "ruined_gate",
+          "discovery_hints": ["战胜后搜索探子随身物", "制服并要求探子交出密信与钥匙"],
           "discovery_effects": {
             "flags_set": {
               "key_obtained": true
@@ -433,6 +452,7 @@
       },
       "encounter": {
         "id": "blackwind_scout_fight",
+        "location_id": "ruined_gate",
         "monster_ids": [
           "blackwind_scout"
         ],
@@ -449,6 +469,12 @@
       "id": "chamber_climax",
       "title": "藏宝室·决战火蟒",
       "kind": "climax",
+      "act_id": "act_serpent_climax",
+      "estimated_minutes": 8,
+      "objective": "运用寒冰与风老之力击败火蟒",
+      "pressure": "火蟒烈焰正在封死退路",
+      "relevant_clue_ids": ["clue_elder_weakness", "clue_sigil_frost", "clue_corpse_note"],
+      "payoff_flag_ids": ["clue_elder_weakness", "clue_sigil_frost", "key_obtained"],
       "location_ids": [
         "treasure_chamber"
       ],
@@ -470,7 +496,9 @@
       "key_info": [
         {
           "id": "climax_final_hint",
-          "text": "火蟒的弱点已被你掌握：寒冰符箓可瓦解其鳞甲，风老的震慑灵音能短暂定住它的行动。"
+          "text": "火蟒的弱点已被你掌握：寒冰符箓可瓦解其鳞甲，风老的震慑灵音能短暂定住它的行动。",
+          "location_id": "treasure_chamber",
+          "discovery_hints": ["观察火蟒对寒气的反应", "回忆风老与铭文提供的弱点"]
         }
       ],
       "advance_conditions": [
@@ -478,7 +506,8 @@
           "id": "t_boss_win",
           "kind": "combat_outcome",
           "predicate": {
-            "outcome": "players_win"
+            "outcome": "players_win",
+            "encounter_id": "boss_vermillion_serpent"
           },
           "description": "击败玄天火蟒，获得龙血玉"
         }
@@ -494,6 +523,7 @@
       },
       "encounter": {
         "id": "boss_vermillion_serpent",
+        "location_id": "treasure_chamber",
         "monster_ids": [
           "vermillion_serpent"
         ],
@@ -513,6 +543,10 @@
       "id": "ending_win",
       "title": "结局·夺宝归来",
       "kind": "ending",
+      "act_id": "act_serpent_climax",
+      "estimated_minutes": 2,
+      "objective": "回应夺得龙血玉后的选择与代价",
+      "pressure": "无",
       "ending_outcome": "win",
       "location_ids": [
         "treasure_chamber"
@@ -533,6 +567,10 @@
       "id": "ending_lose",
       "title": "结局·暂败不馁",
       "kind": "ending",
+      "act_id": "act_serpent_climax",
+      "estimated_minutes": 2,
+      "objective": "呈现失败代价并保留事实一致的余波",
+      "pressure": "无",
       "ending_outcome": "lose",
       "location_ids": [
         "treasure_chamber"

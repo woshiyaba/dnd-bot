@@ -95,7 +95,13 @@ def stuck_hint_for(state: DMState) -> str | None:
         undelivered = [
             k.text
             for k in beat.key_info
-            if k.id not in delivered and k.id not in on_win_discoveries
+            if k.id not in delivered
+            and k.id not in on_win_discoveries
+            and (
+                not canon.runtime_location_scoping
+                or k.location_id
+                in {None, (state.get("story") or {}).get("current_location_id")}
+            )
         ]
         if undelivered:
             parts.append("主动抛出这条尚未传达的关键线索：" + undelivered[0])
@@ -271,13 +277,27 @@ def _apply_world_writes(
     scene = dict(state.get("scene") or {})
     party = dict(state.get("party") or {})
     engine_managed_flags = set(managed_flag_sources(canon))
+    write_source = (
+        writes.get("_source") if isinstance(writes.get("_source"), dict) else {}
+    )
+    trusted_action_id = (
+        str(write_source.get("action_id") or "")
+        if write_source.get("kind") == "rule_action"
+        else ""
+    )
 
     flags = dict(story.get("flags", {}))
     for key, value in (writes.get("flags_set") or {}).items():
         if key not in declared:
             raise ValueError(f"[story] DM 尝试写入白名单外 flag «{key}»")
         if key in engine_managed_flags:
-            raise ValueError(f"[story] 引擎管理 flag «{key}» 不能由 DM 直接写入")
+            allowed_rule_owner = any(
+                source.get("kind") == "rule_action"
+                and source.get("action_id") == trusted_action_id
+                for source in managed_flag_sources(canon).get(key, [])
+            )
+            if not allowed_rule_owner:
+                raise ValueError(f"[story] 引擎管理 flag «{key}» 不能由 DM 直接写入")
         flags[key] = value
         events.append({"event": "flag_set", "flag": key, "value": value, "by": "dm"})
 
@@ -321,6 +341,13 @@ def _apply_world_writes(
             )
         if clue_id in on_win_discoveries:
             raise ValueError(f"[story] 战后自动线索 «{clue_id}» 不能由 DM 提前传达")
+        clue = canon.clue(clue_id)
+        if (
+            canon.runtime_location_scoping
+            and clue is not None
+            and clue[1].location_id not in {None, current_location_id}
+        ):
+            raise ValueError(f"[story] 线索 «{clue_id}» 不在当前地点，不能传达")
         if clue_id not in delivered:
             delivered.append(clue_id)
             events.append({"event": "clue_delivered", "clue_id": clue_id})
@@ -336,6 +363,11 @@ def _apply_world_writes(
                 )
             if clue_id in on_win_discoveries:
                 raise ValueError(f"[story] 战后自动线索 «{clue_id}» 不能由 DM 提前发现")
+            if canon.runtime_location_scoping and clue.location_id not in {
+                None,
+                current_location_id,
+            }:
+                raise ValueError(f"[story] 线索 «{clue_id}» 不在当前地点，不能发现")
             if clue_id in discovered:
                 continue
             _apply_discovery_effects(
@@ -599,22 +631,71 @@ def apply_world_writes(state: DMState) -> dict:
 # ---------------------------------------------------------------------------
 # 2) enter_beat：用下一拍的 entry_state 搭好新场景
 # ---------------------------------------------------------------------------
-def enter_beat(state: DMState) -> dict:
+async def enter_beat(state: DMState) -> dict:
     """切到 ``pending_next_beat_id`` 指向的下一拍：搭新 scene、更新进度、重置空转。"""
     story = state.get("story") or {}
+    next_id = story.get("pending_next_beat_id")
+    recap = await _act_recap_for_transition(state, next_id)
     return transition_to_beat(
         state,
-        story.get("pending_next_beat_id"),
+        next_id,
         reason=(state.get("story_transition") or {}).get("reason"),
+        act_recap=recap,
+    )
+
+
+async def prepare_engagement_act_recap(state: DMState) -> dict:
+    """开战前迁移与普通推进共用的跨 Act 摘要入口。"""
+    request = state.get("combat_request") or {}
+    next_id = (request.get("before_combat") or {}).get("transition_to_beat_id")
+    recap = await _act_recap_for_transition(state, next_id)
+    if recap is None:
+        return {}
+    story = dict(state.get("story") or {})
+    story["pending_act_recap"] = recap
+    return {"story": story}
+
+
+async def _act_recap_for_transition(state: DMState, next_id: str | None) -> str | None:
+    """仅跨越非空且不同的 act_id 时调用真实 Fast 模型。"""
+    canon = current_canon(state)
+    story = state.get("story") or {}
+    current = canon.beat(story.get("current_beat_id", "")) if canon else None
+    target = canon.beat(next_id) if canon and next_id else None
+    if (
+        current is None
+        or target is None
+        or not current.act_id
+        or not target.act_id
+        or current.act_id == target.act_id
+    ):
+        return None
+    events = [
+        dict(event)
+        for event in (state.get("campaign_log", []) or [])[-50:]
+        if event.get("event") != "narration"
+    ]
+    return await world_bridge.generate_act_recap(
+        previous_recap=str(story.get("act_recap", "")),
+        structured_events=events,
+        from_act_id=current.act_id,
+        to_act_id=target.act_id,
     )
 
 
 def transition_to_beat(
-    state: DMState, next_id: str | None, *, reason: str | None = None
+    state: DMState,
+    next_id: str | None,
+    *,
+    reason: str | None = None,
+    act_recap: str | None = None,
 ) -> dict:
     """经上游校验后原子切换剧情拍，供普通推进与开战前迁移复用。"""
     canon = current_canon(state)
     story = dict(state.get("story") or {})
+    if act_recap is None:
+        pending_recap = story.pop("pending_act_recap", None)
+        act_recap = str(pending_recap) if pending_recap else None
     from_beat_id = story.get("current_beat_id")
     previous_scene = dict(state.get("scene") or {})
     transition = dict(state.get("story_transition") or {"type": "advance"})
@@ -659,6 +740,8 @@ def transition_to_beat(
             "pending_next_beat_id": None,
         }
     )
+    if act_recap is not None:
+        story["act_recap"] = act_recap
     logger.info("[enter_beat] 进入新拍 «%s»（%s）", beat.id, beat.title)
     transition.update(
         {

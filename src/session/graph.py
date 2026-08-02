@@ -396,6 +396,7 @@ def build_session_graph(checkpointer: Any | None = None):
     g.add_node("commit_world_action", action_nodes.commit_world_action)
     g.add_node("execute_world_action", action_nodes.execute_world_action)
     g.add_node("resolve_engagement", resolve_engagement)
+    g.add_node("prepare_engagement_recap", story_nodes.prepare_engagement_act_recap)
     g.add_node("run_combat", run_combat)  # 战斗子图（包装节点映射 schema）
     # 故事推进段（糖葫芦串珠：触发推进 / 否则探索）
     g.add_node("evaluate_advancement", story_nodes.evaluate_advancement)
@@ -414,13 +415,14 @@ def build_session_graph(checkpointer: Any | None = None):
         route_session,
         {
             "wait": "evaluate_advancement",
-            "combat": "resolve_engagement",
+            "combat": "prepare_engagement_recap",
             "action": "prepare_world_action",
         },
     )
     g.add_edge("prepare_world_action", "commit_world_action")
     g.add_edge("commit_world_action", "execute_world_action")
     g.add_edge("execute_world_action", "evaluate_advancement")
+    g.add_edge("prepare_engagement_recap", "resolve_engagement")
     g.add_edge("resolve_engagement", "run_combat")
     g.add_conditional_edges(
         "run_combat",

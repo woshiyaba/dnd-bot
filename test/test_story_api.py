@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -15,6 +16,7 @@ from fastapi.testclient import TestClient
 from src.app import app
 from src.common.utils.llm_util import ModelRole
 from src.model.canon import Canon, validate_authored_canon, validate_canon
+from src.schemas.story import StoryGenerationTaskResponse
 from src.services.story_service import StoryService
 import src.story.generator as story_generator
 from src.story.loader import CanonRegistry
@@ -70,6 +72,47 @@ class StoryApiTests(unittest.TestCase):
         self.assertNotIn("cast", story)
         self.assertNotIn("beats", story)
         self.assertNotIn("secret", json.dumps(story, ensure_ascii=False))
+
+    def test_generation_task_endpoints_return_pollable_public_contract(self):
+        now = datetime.now(UTC)
+        queued = StoryGenerationTaskResponse(
+            task_id="task_public_contract",
+            status="queued",
+            stage="等待生成",
+            progress=0,
+            created_at=now,
+            updated_at=now,
+        )
+        cancelled = queued.model_copy(update={"status": "cancelled", "stage": "已取消"})
+        client = TestClient(app)
+        with patch(
+            "src.api.stories.story_service.create_generation_task",
+            new=AsyncMock(return_value=queued),
+        ):
+            created = client.post(
+                "/api/stories/generation-tasks",
+                json={"design_brief": _CONFIRMED_BRIEF},
+            )
+        with patch(
+            "src.api.stories.story_service.get_generation_task",
+            return_value=queued,
+        ):
+            fetched = client.get("/api/stories/generation-tasks/task_public_contract")
+        with patch(
+            "src.api.stories.story_service.cancel_generation_task",
+            return_value=cancelled,
+        ):
+            deleted = client.delete(
+                "/api/stories/generation-tasks/task_public_contract"
+            )
+
+        self.assertEqual(created.status_code, 202, created.text)
+        self.assertEqual(fetched.status_code, 200, fetched.text)
+        self.assertEqual(deleted.status_code, 200, deleted.text)
+        self.assertEqual(created.json()["task_id"], "task_public_contract")
+        self.assertEqual(deleted.json()["status"], "cancelled")
+        self.assertNotIn("design_brief", created.json())
+        self.assertNotIn("story_plan", created.json())
 
     def test_duplicate_beat_ids_fail_canon_validation(self):
         raw, _canon = _generated_canon()
@@ -220,6 +263,148 @@ class StoryGeneratorTests(unittest.IsolatedAsyncioTestCase):
         get_name.assert_called_once_with(ModelRole.STORY_INTERVIEW)
         get_model.assert_called_once_with("deepseek/deepseek-v4-flash")
 
+    async def test_story_interview_repairs_schema_errors_with_repair_role(self):
+        invalid = {
+            "status": "ready_for_confirmation",
+            "assistant_message": "请确认这份故事方向。",
+            "design_brief": {
+                "branching_budget": {
+                    "meaningful_branch_points": 0,
+                    "max_parallel_beats": 1,
+                    "reconverge_before_climax": True,
+                    "choice_scope": "soft_choices_only",
+                },
+                "side_content": {
+                    "desired_side_threads": 1,
+                    "must_resolve_before_ending": True,
+                    "focus": "恩人或旧友委托，不牵动主线因果",
+                },
+                "user_confirmed": False,
+            },
+            "questions": [],
+        }
+        repaired = {
+            "status": "ready_for_confirmation",
+            "assistant_message": "请确认这份故事方向。",
+            "design_brief": {
+                "branching_budget": {
+                    "meaningful_branch_points": 0,
+                    "max_parallel_beats": 1,
+                    "reconverge_before_climax": True,
+                },
+                "side_content": {
+                    "desired_side_threads": 1,
+                    "must_resolve_before_ending": True,
+                },
+                "must_have": ["恩人或旧友委托，不牵动主线因果"],
+                "user_confirmed": False,
+            },
+            "questions": [],
+        }
+        completion = AsyncMock(side_effect=[invalid, repaired])
+
+        with patch("src.story.generator._complete_json", completion):
+            response = await continue_interview(
+                conversation=[{"role": "user", "content": "保留旧友委托支线"}],
+                design_brief={"tone": "悬疑"},
+            )
+
+        self.assertEqual(
+            response.design_brief.must_have, ["恩人或旧友委托，不牵动主线因果"]
+        )
+        self.assertEqual(
+            [call.kwargs["role"] for call in completion.await_args_list],
+            [ModelRole.STORY_INTERVIEW, ModelRole.STORY_REPAIR],
+        )
+        repair_prompt = completion.await_args_list[1].args[0]
+        self.assertIn("design_brief.branching_budget.choice_scope", repair_prompt)
+        self.assertIn("design_brief.side_content.focus", repair_prompt)
+        self.assertIn("soft_choices_only", repair_prompt)
+        self.assertIn("StoryInterviewResponse", repair_prompt)
+
+    async def test_story_interview_repairs_all_long_scale_conflicts_at_once(self):
+        invalid = {
+            "status": "confirmed",
+            "assistant_message": "设计已确认。",
+            "design_brief": {
+                "duration_minutes": 90,
+                "length_mode": "long",
+                "scale_profile": {
+                    "playable_beats": 5,
+                    "acts": 3,
+                    "locations": 5,
+                    "encounters": 3,
+                    "clues": 3,
+                },
+                "branching_style": "branch_and_reconverge",
+                "branching_budget": {
+                    "meaningful_branch_points": 2,
+                    "max_parallel_beats": 1,
+                    "reconverge_before_climax": True,
+                },
+                "user_confirmed": True,
+            },
+            "questions": [],
+        }
+        repaired = {
+            **invalid,
+            "design_brief": {
+                **invalid["design_brief"],
+                "scale_profile": {
+                    "playable_beats": 8,
+                    "acts": 4,
+                    "locations": 8,
+                    "encounters": 3,
+                    "clues": 7,
+                },
+            },
+        }
+        completion = AsyncMock(side_effect=[invalid, repaired])
+
+        with patch("src.story.generator._complete_json", completion):
+            response = await continue_interview(
+                conversation=[{"role": "user", "content": "确认按这个生成"}],
+                design_brief=invalid["design_brief"],
+            )
+
+        self.assertEqual(response.design_brief.scale_profile.playable_beats, 8)
+        self.assertEqual(completion.await_count, 2)
+        repair_prompt = completion.await_args_list[1].args[0]
+        for field in ("playable_beats", "acts", "locations", "clues"):
+            self.assertIn(f"scale_profile.{field}", repair_prompt)
+
+    async def test_story_interview_fails_after_two_invalid_repairs(self):
+        invalid = {
+            "status": "ready_for_confirmation",
+            "assistant_message": "请确认。",
+            "design_brief": {
+                "branching_budget": {"choice_scope": "soft_choices_only"},
+                "user_confirmed": False,
+            },
+            "questions": [],
+        }
+        completion = AsyncMock(return_value=invalid)
+
+        with patch("src.story.generator._complete_json", completion):
+            with self.assertRaisesRegex(
+                StoryGenerationError,
+                "design_brief.branching_budget.choice_scope",
+            ):
+                await continue_interview(
+                    conversation=[{"role": "user", "content": "我想调查幽灵船"}],
+                    design_brief={},
+                )
+
+        self.assertEqual(completion.await_count, 3)
+        self.assertEqual(
+            [call.kwargs["role"] for call in completion.await_args_list],
+            [
+                ModelRole.STORY_INTERVIEW,
+                ModelRole.STORY_REPAIR,
+                ModelRole.STORY_REPAIR,
+            ],
+        )
+
     async def test_invalid_llm_json_fails_explicitly(self):
         model = AsyncMock()
         model.ainvoke.return_value = SimpleNamespace(content="这不是 JSON")
@@ -235,6 +420,7 @@ class StoryGeneratorTests(unittest.IsolatedAsyncioTestCase):
                     conversation=[{"role": "user", "content": "我想调查幽灵船"}],
                     design_brief={},
                 )
+        model.ainvoke.assert_awaited_once()
 
     async def test_canon_authoring_and_repair_use_reasoning_roles(self):
         valid_raw, _canon = _generated_canon()

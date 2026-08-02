@@ -108,6 +108,7 @@ class StartRoomRequest(BaseModel):
         min_length=1,
         max_length=500,
     )
+    confirm_player_count_mismatch: bool = False
 
 
 class SendMessageRequest(BaseModel):

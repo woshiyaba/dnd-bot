@@ -98,6 +98,10 @@ class KeyInfo:
 
     id: str  # 线索 id
     text: str  # 线索内容（DM 要把它自然地讲给玩家）
+    location_id: str | None = (
+        None  # 新 Canon 明确绑定可发现地点；旧 Canon 缺省为整拍可见
+    )
+    discovery_hints: list[str] = field(default_factory=list)  # 可执行的接近/发现方式
     discovery_effects: dict[str, Any] = field(
         default_factory=dict
     )  # 玩家真正发现后由引擎提交的 flag / 物品效果
@@ -108,6 +112,12 @@ class KeyInfo:
         return cls(
             id=data["id"],
             text=str(data.get("text", "")),
+            location_id=(
+                str(data["location_id"])
+                if data.get("location_id") is not None
+                else None
+            ),
+            discovery_hints=[str(item) for item in data.get("discovery_hints", [])],
             discovery_effects=dict(data.get("discovery_effects", {})),
         )
 
@@ -190,6 +200,7 @@ class Encounter:
     """conflict/climax 拍预置的遭遇模板：战斗触发时把这些参数带给战斗子图。"""
 
     id: str  # 遭遇 id
+    location_id: str | None = None  # 新 Canon 明确绑定遭遇发生地点
     monster_ids: list[str] = field(
         default_factory=list
     )  # 参战的敌方在场者 actor_id（卡面在 entry_state.actors 里）
@@ -212,6 +223,11 @@ class Encounter:
         seed = data.get("random_seed")
         return cls(
             id=data["id"],
+            location_id=(
+                str(data["location_id"])
+                if data.get("location_id") is not None
+                else None
+            ),
             monster_ids=list(data.get("monster_ids", [])),
             surprised=list(data.get("surprised", [])),
             loot_table=list(data.get("loot_table", [])),
@@ -229,6 +245,12 @@ class Beat:
     id: str  # 拍 id
     title: str  # 拍标题
     kind: BeatKind  # 拍类型
+    act_id: str = ""  # 所属幕；旧 Canon 缺省为空
+    estimated_minutes: int = 0  # 本拍预计用时；旧 Canon 缺省为 0
+    objective: str = ""  # 当前可执行目标
+    pressure: str = ""  # 当前压力或升级来源
+    relevant_clue_ids: list[str] = field(default_factory=list)  # 长局只回忆相关旧线索
+    payoff_flag_ids: list[str] = field(default_factory=list)  # 本拍需回应的既有选择
     location_ids: list[str] = field(
         default_factory=list
     )  # 珠内沙盒地点（可多个，真沙盒）
@@ -262,6 +284,12 @@ class Beat:
             id=data["id"],
             title=str(data.get("title", data["id"])),
             kind=BeatKind(data["kind"]),
+            act_id=str(data.get("act_id", "")),
+            estimated_minutes=max(0, int(data.get("estimated_minutes", 0))),
+            objective=str(data.get("objective", "")),
+            pressure=str(data.get("pressure", "")),
+            relevant_clue_ids=list(data.get("relevant_clue_ids", [])),
+            payoff_flag_ids=list(data.get("payoff_flag_ids", [])),
             location_ids=list(data.get("location_ids", [])),
             entry_state=dict(data.get("entry_state", {})),
             key_info=[KeyInfo.from_dict(k) for k in data.get("key_info", [])],
@@ -288,6 +316,11 @@ class Canon:
     theme: str = ""  # 主题
     tone: str = ""  # 基调
     duration_minutes: int = 20  # 预计单局时长（故事广场公开元数据）
+    length_mode: str = "short"  # short | standard | long；旧 Canon 推导为 short
+    act_count: int = 1  # 幕数量；旧 Canon 缺省为 1
+    runtime_location_scoping: bool = (
+        False  # 新生成 Canon 启用；旧 Canon 保持原有披露行为
+    )
     recommended_player_count: int = 1  # 推荐玩家人数，仅展示、不限制开局
     gameplay_focus: list[str] = field(default_factory=list)  # 玩法侧重
     content_warnings: list[str] = field(default_factory=list)  # 玩家可见内容提示
@@ -350,13 +383,22 @@ class Canon:
         """从（手写或生成的）JSON 字典构造剧情圣经。"""
         win = data.get("win_condition")
         lose = data.get("lose_condition")
+        raw_beats = list(data.get("beats", []))
+        duration = int(data.get("duration_minutes", 20))
+        length_mode = str(data.get("length_mode", "short"))
+        derived_acts = {
+            str(beat.get("act_id")) for beat in raw_beats if beat.get("act_id")
+        }
         return cls(
             campaign_id=str(data["campaign_id"]),
             title=str(data.get("title", data["campaign_id"])),
             premise=str(data.get("premise", "")),
             theme=str(data.get("theme", "")),
             tone=str(data.get("tone", "")),
-            duration_minutes=int(data.get("duration_minutes", 20)),
+            duration_minutes=duration,
+            length_mode=length_mode,
+            act_count=int(data.get("act_count", len(derived_acts) or 1)),
+            runtime_location_scoping=bool(data.get("runtime_location_scoping", False)),
             recommended_player_count=int(data.get("recommended_player_count", 1)),
             gameplay_focus=[str(item) for item in data.get("gameplay_focus", [])],
             content_warnings=[str(item) for item in data.get("content_warnings", [])],
@@ -371,7 +413,7 @@ class Canon:
                 ActionDefinition.from_dict(item)
                 for item in data.get("action_definitions", [])
             ],
-            beats=[Beat.from_dict(b) for b in data.get("beats", [])],
+            beats=[Beat.from_dict(b) for b in raw_beats],
             start_beat_id=str(data.get("start_beat_id", "")),
         )
 
@@ -444,6 +486,10 @@ def managed_flag_sources(canon: Canon) -> dict[str, list[dict[str, str]]]:
     """
     sources: dict[str, list[dict[str, str]]] = {}
     for beat in canon.beats:
+        for flag in beat.entry_state.get("flags") or {}:
+            sources.setdefault(str(flag), []).append(
+                {"kind": "initial_state", "beat_id": beat.id, "owner_id": beat.id}
+            )
         for clue in beat.key_info:
             for flag in clue.discovery_effects.get("flags_set") or {}:
                 sources.setdefault(str(flag), []).append(
@@ -451,6 +497,7 @@ def managed_flag_sources(canon: Canon) -> dict[str, list[dict[str, str]]]:
                         "kind": "discovery",
                         "beat_id": beat.id,
                         "clue_id": clue.id,
+                        "owner_id": clue.id,
                     }
                 )
         if beat.encounter is None:
@@ -461,7 +508,16 @@ def managed_flag_sources(canon: Canon) -> dict[str, list[dict[str, str]]]:
                     "kind": "encounter_win",
                     "beat_id": beat.id,
                     "encounter_id": beat.encounter.id,
+                    "owner_id": beat.encounter.id,
                 }
+            )
+    for action in canon.action_definitions:
+        for effect in action.contract.get("effect_templates", []):
+            if effect.get("kind") != "set_flag" or not effect.get("flag"):
+                continue
+            flag = str(effect["flag"])
+            sources.setdefault(flag, []).append(
+                {"kind": "rule_action", "action_id": action.id, "owner_id": action.id}
             )
     return sources
 
@@ -478,12 +534,28 @@ def beat_brief(canon: Canon, story: dict) -> dict | None:
     delivered = set(story.get("delivered_clues", []))
     discovered_ids = list(story.get("discovered_clues", []))
     discovered = set(discovered_ids)
+    current_location_id = story.get("current_location_id")
+    location_scoped = canon.runtime_location_scoping
+    local_clues = [
+        clue
+        for clue in beat.key_info
+        if not location_scoped
+        or clue.location_id is None
+        or clue.location_id == current_location_id
+    ]
     on_win_discoveries = set(
-        beat.encounter.on_win_discoveries if beat.encounter is not None else []
+        beat.encounter.on_win_discoveries
+        if beat.encounter is not None
+        and (
+            not location_scoped
+            or beat.encounter.location_id is None
+            or beat.encounter.location_id == current_location_id
+        )
+        else []
     )
     undelivered = [
         k.text
-        for k in beat.key_info
+        for k in local_clues
         if k.id not in delivered and k.id not in on_win_discoveries
     ]
     available_discoveries = [
@@ -492,11 +564,14 @@ def beat_brief(canon: Canon, story: dict) -> dict | None:
             "text": clue.text,
             "discovery_effects": dict(clue.discovery_effects or {}),
         }
-        for clue in beat.key_info
+        for clue in local_clues
         if clue.id not in discovered and clue.id not in on_win_discoveries
     ]
     known_clues = []
+    relevant_clue_ids = set(beat.relevant_clue_ids)
     for clue_id in discovered_ids:
+        if relevant_clue_ids and clue_id not in relevant_clue_ids:
+            continue
         resolved = canon.clue(clue_id)
         if resolved is None:
             continue
@@ -508,6 +583,11 @@ def beat_brief(canon: Canon, story: dict) -> dict | None:
     on_stage = []
     for actor in beat.entry_state.get("actors", []):
         actor_id = actor.get("actor_id") or actor.get("npc_ref", "")
+        actor_location_id = actor.get(
+            "location_id", beat.entry_state.get("location_id")
+        )
+        if location_scoped and actor_location_id != current_location_id:
+            continue
         if actor_id in removed:
             continue
         spec = canon.npc(actor_id)
@@ -537,9 +617,17 @@ def beat_brief(canon: Canon, story: dict) -> dict | None:
             }
         )
 
+    visible_location_ids = set(beat.location_ids)
+    if location_scoped and current_location_id:
+        current_location = canon.location(current_location_id)
+        visible_location_ids = {
+            current_location_id,
+            *(current_location.intra_exits if current_location is not None else []),
+        }
     locations = [
         {"id": loc.id, "name": loc.name, "description": loc.description}
         for lid in beat.location_ids
+        if lid in visible_location_ids
         if (loc := canon.location(lid)) is not None
     ]
     return {
@@ -550,6 +638,14 @@ def beat_brief(canon: Canon, story: dict) -> dict | None:
         "beat_title": beat.title,
         "beat_id": beat.id,
         "beat_kind": str(beat.kind.value),
+        "act_id": beat.act_id,
+        "objective": beat.objective,
+        "pressure": beat.pressure,
+        "act_recap": str(story.get("act_recap", "")),
+        "payoff_flags": {
+            flag_id: (story.get("flags") or {}).get(flag_id)
+            for flag_id in beat.payoff_flag_ids
+        },
         "locations": locations,
         "undelivered_clues": undelivered,
         "available_discoveries": available_discoveries,
@@ -565,12 +661,12 @@ def beat_brief(canon: Canon, story: dict) -> dict | None:
         "allowed_flags": list(canon.declared_flags),
         "allowed_delivery_clue_ids": [
             clue.id
-            for clue in beat.key_info
+            for clue in local_clues
             if clue.id not in delivered and clue.id not in on_win_discoveries
         ],
         "allowed_discovery_clue_ids": [
             clue.id
-            for clue in beat.key_info
+            for clue in local_clues
             if clue.id not in discovered and clue.id not in on_win_discoveries
         ],
         "managed_flag_sources": managed_flag_sources(canon),
@@ -595,16 +691,21 @@ def beat_brief(canon: Canon, story: dict) -> dict | None:
             }
             for ex in beat.exits
         ],
-        "reachable_encounters": [
-            {
-                "encounter_id": next_beat.encounter.id,
-                "beat_id": next_beat.id,
-                "monster_ids": list(next_beat.encounter.monster_ids),
-            }
-            for ex in beat.exits
-            if (next_beat := canon.beat(ex.next_beat_id)) is not None
-            and next_beat.encounter is not None
-        ],
+        # 新 Canon 只披露当前地点；旧 Canon 保留原先的相邻拍遭遇提示。
+        "reachable_encounters": (
+            []
+            if location_scoped
+            else [
+                {
+                    "encounter_id": next_beat.encounter.id,
+                    "beat_id": next_beat.id,
+                    "monster_ids": list(next_beat.encounter.monster_ids),
+                }
+                for exit_ in beat.exits
+                if (next_beat := canon.beat(exit_.next_beat_id)) is not None
+                and next_beat.encounter is not None
+            ]
+        ),
         "current_encounter": (
             {
                 "encounter_id": beat.encounter.id,
@@ -612,6 +713,11 @@ def beat_brief(canon: Canon, story: dict) -> dict | None:
                 "monster_ids": list(beat.encounter.monster_ids),
             }
             if beat.encounter is not None
+            and (
+                not location_scoped
+                or beat.encounter.location_id is None
+                or beat.encounter.location_id == current_location_id
+            )
             else None
         ),
     }
@@ -629,8 +735,25 @@ def validate_canon(canon: Canon) -> list[str]:
     """
     errors: list[str] = []
 
-    if not 10 <= canon.duration_minutes <= 30:
-        errors.append("duration_minutes 必须在 10 到 30 之间")
+    duration_limits = {
+        "short": (10, 30),
+        "standard": (31, 60),
+        "long": (61, 120),
+    }
+    if canon.length_mode not in duration_limits:
+        errors.append("length_mode 必须是 short、standard 或 long")
+    elif not canon.runtime_location_scoping:
+        # 旧 Canon 缺省为 short，但其历史时长元数据不受新分档约束。
+        if not 10 <= canon.duration_minutes <= 120:
+            errors.append("旧 Canon 的 duration_minutes 必须在 10 到 120 之间")
+    else:
+        lower, upper = duration_limits[canon.length_mode]
+        if not lower <= canon.duration_minutes <= upper:
+            errors.append(
+                f"{canon.length_mode} 的 duration_minutes 必须在 {lower} 到 {upper} 之间"
+            )
+    if canon.act_count < 1:
+        errors.append("act_count 必须是正整数")
     if not 1 <= canon.recommended_player_count <= 6:
         errors.append("recommended_player_count 必须在 1 到 6 之间")
     if not canon.gameplay_focus:
@@ -714,6 +837,14 @@ def validate_canon(canon: Canon) -> list[str]:
         for lid in beat.location_ids:
             if lid not in location_ids:
                 errors.append(f"拍 «{beat.id}» 引用了不存在的 location_id «{lid}»")
+        for clue in beat.key_info:
+            if (
+                clue.location_id is not None
+                and clue.location_id not in beat.location_ids
+            ):
+                errors.append(
+                    f"拍 «{beat.id}» 线索 «{clue.id}» 的 location_id 不在本拍地点中"
+                )
         entry_location_id = beat.entry_state.get("location_id")
         preserve_current_scene = beat.entry_state.get("preserve_current_scene") is True
         if entry_location_id is not None and entry_location_id not in location_ids:
@@ -748,6 +879,13 @@ def validate_canon(canon: Canon) -> list[str]:
                             f"拍 «{beat.id}» 触发器 «{t.id}» 的 flag «{flag}» 不在 declared_flags 白名单内"
                         )
         if beat.encounter is not None:
+            if (
+                beat.encounter.location_id is not None
+                and beat.encounter.location_id not in beat.location_ids
+            ):
+                errors.append(
+                    f"拍 «{beat.id}» 遭遇 «{beat.encounter.id}» 的 location_id 不在本拍地点中"
+                )
             if beat.encounter.id in encounter_ids:
                 errors.append(f"遭遇 id «{beat.encounter.id}» 重复")
             encounter_ids.add(beat.encounter.id)
@@ -899,12 +1037,14 @@ def validate_authored_canon(canon: Canon) -> list[str]:
     for flag, sources in managed_flag_sources(canon).items():
         if len(sources) <= 1:
             continue
+        owner_labels = {
+            "discovery": "线索",
+            "encounter_win": "遭遇",
+            "initial_state": "初始状态",
+            "rule_action": "规则行动",
+        }
         owners = [
-            (
-                f"线索 {source['beat_id']}/{source['clue_id']}"
-                if source["kind"] == "discovery"
-                else f"遭遇 {source['beat_id']}/{source['encounter_id']}"
-            )
+            f"{owner_labels.get(source['kind'], source['kind'])} {source.get('owner_id', '')}"
             for source in sources
         ]
         errors.append(f"flag «{flag}» 存在多个原子写入入口：{'、'.join(owners)}")

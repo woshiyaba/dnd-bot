@@ -784,6 +784,34 @@ def _safe_int(value, default: int) -> int:
         return default
 
 
+async def generate_act_recap(
+    *,
+    previous_recap: str,
+    structured_events: list[dict],
+    from_act_id: str,
+    to_act_id: str,
+) -> str:
+    """用 Fast 模型生成非权威跨幕摘要；规则状态仍是唯一事实源。"""
+    task = (
+        "你要为长篇 D&D 冒险生成一段简短的跨幕回顾。只能概括给出的结构化事件，"
+        "不得新增或修改 Flag、物品、线索、HP、战斗结果、人物生死或地点事实。"
+        "这段文字仅帮助下一幕保持叙事语气，不是规则状态。只输出中文摘要正文。\n"
+        f"上一段非权威摘要：{previous_recap or '无'}\n"
+        f"从 Act：{from_act_id}；进入 Act：{to_act_id}\n"
+        f"结构化事件：{_dump(structured_events)}"
+    )
+    recap = (
+        await dm_narrate(
+            task,
+            model_name=get_model_name(ModelRole.STORY_RECAP),
+            node_name=None,
+        )
+    ).strip()
+    if not recap:
+        raise RuntimeError("跨 Act 摘要模型返回空文本")
+    return recap
+
+
 # ---------------------------------------------------------------------------
 # 叙述：把要对玩家说的话推给前端
 # ---------------------------------------------------------------------------
