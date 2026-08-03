@@ -8,7 +8,7 @@ from pathlib import Path
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from src.common.utils.json_parser import extract_json_object
 from src.common.utils.llm_util import ModelRole, get_chat_model, get_model_name
@@ -215,11 +215,20 @@ async def _complete_json(
     *,
     stage: str,
     role: ModelRole,
+    schema: type[BaseModel] | None = None,
 ) -> dict[str, Any]:
-    """调用真实 LLM 并提取 JSON；任何失败都显式抛错。"""
+    """调用真实 LLM 获取 JSON；提供 Schema 时交给 LangChain 约束输出。"""
     model_name = get_model_name(role)
     try:
-        response = await get_chat_model(model_name).ainvoke(prompt)
+        model = get_chat_model(model_name)
+        completion_model = (
+            # DeepSeek 思考模式不接受 LangChain 强制函数选择；JSON mode
+            # 由供应商保证 JSON 语法，再由下方 Pydantic 执行业务结构校验。
+            model.with_structured_output(schema, method="json_mode")
+            if schema
+            else model
+        )
+        response = await completion_model.ainvoke(prompt)
     except Exception as exc:
         logger.exception(
             "[story_generator] LLM 调用失败 | stage=%s | model=%s",
@@ -227,6 +236,18 @@ async def _complete_json(
             model_name,
         )
         raise StoryGenerationError(f"故事 {stage} 的 LLM 调用失败：{exc}") from exc
+    if schema is not None:
+        try:
+            structured = (
+                response
+                if isinstance(response, schema)
+                else schema.model_validate(response)
+            )
+        except (TypeError, ValidationError) as exc:
+            raise StoryGenerationError(
+                f"故事 {stage} 的 LLM 输出不符合 {schema.__name__}：{exc}"
+            ) from exc
+        return structured.model_dump()
     parsed = extract_json_object(_message_text(response))
     if parsed is None:
         raise StoryGenerationError(f"故事 {stage} 的 LLM 输出不是可解析的 JSON 对象")
@@ -294,6 +315,7 @@ async def continue_interview(
         ),
         stage="访谈",
         role=ModelRole.STORY_INTERVIEW,
+        schema=StoryInterviewResponse,
     )
     for attempt in range(MAX_REPAIR_ATTEMPTS + 1):
         try:
@@ -302,7 +324,8 @@ async def continue_interview(
             errors = _story_interview_validation_errors(exc)
             if attempt == MAX_REPAIR_ATTEMPTS:
                 raise StoryGenerationError(
-                    "故事访谈输出在两次修复后仍不合法：" + "；".join(errors)
+                    f"故事访谈输出在 {MAX_REPAIR_ATTEMPTS} 次修复后仍不合法："
+                    + "；".join(errors)
                 ) from exc
         repair_round = attempt + 1
         repair_prompt = build_story_interview_repair_prompt(
@@ -321,6 +344,7 @@ async def continue_interview(
             repair_prompt,
             stage=f"访谈修复（第 {repair_round} 次）",
             role=ModelRole.STORY_REPAIR,
+            schema=StoryInterviewResponse,
         )
 
     raise AssertionError("故事访谈修复循环未按预期结束")

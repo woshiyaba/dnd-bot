@@ -8,7 +8,7 @@ import unittest
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 from src.app import app
 from src.common.utils.llm_util import ModelRole
 from src.model.canon import Canon, validate_authored_canon, validate_canon
-from src.schemas.story import StoryGenerationTaskResponse
+from src.schemas.story import StoryGenerationTaskResponse, StoryInterviewResponse
 from src.services.story_service import StoryService
 import src.story.generator as story_generator
 from src.story.loader import CanonRegistry
@@ -233,18 +233,17 @@ class StoryGeneratorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(reloaded[0]["revision"], 2)
 
     async def test_story_interview_uses_dedicated_role_model(self):
-        model = AsyncMock()
-        model.ainvoke.return_value = SimpleNamespace(
-            content=json.dumps(
-                {
-                    "status": "ready_for_confirmation",
-                    "assistant_message": "请确认这份故事方向。",
-                    "design_brief": {"user_confirmed": False},
-                    "questions": [],
-                },
-                ensure_ascii=False,
-            )
+        structured_model = AsyncMock()
+        structured_model.ainvoke.return_value = StoryInterviewResponse.model_validate(
+            {
+                "status": "ready_for_confirmation",
+                "assistant_message": "请确认这份故事方向。",
+                "design_brief": {"user_confirmed": False},
+                "questions": [],
+            }
         )
+        model = Mock()
+        model.with_structured_output.return_value = structured_model
         with (
             patch(
                 "src.story.generator.get_model_name",
@@ -262,6 +261,11 @@ class StoryGeneratorTests(unittest.IsolatedAsyncioTestCase):
 
         get_name.assert_called_once_with(ModelRole.STORY_INTERVIEW)
         get_model.assert_called_once_with("deepseek/deepseek-v4-flash")
+        model.with_structured_output.assert_called_once_with(
+            StoryInterviewResponse,
+            method="json_mode",
+        )
+        structured_model.ainvoke.assert_awaited_once()
 
     async def test_story_interview_repairs_schema_errors_with_repair_role(self):
         invalid = {
@@ -383,7 +387,7 @@ class StoryGeneratorTests(unittest.IsolatedAsyncioTestCase):
         for field in ("playable_beats", "acts", "locations", "clues"):
             self.assertIn(f"scale_profile.{field}", repair_prompt)
 
-    async def test_story_interview_fails_after_two_invalid_repairs(self):
+    async def test_story_interview_fails_after_max_invalid_repairs(self):
         invalid = {
             "status": "ready_for_confirmation",
             "assistant_message": "请确认。",
@@ -405,19 +409,26 @@ class StoryGeneratorTests(unittest.IsolatedAsyncioTestCase):
                     design_brief={},
                 )
 
-        self.assertEqual(completion.await_count, 3)
+        self.assertEqual(
+            completion.await_count,
+            story_generator.MAX_REPAIR_ATTEMPTS + 1,
+        )
         self.assertEqual(
             [call.kwargs["role"] for call in completion.await_args_list],
             [
                 ModelRole.STORY_INTERVIEW,
-                ModelRole.STORY_REPAIR,
-                ModelRole.STORY_REPAIR,
+                *[
+                    ModelRole.STORY_REPAIR
+                    for _ in range(story_generator.MAX_REPAIR_ATTEMPTS)
+                ],
             ],
         )
 
     async def test_invalid_llm_json_fails_explicitly(self):
-        model = AsyncMock()
-        model.ainvoke.return_value = SimpleNamespace(content="这不是 JSON")
+        structured_model = AsyncMock()
+        structured_model.ainvoke.side_effect = ValueError("结构化输出解析失败")
+        model = Mock()
+        model.with_structured_output.return_value = structured_model
         with (
             patch(
                 "src.story.generator.get_model_name",
@@ -430,7 +441,11 @@ class StoryGeneratorTests(unittest.IsolatedAsyncioTestCase):
                     conversation=[{"role": "user", "content": "我想调查幽灵船"}],
                     design_brief={},
                 )
-        model.ainvoke.assert_awaited_once()
+        model.with_structured_output.assert_called_once_with(
+            StoryInterviewResponse,
+            method="json_mode",
+        )
+        structured_model.ainvoke.assert_awaited_once()
 
     async def test_canon_authoring_and_repair_use_reasoning_roles(self):
         valid_raw, _canon = _generated_canon()
