@@ -16,9 +16,11 @@ from src.schemas.story import (
     StoryDesignBrief,
     StoryInterviewResponse,
     StoryPlan,
+    StoryPlanCandidate,
     length_limits,
     minimum_branch_points,
 )
+from src.story.plan_repair import PlanValidationIssue, STORY_PLAN_DEPENDENCY_CLOSURE
 
 
 def _build_story_scale_rule() -> str:
@@ -659,15 +661,79 @@ def build_story_plan_prompt(
     return (
         STAGED_GENERATION_RULE
         + "\n你是 StoryPlan 规划器。先解决故事因果与规模，不生成 Canon 卡面或规则细节。"
-        "严格输出 StoryPlan schema：plan_version、campaign_id_candidate、start_beat_id、scale_profile、"
+        "严格输出 StoryPlanCandidate schema：plan_version、campaign_id_candidate、start_beat_id、scale_profile、"
         "acts、beats、entities、clue_graph、branch_points、foreshadowing_payoffs、ending_routes、"
         "effect_owner_ledger。beats 包含两个结局 Beat；可玩 Beat 数不包含结局。"
+        "scale_profile、acts[].beat_ids、acts[].estimated_minutes、branch_points[].choices、"
+        "beats[].payoff_flag_ids 可省略，程序会从确认稿和权威字段确定性派生。"
         "不要输出 id_registry，它将由代码从计划派生。每个 clue 至少两种接近方式。"
         "每个 Flag/Item 在 effect_owner_ledger 中恰好一项。\n"
-        f"<story_plan_json_schema>{json.dumps(StoryPlan.model_json_schema(), ensure_ascii=False)}</story_plan_json_schema>\n"
+        f"<story_plan_json_schema>{json.dumps(StoryPlanCandidate.model_json_schema(), ensure_ascii=False)}</story_plan_json_schema>\n"
         f"<confirmed_design_brief>{json.dumps(brief.model_dump(), ensure_ascii=False)}</confirmed_design_brief>\n"
         f"<reserved_campaign_ids>{json.dumps(reserved_campaign_ids, ensure_ascii=False)}</reserved_campaign_ids>"
     )
+
+
+def build_story_plan_repair_prompt(
+    *,
+    candidate: dict[str, Any],
+    confirmed_brief: StoryDesignBrief,
+    issues: list[PlanValidationIssue],
+    affected_sections: set[str],
+) -> str:
+    """构造保持 ID 与拓扑的完整区段局部修复任务。"""
+    response_shape = {
+        "repair_kind": "story_plan_sections",
+        "sections": {section: "完整区段值" for section in sorted(affected_sections)},
+    }
+    return (
+        "你是 StoryPlan 局部区段修复器。只输出 JSON，不要解释。"
+        "保持全部对象 ID、对象数量、Beat 所属关系与 exits 拓扑不变；"
+        "只返回 affected_sections 中每个顶层区段的完整值。"
+        "不要返回其它区段，程序只会合并白名单区段。\n"
+        f"<response_shape>{json.dumps(response_shape, ensure_ascii=False)}</response_shape>\n"
+        f"<affected_sections>{json.dumps(sorted(affected_sections), ensure_ascii=False)}</affected_sections>\n"
+        f"<validation_issues>{json.dumps(_story_plan_issue_payloads(issues), ensure_ascii=False)}</validation_issues>\n"
+        f"<story_plan_candidate_schema>{json.dumps(StoryPlanCandidate.model_json_schema(), ensure_ascii=False)}</story_plan_candidate_schema>\n"
+        f"<immutable_design_brief>{json.dumps(confirmed_brief.model_dump(), ensure_ascii=False)}</immutable_design_brief>\n"
+        f"<story_plan_candidate>{json.dumps(candidate, ensure_ascii=False)}</story_plan_candidate>"
+    )
+
+
+def build_story_plan_replan_prompt(
+    *,
+    candidate: dict[str, Any],
+    confirmed_brief: StoryDesignBrief,
+    issues: list[PlanValidationIssue],
+    reserved_campaign_ids: list[str],
+) -> str:
+    """构造允许调整 ID、数量和图结构的完整 StoryPlan 重规划任务。"""
+    closure = sorted(STORY_PLAN_DEPENDENCY_CLOSURE)
+    return (
+        "你是 StoryPlan 结构重规划器。只输出完整 StoryPlanCandidate JSON，不要解释。"
+        "保持确认设计稿、内容边界和已有且合法的 campaign_id_candidate；"
+        "允许重建 acts、beats、受影响实体 ID、Beat 数量与 exits 图结构。"
+        "必须完整返回依赖闭包，禁止与旧计划按 ID 局部拼接。"
+        "返回前核对目标数量、DAG、可达性、分支汇流、payoff 与 owner 契约。\n"
+        f"<required_dependency_closure>{json.dumps(closure, ensure_ascii=False)}</required_dependency_closure>\n"
+        f"<validation_issues>{json.dumps(_story_plan_issue_payloads(issues), ensure_ascii=False)}</validation_issues>\n"
+        f"<story_plan_candidate_schema>{json.dumps(StoryPlanCandidate.model_json_schema(), ensure_ascii=False)}</story_plan_candidate_schema>\n"
+        f"<immutable_design_brief>{json.dumps(confirmed_brief.model_dump(), ensure_ascii=False)}</immutable_design_brief>\n"
+        f"<reserved_campaign_ids>{json.dumps(reserved_campaign_ids, ensure_ascii=False)}</reserved_campaign_ids>\n"
+        f"<previous_story_plan_candidate>{json.dumps(candidate, ensure_ascii=False)}</previous_story_plan_candidate>"
+    )
+
+
+def _story_plan_issue_payloads(
+    issues: list[PlanValidationIssue],
+) -> list[dict[str, Any]]:
+    """稳定序列化修复问题，避免集合顺序影响 Prompt。"""
+    payloads: list[dict[str, Any]] = []
+    for issue in issues:
+        payload = issue.model_dump(mode="json")
+        payload["affected_sections"] = sorted(issue.affected_sections)
+        payloads.append(payload)
+    return payloads
 
 
 def build_fragment_prompt(

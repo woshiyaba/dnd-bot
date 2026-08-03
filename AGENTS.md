@@ -36,3 +36,6 @@ Name files `test_*.py` and methods `test_*`. Prefer deterministic `unittest` cov
 ## Commit & Pull Request Guidelines
 
 History uses prefixes such as `feat:`, `fix:`, `style:`, and `front:` with short Chinese summaries. PRs should explain impact, list verification, note environment or wire-format changes, link issues, and include UI screenshots.
+
+## 代码风格
+风格简介易懂，以实现逻辑为主，不做过多的兜底

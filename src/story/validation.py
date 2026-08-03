@@ -26,6 +26,7 @@ from src.schemas.story import (
     infer_length_mode,
     length_limits,
 )
+from src.story.plan_repair import PlanValidationIssue, classify_story_plan_issues
 
 
 def story_plan_id_registry(plan: StoryPlan) -> dict[str, list[str]]:
@@ -357,6 +358,13 @@ def validate_story_plan(plan: StoryPlan, brief: StoryDesignBrief) -> list[str]:
                         f"与确认目标 {target}% 偏差超过 15 个百分点"
                     )
     return errors
+
+
+def validate_story_plan_issues(
+    plan: StoryPlan, brief: StoryDesignBrief
+) -> list[PlanValidationIssue]:
+    """返回可供修复状态机分类和去重的结构化校验问题。"""
+    return classify_story_plan_issues(validate_story_plan(plan, brief))
 
 
 def validate_fragment_ids(

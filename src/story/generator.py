@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from copy import deepcopy
 import json
 import logging
 from pathlib import Path
@@ -28,9 +27,22 @@ from src.story.prompt import (
     build_fragment_prompt,
     build_fragment_repair_prompt,
     build_story_plan_prompt,
+    build_story_plan_repair_prompt,
+    build_story_plan_replan_prompt,
     build_story_interview_prompt,
     build_story_interview_repair_prompt,
     normalize_confirmed_design_brief,
+)
+from src.story.plan_normalizer import (
+    normalize_story_plan_candidate,
+    story_plan_normalization_changes,
+)
+from src.story.plan_repair import (
+    PlanValidationIssue,
+    affected_story_plan_sections,
+    merge_story_plan_sections,
+    story_plan_field_issues,
+    story_plan_issue_fingerprint,
 )
 from src.story.validation import (
     canon_quality_metrics,
@@ -39,7 +51,7 @@ from src.story.validation import (
     validate_fragment_runtime,
     validate_effect_owner_ledger,
     validate_generated_canon,
-    validate_story_plan,
+    validate_story_plan_issues,
 )
 
 logger = logging.getLogger(__name__)
@@ -51,6 +63,8 @@ REFERENCE_CANON_PATHS = (
     CANON_DIR / "whispers_bell_tower.json",
 )
 MAX_REPAIR_ATTEMPTS = 10
+MAX_STORY_PLAN_LOCAL_REPAIRS = 2
+MAX_STORY_PLAN_REPLANS = 1
 
 ArtifactCallback = Callable[[str, str, dict[str, Any], int], Awaitable[None]]
 StageStartCallback = Callable[[str], Awaitable[None]]
@@ -220,7 +234,12 @@ async def _complete_json(
 
 
 def _log_repair_attempt(
-    *, stage: str, repair_round: int, errors: list[str], prompt: str
+    *,
+    stage: str,
+    repair_round: int,
+    errors: list[str],
+    prompt: str,
+    max_attempts: int = MAX_REPAIR_ATTEMPTS,
 ) -> None:
     """记录修复轮次、校验问题和发送给修复模型的完整提示词。"""
     formatted_errors = "\n".join(
@@ -232,44 +251,23 @@ def _log_repair_attempt(
         "系统提示词：\n%s",
         stage,
         repair_round,
-        MAX_REPAIR_ATTEMPTS,
+        max_attempts,
         len(errors),
         formatted_errors,
         prompt,
     )
 
 
-_STORY_PLAN_TOP_LEVEL_SECTIONS = {
-    "plan_version",
-    "campaign_id_candidate",
-    "start_beat_id",
-    "scale_profile",
-    "acts",
-    "beats",
-    "entities",
-    "clue_graph",
-    "branch_points",
-    "foreshadowing_payoffs",
-    "ending_routes",
-    "effect_owner_ledger",
-}
-
-
-def _story_plan_field_errors(exc: ValidationError) -> list[str]:
-    """把 StoryPlan 字段错误拆成独立路径，避免模型逐轮才发现下一组错误。"""
-    errors: list[str] = []
-    for item in exc.errors(include_url=False):
-        location = ".".join(str(part) for part in item.get("loc", ())) or "<root>"
-        errors.append(
-            f"StoryPlan 字段不合法：{location}: {item.get('msg', '校验失败')} "
-            f"[{item.get('type', 'validation_error')}]"
-        )
-    return errors
-
-
 def _story_plan_errors(plan: StoryPlan, brief: StoryDesignBrief) -> list[str]:
     """执行计划校验，并兼容分支 schema 与旧确认稿的最小并行预算语义。"""
-    errors = validate_story_plan(plan, brief)
+    return [issue.message for issue in _story_plan_issues(plan, brief)]
+
+
+def _story_plan_issues(
+    plan: StoryPlan, brief: StoryDesignBrief
+) -> list[PlanValidationIssue]:
+    """执行结构化计划校验并兼容旧确认稿的并行预算语义。"""
+    issues = validate_story_plan_issues(plan, brief)
     budget = brief.branching_budget
     if (
         budget is not None
@@ -279,197 +277,10 @@ def _story_plan_errors(plan: StoryPlan, brief: StoryDesignBrief) -> list[str]:
         # PlanBranchPoint.choices 的 schema 至少要求两条路线；旧确认稿里的 1 表示
         # 每条路线只占一个并行 Beat，而不是只允许一个 choice。若不在生成边界兼容，
         # 任意合法分支都会永久得到这一条互相矛盾的错误。
-        errors = [error for error in errors if "超过 max_parallel_beats" not in error]
-    return errors
-
-
-def _story_plan_repair_sections(errors: list[str]) -> set[str] | None:
-    """根据错误定位本轮可修改的顶层区段；无法可靠定位时不做错误锁定。"""
-    sections: set[str] = set()
-    for error in errors:
-        matched = False
-        field_path = error.partition("StoryPlan 字段不合法：")[2].split(":", 1)[0]
-        field_root = field_path.split(".", 1)[0]
-        if field_root in _STORY_PLAN_TOP_LEVEL_SECTIONS:
-            sections.add(field_root)
-            # Pydantic 已给出精确顶层路径；不要因为错误文案中也出现 branch/owner
-            # 等词而扩大到其它区段。
-            continue
-
-        if any(
-            marker in error
-            for marker in (
-                "branch_points",
-                "分支",
-                "汇流",
-                "多目标 Beat",
-                "Beat 图",
-                "从起点不可达",
-                "通往结局的路径",
-                "路径 ",
-            )
-        ):
-            sections.update({"acts", "beats", "branch_points"})
-            matched = True
-        if any(marker in error for marker in ("伏笔", "payoff")):
-            sections.update({"beats", "foreshadowing_payoffs"})
-            matched = True
-        if any(marker in error for marker in ("owner", "效果 «")):
-            sections.add("effect_owner_ledger")
-            matched = True
-        if error.startswith("Act «") or error.startswith("Beat «"):
-            sections.update({"acts", "beats"})
-            matched = True
-        if any(marker in error for marker in ("clue_graph", "线索 «")):
-            sections.update({"beats", "entities", "clue_graph"})
-            matched = True
-        if any(marker in error for marker in ("ending_routes", "结局")):
-            sections.update({"acts", "beats", "ending_routes"})
-            matched = True
-        if "StoryPlan.scale_profile" in error:
-            sections.add("scale_profile")
-            matched = True
-        if "StoryPlan playable_beats 数量" in error:
-            sections.update({"acts", "beats"})
-            matched = True
-        if "StoryPlan acts 数量" in error:
-            sections.update({"acts", "beats"})
-            matched = True
-        if any(
-            f"StoryPlan {name} 数量" in error
-            for name in ("locations", "encounters", "clues")
-        ):
-            sections.update({"beats", "entities", "clue_graph"})
-            matched = True
-
-        # 重复/跨类别 ID 等问题可能同时影响多个区段，错误锁定反而会阻止修复。
-        if not matched:
-            return None
-    return sections
-
-
-def _story_plan_id_context(raw: dict[str, Any]) -> dict[str, Any]:
-    """从尚未通过 schema 的计划中提取 owner 与图修复所需的合法 ID。"""
-
-    def ids(values: Any) -> list[str]:
-        if not isinstance(values, list):
-            return []
-        return [
-            str(item["id"])
-            for item in values
-            if isinstance(item, dict) and isinstance(item.get("id"), str)
+        issues = [
+            issue for issue in issues if "超过 max_parallel_beats" not in issue.message
         ]
-
-    entities = raw.get("entities")
-    if not isinstance(entities, dict):
-        entities = {}
-    beat_ids = ids(raw.get("beats"))
-    clue_ids = ids(entities.get("clues"))
-    encounter_ids = ids(entities.get("encounters"))
-    flag_ids = ids(entities.get("flags"))
-    action_ids = ids(entities.get("actions"))
-    return {
-        "beats": beat_ids,
-        "clues": clue_ids,
-        "encounters": encounter_ids,
-        "flags": flag_ids,
-        "items": ids(entities.get("items")),
-        "actions": action_ids,
-        "owner_id_by_owner_kind": {
-            "discovery": clue_ids,
-            "encounter_win": encounter_ids,
-            "initial_state": beat_ids,
-            "rule_action": action_ids,
-            "dm_free_write": flag_ids,
-        },
-    }
-
-
-def _build_story_plan_repair_prompt(
-    *,
-    raw: dict[str, Any],
-    brief: StoryDesignBrief,
-    errors: list[str],
-    mutable_sections: set[str] | None,
-    previous_error_sets: list[list[str]],
-) -> str:
-    """构造带完整交叉字段契约的 StoryPlan 定向修复提示。"""
-    mutable = (
-        sorted(mutable_sections)
-        if mutable_sections is not None
-        else sorted(_STORY_PLAN_TOP_LEVEL_SECTIONS)
-    )
-    repair_contract = {
-        "mutable_top_level_sections": mutable,
-        "branch_rules": [
-            "branch_points 数量必须等于 meaningful_branch_points",
-            "branch_points[].beat_id 必须是具有至少两个不同 to_beat_id 的非结局 Beat",
-            "choices 只能填写源 Beat exits 的不同 to_beat_id，不能填写选项文案",
-            "每条 choice 路线须在 1–2 条边后到达同一 reconverge_at；汇流点不能是 choice 自身",
-            "reconverge_before_climax=true 时，汇流点不能是 climax 或 ending",
-            "最终 win/lose 是运行时结局，不登记为 meaningful branch；不要让高潮 Beat 同时指向两个 ending",
-            "max_parallel_beats=1 与 choices 至少为 2 同时出现时，表示每条路线最多占一个独立 Beat",
-            "所有具有多个不同出口目标的 Beat 都必须且只能有一条 branch_points 记录",
-        ],
-        "effect_owner_rules": [
-            "owner_kind 与 owner_id 必须成对修复，不能只改其中一个",
-            "discovery 的 owner_id 必须是 clue ID",
-            "encounter_win 的 owner_id 必须是 encounter ID",
-            "initial_state 的 owner_id 必须是 beat ID",
-            "rule_action 的 owner_id 必须是 action ID",
-            "dm_free_write 的 owner_id 必须是 flag ID；通常使用该效果自身或控制该效果的 flag ID",
-            "不存在 owner_kind=beat；若该 owner 报错，可以同时修改其 owner_kind 和 owner_id",
-        ],
-        "payoff_rules": [
-            "每条 foreshadowing_payoffs 的 flag_id 必须出现在 payoff_beat_id 对应 Beat.payoff_flag_ids",
-            "payoff_beat_id 必须在 DAG 中晚于 setup_beat_id",
-        ],
-        "preservation_rules": [
-            "一次修完 validation_errors 中全部问题，并返回完整 StoryPlan JSON 对象",
-            "不得新增、删除或重命名已有 ID",
-            "只修改 mutable_top_level_sections；程序会丢弃其它顶层区段的改动",
-            "修复 beats 后同步对应 acts 的 beat_ids 与 estimated_minutes",
-            "返回前自行核对 schema、DAG、出口、汇流、payoff 和 owner 配对，不要解释",
-        ],
-    }
-    history = previous_error_sets[-2:]
-    return (
-        "你是 StoryPlan 确定性校验修复器。只修复本轮列出的问题，"
-        "保持玩家确认稿、所有已有 ID、未报错 owner 和未受影响结构不变。\n"
-        f"<validation_errors>{json.dumps(errors, ensure_ascii=False)}</validation_errors>\n"
-        f"<repair_contract>{json.dumps(repair_contract, ensure_ascii=False)}</repair_contract>\n"
-        f"<valid_id_context>{json.dumps(_story_plan_id_context(raw), ensure_ascii=False)}</valid_id_context>\n"
-        f"<recent_failed_error_sets>{json.dumps(history, ensure_ascii=False)}</recent_failed_error_sets>\n"
-        f"<story_plan_json_schema>{json.dumps(StoryPlan.model_json_schema(), ensure_ascii=False)}</story_plan_json_schema>\n"
-        f"<immutable_design_brief>{json.dumps(brief.model_dump(), ensure_ascii=False)}</immutable_design_brief>\n"
-        f"<story_plan>{json.dumps(raw, ensure_ascii=False)}</story_plan>"
-    )
-
-
-def _merge_story_plan_repair(
-    *,
-    previous: dict[str, Any],
-    candidate: dict[str, Any],
-    mutable_sections: set[str] | None,
-) -> dict[str, Any]:
-    """保留未被本轮错误授权的顶层区段，防止修一个字段改坏其它结构。"""
-    if mutable_sections is None:
-        return candidate
-    merged = deepcopy(previous)
-    for section in mutable_sections:
-        if section in candidate:
-            merged[section] = deepcopy(candidate[section])
-    discarded = sorted(
-        section
-        for section in _STORY_PLAN_TOP_LEVEL_SECTIONS - mutable_sections
-        if candidate.get(section) != previous.get(section)
-    )
-    if discarded:
-        logger.warning(
-            "[story_generator] 已丢弃 StoryPlan 修复对未授权区段的改动：%s",
-            "、".join(discarded),
-        )
-    return merged
+    return issues
 
 
 async def continue_interview(
@@ -780,7 +591,7 @@ async def generate_staged_canon(
 async def _generate_story_plan(
     brief: StoryDesignBrief, reserved_campaign_ids: list[str]
 ) -> tuple[StoryPlan, int]:
-    """生成 StoryPlan，并按错误字段定向修复且锁定未受影响区段。"""
+    """生成并归一化 StoryPlan，按问题类别执行有界修复。"""
     raw = await _complete_json(
         build_story_plan_prompt(brief, reserved_campaign_ids=reserved_campaign_ids)
         + "\n生成前额外自检：branch_points.choices 必须是源 Beat 的不同出口 Beat ID，"
@@ -789,52 +600,113 @@ async def _generate_story_plan(
         stage="计划",
         role=ModelRole.STORY_PLANNING,
     )
-    previous_error_sets: list[list[str]] = []
-    for attempt in range(MAX_REPAIR_ATTEMPTS + 1):
-        try:
-            plan = StoryPlan.model_validate(raw)
-            errors = _story_plan_errors(plan, brief)
-        except ValidationError as exc:
-            plan = None
-            errors = _story_plan_field_errors(exc)
-        if plan is not None and not errors:
-            return plan, attempt
-        if attempt == MAX_REPAIR_ATTEMPTS:
+    previous_fingerprint: tuple[tuple[str, tuple[str | int, ...]], ...] | None = None
+    local_repairs = 0
+    replans = 0
+
+    while True:
+        plan, issues, raw = _validate_story_plan_candidate(raw, brief)
+        if plan is not None and not issues:
+            return plan, local_repairs + replans
+
+        fingerprint = story_plan_issue_fingerprint(issues)
+        if fingerprint == previous_fingerprint:
             raise StoryGenerationError(
-                f"StoryPlan 在 {MAX_REPAIR_ATTEMPTS} 次修复后仍不合法："
-                + "；".join(errors)
+                "StoryPlan 校验问题连续两轮未变化，已停止修复："
+                + "；".join(issue.message for issue in issues)
             )
-        repair_round = attempt + 1
-        mutable_sections = _story_plan_repair_sections(errors)
-        if not _STORY_PLAN_TOP_LEVEL_SECTIONS.issubset(raw):
-            # 缺少带默认值的顶层数组时 Pydantic 不会逐项报 missing，但完整计划修复
-            # 仍需允许模型补齐它们；这种残缺草稿不能安全做区段锁定。
-            mutable_sections = None
-        repair_prompt = _build_story_plan_repair_prompt(
-            raw=raw,
-            brief=brief,
-            errors=errors,
-            mutable_sections=mutable_sections,
-            previous_error_sets=previous_error_sets,
+        previous_fingerprint = fingerprint
+        errors = [issue.message for issue in issues]
+
+        if any(issue.category == "structural" for issue in issues):
+            if replans >= MAX_STORY_PLAN_REPLANS:
+                raise StoryGenerationError(
+                    "StoryPlan 结构重规划后仍不合法：" + "；".join(errors)
+                )
+            repair_prompt = build_story_plan_replan_prompt(
+                candidate=raw,
+                confirmed_brief=brief,
+                issues=issues,
+                reserved_campaign_ids=reserved_campaign_ids,
+            )
+            _log_repair_attempt(
+                stage="StoryPlan 结构重规划",
+                repair_round=replans + 1,
+                errors=errors,
+                prompt=repair_prompt,
+                max_attempts=MAX_STORY_PLAN_REPLANS,
+            )
+            raw = await _complete_json(
+                repair_prompt,
+                stage="计划结构重规划",
+                role=ModelRole.STORY_REPAIR,
+            )
+            replans += 1
+            continue
+
+        if local_repairs >= MAX_STORY_PLAN_LOCAL_REPAIRS:
+            raise StoryGenerationError(
+                "StoryPlan 局部修复预算耗尽：" + "；".join(errors)
+            )
+        sections = affected_story_plan_sections(issues)
+        repair_prompt = build_story_plan_repair_prompt(
+            candidate=raw,
+            confirmed_brief=brief,
+            issues=issues,
+            affected_sections=sections,
         )
         _log_repair_attempt(
-            stage="StoryPlan 修复",
-            repair_round=repair_round,
+            stage="StoryPlan 局部修复",
+            repair_round=local_repairs + 1,
             errors=errors,
             prompt=repair_prompt,
+            max_attempts=MAX_STORY_PLAN_LOCAL_REPAIRS,
         )
-        candidate = await _complete_json(
+        repair = await _complete_json(
             repair_prompt,
-            stage=f"计划修复（第 {repair_round} 次）",
+            stage=f"计划局部修复（第 {local_repairs + 1} 次）",
             role=ModelRole.STORY_REPAIR,
         )
-        raw = _merge_story_plan_repair(
-            previous=raw,
-            candidate=candidate,
-            mutable_sections=mutable_sections,
+        try:
+            raw = merge_story_plan_sections(
+                previous=raw,
+                repair=repair,
+                allowed_sections=sections,
+            )
+        except ValueError as exc:
+            raise StoryGenerationError(str(exc)) from exc
+        local_repairs += 1
+
+
+def _validate_story_plan_candidate(
+    raw: dict[str, Any], brief: StoryDesignBrief
+) -> tuple[StoryPlan | None, list[PlanValidationIssue], dict[str, Any]]:
+    """每轮候选都先归一化，再执行完整 schema 与确定性校验。"""
+    try:
+        normalized = normalize_story_plan_candidate(raw, brief)
+    except ValidationError as exc:
+        return None, story_plan_field_issues(exc), raw
+    except ValueError as exc:
+        issue = PlanValidationIssue(
+            code="normalization_failed",
+            path=("scale_profile",),
+            category="structural",
+            affected_sections=frozenset({"scale_profile"}),
+            message=f"StoryPlan 归一化失败：{exc}",
         )
-        previous_error_sets.append(errors)
-    raise AssertionError("StoryPlan 修复循环未按预期结束")
+        return None, [issue], raw
+
+    changes = story_plan_normalization_changes(raw, normalized)
+    if changes:
+        logger.info(
+            "[story_generator] StoryPlan 已完成确定性归一化 | 变更区段=%s",
+            "、".join(changes),
+        )
+    try:
+        plan = StoryPlan.model_validate(normalized)
+    except ValidationError as exc:
+        return None, story_plan_field_issues(exc), normalized
+    return plan, _story_plan_issues(plan, brief), normalized
 
 
 async def _generate_fragment(

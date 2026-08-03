@@ -417,6 +417,56 @@ class StoryPlan(BaseModel):
     effect_owner_ledger: list[EffectOwner] = Field(default_factory=list)
 
 
+class StoryScaleProfileCandidate(BaseModel):
+    """允许省略将由确认稿整体覆盖的规模字段。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    playable_beats: int | None = None
+    acts: int | None = None
+    locations: int | None = None
+    encounters: int | None = None
+    clues: int | None = None
+
+
+class PlanActCandidate(PlanAct):
+    """允许省略由 Beat 唯一推导字段的 Act 候选。"""
+
+    estimated_minutes: int | None = None
+    beat_ids: list[str] | None = None
+
+
+class PlanBeatCandidate(PlanBeat):
+    """允许省略由伏笔账本唯一推导字段的 Beat 候选。"""
+
+    payoff_flag_ids: list[str] | None = None
+
+
+class PlanBranchPointCandidate(PlanBranchPoint):
+    """允许省略由源 Beat 出口唯一推导的 choices。"""
+
+    choices: list[str] | None = None
+
+
+class StoryPlanCandidate(BaseModel):
+    """LLM 输出边界模型；归一化并完整校验前不可进入业务流程。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    plan_version: int = Field(default=1, ge=1)
+    campaign_id_candidate: str = Field(pattern=r"^[a-z][a-z0-9_]{2,63}$")
+    start_beat_id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    scale_profile: StoryScaleProfileCandidate | None = None
+    acts: list[PlanActCandidate] = Field(min_length=1)
+    beats: list[PlanBeatCandidate] = Field(min_length=1)
+    entities: PlanEntities
+    clue_graph: list[PlanClueLink] = Field(default_factory=list)
+    branch_points: list[PlanBranchPointCandidate] = Field(default_factory=list)
+    foreshadowing_payoffs: list[PlanPayoff] = Field(default_factory=list)
+    ending_routes: list[PlanEndingRoute] = Field(min_length=2, max_length=2)
+    effect_owner_ledger: list[EffectOwner] = Field(default_factory=list)
+
+
 class StorySummary(BaseModel):
     """故事广场可公开展示的剧本摘要，不包含剧情秘密。"""
 
