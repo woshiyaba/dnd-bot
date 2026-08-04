@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from datetime import datetime
+from functools import lru_cache
 import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, create_model, model_validator
 
 LengthMode = Literal["short", "standard", "long"]
 GenerationStatus = Literal[
@@ -290,6 +291,480 @@ class StoryDraftRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# CanonDraft：完整 Canon 的 LLM 结构化输出边界。
+# 跨 ID 引用、可达性与唯一 owner 仍由 story/model 层的确定性校验负责。
+# ---------------------------------------------------------------------------
+class CanonDraftModel(BaseModel):
+    """Canon 草稿公共配置：禁止模型发明引擎未实现的字段。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class CanonTriggerPredicateDraft(CanonDraftModel):
+    """所有 Trigger kind 共用的封闭 predicate 字段集合。"""
+
+    flag: str | None = None
+    equals: bool | None = None
+    all: list[str] | None = None
+    any: list[str] | None = None
+    item_id: str | None = None
+    location_id: str | None = None
+    outcome: Literal["players_win", "players_lose"] | None = None
+    encounter_id: str | None = None
+    prompt: str | None = None
+    action: str | None = None
+
+
+class CanonTriggerDraft(CanonDraftModel):
+    """剧情推进或整局胜负条件。"""
+
+    id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    kind: Literal["flag", "item", "location", "combat_outcome", "semantic", "action"]
+    predicate: CanonTriggerPredicateDraft
+    description: str
+
+
+class CanonAttackDraft(CanonDraftModel):
+    """固定 CombatCard 中的一种攻击。"""
+
+    name: str = Field(min_length=1)
+    attack_bonus: int
+    damage_dice: str = Field(min_length=1)
+    damage_type: Literal[
+        "slashing",
+        "piercing",
+        "bludgeoning",
+        "acid",
+        "cold",
+        "fire",
+        "force",
+        "lightning",
+        "necrotic",
+        "poison",
+        "psychic",
+        "radiant",
+        "thunder",
+    ]
+    range: Literal["melee", "ranged"]
+
+
+class CanonCombatCardDraft(CanonDraftModel):
+    """Canon actor 可直接交给战斗引擎加载的固定卡面。"""
+
+    id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    name: str = Field(min_length=1)
+    strength: int
+    dexterity: int
+    constitution: int
+    intelligence: int
+    wisdom: int
+    charisma: int
+    current_hp: int = Field(ge=1)
+    max_hp: int = Field(ge=1)
+    ac: int = Field(ge=1)
+    initiative_bonus: int
+    attacks: list[CanonAttackDraft] = Field(min_length=1)
+
+
+class CanonDeathFallbackDraft(CanonDraftModel):
+    """关键 NPC 死亡后的剧情续接。"""
+
+    guidance: str = Field(min_length=1)
+    consequence: str = Field(min_length=1)
+    stuck_hint: str = ""
+
+
+class CanonNpcDraft(CanonDraftModel):
+    """重要 NPC、普通敌人与 Boss 的 Canon 册页。"""
+
+    id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    name: str = Field(min_length=1)
+    role: str
+    goal: str
+    secret: str
+    disposition: Literal["friendly", "neutral", "hostile"]
+    story_critical: bool = False
+    death_fallback: CanonDeathFallbackDraft | None = None
+    card: CanonCombatCardDraft | None = None
+
+
+class CanonLocationDraft(CanonDraftModel):
+    """一处主要地点及拍内互通出口。"""
+
+    id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    name: str = Field(min_length=1)
+    description: str
+    intra_exits: list[str]
+
+
+class CanonEntryActorDraft(CanonDraftModel):
+    """进入 Beat 时已经在场的 actor。"""
+
+    actor_id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    name: str = Field(min_length=1)
+    disposition: Literal["friendly", "neutral", "hostile"]
+    location_id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    type: Literal["npc", "monster"]
+    card: CanonCombatCardDraft | None = None
+
+
+class CanonEntryStateDraft(CanonDraftModel):
+    """进入 Beat 时用于搭建场景的冻结状态。"""
+
+    location_id: str | None
+    preserve_current_scene: bool = False
+    description: str = ""
+    actors: list[CanonEntryActorDraft]
+    exits: list[str]
+    threat: str | None = None
+
+
+class CanonGrantedItemDraft(CanonDraftModel):
+    """发现线索后由引擎原子发放的物品。"""
+
+    item_id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    quantity: int = Field(default=1, ge=1)
+    recipient: Literal["active_actor"] = "active_actor"
+
+
+class CanonDiscoveryEffectsDraft(CanonDraftModel):
+    """KeyInfo 被实际发现后允许提交的世界效果。"""
+
+    flags_set: dict[str, bool] = Field(default_factory=dict)
+    grant_items: list[CanonGrantedItemDraft] = Field(default_factory=list)
+
+
+class CanonKeyInfoDraft(CanonDraftModel):
+    """一条绑定到明确地点的可发现线索。"""
+
+    id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    text: str = Field(min_length=1)
+    location_id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    discovery_hints: list[str] = Field(min_length=1)
+    discovery_effects: CanonDiscoveryEffectsDraft | None = None
+
+
+class CanonEncounterDraft(CanonDraftModel):
+    """Beat 内可直接交给战斗子图的遭遇模板。"""
+
+    id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    location_id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    monster_ids: list[str] = Field(min_length=1)
+    surprised: list[str] = Field(default_factory=list)
+    loot_table: list[str] = Field(default_factory=list)
+    xp_reward: int = Field(default=0, ge=0)
+    random_seed: int | None = None
+    on_win_flags: list[str] = Field(default_factory=list)
+    on_win_discoveries: list[str] = Field(default_factory=list)
+
+
+class CanonExitDraft(CanonDraftModel):
+    """Trigger 命中后的跨 Beat 出口。"""
+
+    trigger_id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    next_beat_id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+
+
+class CanonStuckFallbackDraft(CanonDraftModel):
+    """玩家卡关时允许 DM 使用的预写提示。"""
+
+    hint: str = ""
+    reveal_clue: bool = False
+    point_to_exit: str | None = None
+
+
+class CanonBeatDraft(CanonDraftModel):
+    """完整可运行的剧情 Beat。"""
+
+    id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    title: str = Field(min_length=1)
+    kind: Literal["opening", "exploration", "conflict", "climax", "ending"]
+    act_id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    estimated_minutes: int = Field(ge=1, le=120)
+    objective: str
+    pressure: str
+    relevant_clue_ids: list[str] = Field(default_factory=list)
+    payoff_flag_ids: list[str] = Field(default_factory=list)
+    location_ids: list[str] = Field(min_length=1)
+    entry_state: CanonEntryStateDraft
+    key_info: list[CanonKeyInfoDraft]
+    advance_conditions: list[CanonTriggerDraft]
+    exits: list[CanonExitDraft]
+    stuck_fallback: CanonStuckFallbackDraft
+    encounter: CanonEncounterDraft | None = None
+    ending_outcome: Literal["win", "lose"] | None = None
+
+
+class CanonActionRequirementsDraft(CanonDraftModel):
+    """规则行动可用范围的静态限制。"""
+
+    flags: list[str] = Field(default_factory=list)
+    beat_ids: list[str] = Field(default_factory=list)
+    location_ids: list[str] = Field(default_factory=list)
+    encounter_ids: list[str] = Field(default_factory=list)
+
+
+class CanonActionTargetingDraft(CanonDraftModel):
+    """规则行动的目标选择边界。"""
+
+    faction: Literal["self", "ally", "enemy", "any"] | None = None
+    life_state: Literal["alive", "down", "any"] | None = None
+    range: Literal["melee", "any"] | None = None
+    actor_ids: list[str] = Field(default_factory=list)
+    min_targets: int = Field(default=0, ge=0)
+    max_targets: int = Field(default=0, ge=0)
+
+
+class CanonActionUsageDraft(CanonDraftModel):
+    """规则行动的确定性消耗方式。"""
+
+    kind: Literal[
+        "unlimited",
+        "skill_resource",
+        "consume_item",
+        "once_per_combat",
+        "once_per_session",
+    ]
+    item_id: str | None = None
+    quantity: int = Field(default=1, ge=1)
+
+
+class CanonActionCheckDraft(CanonDraftModel):
+    """ActionDefinition 中由引擎执行的检定模板。"""
+
+    id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    kind: Literal["attack_roll", "saving_throw", "ability_check"]
+    roller: Literal["actor", "target"]
+    target_mode: Literal["selected_each", "selected_one", "actor", "none"]
+    ability: (
+        Literal[
+            "strength",
+            "dexterity",
+            "constitution",
+            "intelligence",
+            "wisdom",
+            "charisma",
+        ]
+        | None
+    ) = None
+    bonus_source: Literal["ability", "weapon_attack", "spell_attack"] | None = None
+    dc_source: Literal["spell_save"] | None = None
+    fixed_dc: int | None = Field(default=None, ge=1, le=30)
+
+
+class CanonActionWhenDraft(CanonDraftModel):
+    """检定结果与效果模板之间的分支条件。"""
+
+    check_template_id: str | None = None
+    outcomes: list[
+        Literal["success", "failure", "hit", "miss", "critical", "always"]
+    ] = Field(min_length=1)
+
+
+class CanonActionEffectDraft(CanonDraftModel):
+    """引擎支持的战斗或世界效果模板。"""
+
+    id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    kind: Literal[
+        "damage",
+        "healing",
+        "temporary_hp",
+        "add_condition",
+        "remove_condition",
+        "modify_ac",
+        "modify_attack_bonus",
+        "move_zone",
+        "revive",
+        "set_flag",
+        "grant_item",
+        "remove_item",
+        "discover_clue",
+        "move_location",
+        "transition_beat",
+    ]
+    target_mode: Literal["selected_each", "selected_one", "actor", "none"]
+    dice: str | None = None
+    amount: int | None = Field(default=None, ge=-500, le=500)
+    amount_bonus_source: Literal["spellcasting_modifier", "actor_level"] | None = None
+    multiplier: float | None = Field(default=None, ge=0)
+    damage_type: (
+        Literal[
+            "slashing",
+            "piercing",
+            "bludgeoning",
+            "acid",
+            "cold",
+            "fire",
+            "force",
+            "lightning",
+            "necrotic",
+            "poison",
+            "psychic",
+            "radiant",
+            "thunder",
+        ]
+        | None
+    ) = None
+    condition: (
+        Literal[
+            "prone",
+            "poisoned",
+            "restrained",
+            "stunned",
+            "damage_over_time",
+            "blinded",
+            "charmed",
+            "deafened",
+            "frightened",
+            "grappled",
+            "incapacitated",
+            "invisible",
+            "paralyzed",
+            "petrified",
+            "unconscious",
+            "buff",
+            "debuff",
+        ]
+        | None
+    ) = None
+    rounds: int | None = Field(default=None, ge=1)
+    target_zone: str | None = None
+    flag: str | None = None
+    value: bool | None = None
+    item_id: str | None = None
+    quantity: int | None = Field(default=None, ge=1)
+    clue_id: str | None = None
+    location_id: str | None = None
+    beat_id: str | None = None
+    when: CanonActionWhenDraft
+
+
+class CanonActionContractDraft(CanonDraftModel):
+    """LLM 只能实例化、不能改写的行动机械模板。"""
+
+    concentration: bool = False
+    check_templates: list[CanonActionCheckDraft]
+    effect_templates: list[CanonActionEffectDraft] = Field(min_length=1)
+
+
+class CanonActionDefinitionDraft(CanonDraftModel):
+    """物品、技能或任务特性的统一规则行动定义。"""
+
+    schema_version: Literal[2] = 2
+    id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    name: str = Field(min_length=1)
+    source_kind: Literal["skill", "item", "quest_feature"]
+    source_ref: str = Field(min_length=1)
+    scopes: list[Literal["combat", "world"]] = Field(min_length=1, max_length=2)
+    description: str = ""
+    requirements: CanonActionRequirementsDraft
+    targeting: CanonActionTargetingDraft
+    usage: CanonActionUsageDraft
+    contract: CanonActionContractDraft
+
+
+class CanonDraft(CanonDraftModel):
+    """LLM 编译完成、可直接交给 ``Canon.from_dict`` 的完整 JSON 草稿。"""
+
+    campaign_id: str = Field(pattern=r"^[a-z][a-z0-9_]{2,63}$")
+    title: str = Field(min_length=1)
+    premise: str = Field(min_length=1)
+    theme: str = Field(min_length=1)
+    tone: str = Field(min_length=1)
+    duration_minutes: int = Field(ge=10, le=120)
+    length_mode: LengthMode
+    act_count: int = Field(ge=1, le=5)
+    runtime_location_scoping: Literal[True]
+    recommended_player_count: int = Field(ge=1, le=6)
+    gameplay_focus: list[str] = Field(min_length=1)
+    content_warnings: list[str]
+    declared_flags: list[str]
+    action_definitions: list[CanonActionDefinitionDraft]
+    win_condition: CanonTriggerDraft
+    lose_condition: CanonTriggerDraft
+    cast: list[CanonNpcDraft]
+    locations: list[CanonLocationDraft] = Field(min_length=1)
+    start_beat_id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    beats: list[CanonBeatDraft] = Field(min_length=1)
+
+
+# ---------------------------------------------------------------------------
+# 连贯性复核：约束 staged generator 的复核报告与定向 Act 修复输出。
+# ---------------------------------------------------------------------------
+class StoryContinuityIssue(BaseModel):
+    """连贯性复核发现的一项脱敏问题。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    severity: Literal["error", "warning"]
+    code: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    message: str = Field(min_length=1)
+    affected_act_ids: list[str]
+
+
+class StoryContinuityReview(BaseModel):
+    """LLM 连贯性复核的完整结构化报告。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    passed: bool
+    issues: list[StoryContinuityIssue]
+
+    @model_validator(mode="after")
+    def validate_passed(self) -> "StoryContinuityReview":
+        """passed 必须与是否存在 error 级问题保持一致。"""
+        has_errors = any(issue.severity == "error" for issue in self.issues)
+        if self.passed == has_errors:
+            raise ValueError("passed 必须等于不存在 error 级 issues")
+        return self
+
+
+class CanonActFragmentDraft(CanonDraftModel):
+    """连贯性定向修复可替换的单个完整 Act 分片。"""
+
+    beats: list[CanonBeatDraft] = Field(min_length=1)
+
+
+def continuity_repair_schema(
+    affected_act_ids: set[str] | list[str],
+) -> type[BaseModel]:
+    """为本轮连贯性修复创建只允许受影响 Act 的输出边界。"""
+    return _continuity_repair_schema(tuple(sorted(set(affected_act_ids))))
+
+
+@lru_cache(maxsize=None)
+def _continuity_repair_schema(affected_act_ids: tuple[str, ...]) -> type[BaseModel]:
+    """缓存动态模型，并把允许返回的 Act ID 固化为字段。"""
+    if not affected_act_ids:
+        raise ValueError("连贯性修复至少需要一个受影响 Act")
+    invalid = [
+        act_id for act_id in affected_act_ids if not _ID_PATTERN.fullmatch(act_id)
+    ]
+    if invalid:
+        raise ValueError("连贯性修复包含非法 Act ID：" + "、".join(invalid))
+
+    suffix = "_".join(affected_act_ids)
+    act_fragments_model = create_model(
+        f"ContinuityRepairActFragments_{suffix}",
+        __config__=ConfigDict(extra="forbid"),
+        __module__=__name__,
+        **{
+            f"act_fragment_{index}": (
+                CanonActFragmentDraft,
+                Field(alias=act_id),
+            )
+            for index, act_id in enumerate(affected_act_ids, start=1)
+        },
+    )
+    return create_model(
+        f"ContinuityRepair_{suffix}",
+        __config__=ConfigDict(extra="forbid"),
+        __module__=__name__,
+        act_fragments=(act_fragments_model, ...),
+    )
+
+
+# ---------------------------------------------------------------------------
 # StoryPlan：只在生成阶段持久化，不作为公开草稿内容返回。
 # ---------------------------------------------------------------------------
 class PlanEntity(BaseModel):
@@ -465,6 +940,54 @@ class StoryPlanCandidate(BaseModel):
     foreshadowing_payoffs: list[PlanPayoff] = Field(default_factory=list)
     ending_routes: list[PlanEndingRoute] = Field(min_length=2, max_length=2)
     effect_owner_ledger: list[EffectOwner] = Field(default_factory=list)
+
+
+def story_plan_section_repair_schema(
+    section_names: set[str],
+) -> type[BaseModel]:
+    """为本轮 StoryPlan 局部修复创建精确的结构化输出边界。"""
+    return _story_plan_section_repair_schema(tuple(sorted(section_names)))
+
+
+@lru_cache(maxsize=None)
+def _story_plan_section_repair_schema(
+    section_names: tuple[str, ...],
+) -> type[BaseModel]:
+    """缓存动态模型，避免每次故事生成重复创建相同区段组合。"""
+    section_fields: dict[str, tuple[Any, Any]] = {
+        "scale_profile": (StoryScaleProfileCandidate, ...),
+        "acts": (list[PlanActCandidate], Field(min_length=1)),
+        "beats": (list[PlanBeatCandidate], Field(min_length=1)),
+        "entities": (PlanEntities, ...),
+        "clue_graph": (list[PlanClueLink], ...),
+        "branch_points": (list[PlanBranchPointCandidate], ...),
+        "foreshadowing_payoffs": (list[PlanPayoff], ...),
+        "ending_routes": (
+            list[PlanEndingRoute],
+            Field(min_length=2, max_length=2),
+        ),
+        "effect_owner_ledger": (list[EffectOwner], ...),
+    }
+    unknown = sorted(set(section_names) - set(section_fields))
+    if unknown:
+        raise ValueError("StoryPlan 局部修复包含未知区段：" + "、".join(unknown))
+    if not section_names:
+        raise ValueError("StoryPlan 局部修复至少需要一个区段")
+
+    suffix = "_".join(section_names)
+    sections_model = create_model(
+        f"StoryPlanRepairSections_{suffix}",
+        __config__=ConfigDict(extra="forbid"),
+        __module__=__name__,
+        **{name: section_fields[name] for name in section_names},
+    )
+    return create_model(
+        f"StoryPlanSectionRepair_{suffix}",
+        __config__=ConfigDict(extra="forbid"),
+        __module__=__name__,
+        repair_kind=(Literal["story_plan_sections"], ...),
+        sections=(sections_model, ...),
+    )
 
 
 class StorySummary(BaseModel):

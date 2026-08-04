@@ -14,13 +14,20 @@ from pydantic import ValidationError
 from src.common.utils.llm_util import ModelRole
 from src.dm import world_bridge
 from src.model.canon import Canon, beat_brief, validate_canon
-from src.schemas.story import StoryDesignBrief, StoryPacing, StoryPlan
+from src.schemas.story import (
+    StoryContinuityReview,
+    StoryDesignBrief,
+    StoryPacing,
+    StoryPlan,
+    continuity_repair_schema,
+)
 from src.services.story_service import StoryService
 from src.story.generator import (
     StoryGenerationError,
     _fragment_errors,
     _generate_story_plan,
     _load_reference_fragments,
+    generate_staged_canon,
 )
 from src.story.loader import get_registry
 from src.story.prompt import (
@@ -476,6 +483,120 @@ class StoryPlanValidationTests(unittest.TestCase):
             },
         )
         self.assertTrue(all(len(fragment["beats"]) < 5 for fragment in fragments))
+
+
+class StoryContinuityStructuredOutputTests(unittest.IsolatedAsyncioTestCase):
+    """验证 staged generator 的连贯性阶段始终携带精确输出 Schema。"""
+
+    def test_review_schema_rejects_inconsistent_passed_value(self):
+        with self.assertRaises(ValidationError):
+            StoryContinuityReview.model_validate(
+                {
+                    "passed": True,
+                    "issues": [
+                        {
+                            "severity": "error",
+                            "code": "missing_payoff",
+                            "message": "伏笔没有回收",
+                            "affected_act_ids": ["act_eclipse"],
+                        }
+                    ],
+                }
+            )
+
+    def test_repair_schema_allows_only_requested_act_ids(self):
+        raw = json.loads(
+            Path("canon/prodigal_return_quest.json").read_text(encoding="utf-8")
+        )
+        beat = next(item for item in raw["beats"] if item["kind"] != "ending")
+        schema = continuity_repair_schema(["act_arrival"])
+        valid = {
+            "act_fragments": {
+                "act_arrival": {
+                    "beats": [beat],
+                }
+            }
+        }
+
+        validated = schema.model_validate(valid)
+        self.assertEqual(
+            set(validated.model_dump(by_alias=True)["act_fragments"]),
+            {"act_arrival"},
+        )
+        with self.assertRaises(ValidationError):
+            schema.model_validate(
+                {
+                    "act_fragments": {
+                        **valid["act_fragments"],
+                        "act_unaffected": {"beats": [beat]},
+                    }
+                }
+            )
+
+        reserved_name_schema = continuity_repair_schema(["model_dump"])
+        reserved_name_schema.model_validate(
+            {"act_fragments": {"model_dump": {"beats": [beat]}}}
+        )
+
+    async def test_staged_continuity_calls_use_structured_output_schemas(self):
+        plan = _standard_plan()
+        artifacts = {"plan": plan.model_dump()}
+        fragment_kinds = ["top_level", "cast", "locations"]
+        fragment_kinds.extend(f"act:{act.id}" for act in plan.acts)
+        fragment_kinds.extend(["actions", "endings"])
+        artifacts.update({f"fragment:{kind}": {} for kind in fragment_kinds})
+        completion = AsyncMock(
+            side_effect=[
+                {
+                    "passed": False,
+                    "issues": [
+                        {
+                            "severity": "error",
+                            "code": "missing_payoff",
+                            "message": "开场动机没有在后续回应",
+                            "affected_act_ids": ["act_arrival"],
+                        }
+                    ],
+                },
+                {"act_fragments": {"act_arrival": {"beats": []}}},
+                {"passed": True, "issues": []},
+            ]
+        )
+        canon = object()
+        metrics = object()
+
+        with (
+            patch("src.story.generator._complete_json", completion),
+            patch("src.story.generator._fragment_errors", return_value=[]),
+            patch(
+                "src.story.generator._assemble_canon",
+                return_value={"campaign_id": "moon_astrolabe"},
+            ),
+            patch("src.story.generator._canon_errors", return_value=(canon, [])),
+            patch("src.story.generator.validate_generated_canon", return_value=[]),
+            patch("src.story.generator.validate_effect_owner_ledger", return_value=[]),
+            patch("src.story.generator.canon_quality_metrics", return_value=metrics),
+        ):
+            _, generated_canon, generated_metrics = await generate_staged_canon(
+                confirmed_brief=_brief(),
+                resume_artifacts=artifacts,
+            )
+
+        self.assertIs(generated_canon, canon)
+        self.assertIs(generated_metrics, metrics)
+        self.assertEqual(completion.await_count, 3)
+        self.assertIs(
+            completion.await_args_list[0].kwargs["schema"], StoryContinuityReview
+        )
+        repair_schema = completion.await_args_list[1].kwargs["schema"]
+        act_fragments_model = repair_schema.model_fields["act_fragments"].annotation
+        self.assertEqual(
+            {field.alias for field in act_fragments_model.model_fields.values()},
+            {"act_arrival"},
+        )
+        self.assertIs(
+            completion.await_args_list[2].kwargs["schema"], StoryContinuityReview
+        )
 
 
 class StoryGenerationStoreTests(unittest.TestCase):

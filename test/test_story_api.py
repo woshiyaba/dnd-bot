@@ -16,7 +16,11 @@ from fastapi.testclient import TestClient
 from src.app import app
 from src.common.utils.llm_util import ModelRole
 from src.model.canon import Canon, validate_authored_canon, validate_canon
-from src.schemas.story import StoryGenerationTaskResponse, StoryInterviewResponse
+from src.schemas.story import (
+    CanonDraft,
+    StoryGenerationTaskResponse,
+    StoryInterviewResponse,
+)
 from src.services.story_service import StoryService
 import src.story.generator as story_generator
 from src.story.loader import CanonRegistry
@@ -188,6 +192,19 @@ class StoryApiTests(unittest.TestCase):
 
 class StoryGeneratorTests(unittest.IsolatedAsyncioTestCase):
     """确认模型输出损坏时显式失败，不创建假故事。"""
+
+    def test_canon_draft_schema_matches_runtime_canon_contract(self):
+        for path in (
+            Path("canon/prodigal_return_quest.json"),
+            Path("canon/whispers_bell_tower.json"),
+        ):
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            raw["runtime_location_scoping"] = True
+            draft = CanonDraft.model_validate(raw)
+            canon = Canon.from_dict(draft.model_dump(exclude_none=True))
+
+            self.assertEqual(validate_canon(canon), [], path.name)
+            self.assertEqual(validate_authored_canon(canon), [], path.name)
 
     def test_both_live_canons_are_loaded_as_generation_references(self):
         references = story_generator._load_reference_canons()
@@ -465,6 +482,37 @@ class StoryGeneratorTests(unittest.IsolatedAsyncioTestCase):
             [call.kwargs["role"] for call in completion.await_args_list],
             [ModelRole.STORY_AUTHORING, ModelRole.STORY_REPAIR],
         )
+        self.assertEqual(
+            [call.kwargs["schema"] for call in completion.await_args_list],
+            [CanonDraft, CanonDraft],
+        )
+
+    async def test_canon_authoring_uses_structured_output_model(self):
+        valid_raw, _canon = _generated_canon()
+        valid_raw["runtime_location_scoping"] = True
+        structured_model = AsyncMock()
+        structured_model.ainvoke.return_value = CanonDraft.model_validate(valid_raw)
+        model = Mock()
+        model.with_structured_output.return_value = structured_model
+
+        with (
+            patch(
+                "src.story.generator.get_model_name",
+                return_value="deepseek/deepseek-v4-flash",
+            ),
+            patch("src.story.generator.get_chat_model", return_value=model),
+        ):
+            generated_raw, generated = await story_generator.generate_canon(
+                confirmed_brief=_CONFIRMED_BRIEF
+            )
+
+        self.assertEqual(generated_raw["campaign_id"], "test_starlight_archive")
+        self.assertEqual(generated.campaign_id, "test_starlight_archive")
+        model.with_structured_output.assert_called_once_with(
+            CanonDraft,
+            method="json_mode",
+        )
+        structured_model.ainvoke.assert_awaited_once()
 
 
 class StoryPublishingTests(unittest.IsolatedAsyncioTestCase):

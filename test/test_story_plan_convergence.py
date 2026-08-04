@@ -5,7 +5,9 @@ from __future__ import annotations
 import unittest
 from unittest.mock import AsyncMock, patch
 
-from src.schemas.story import StoryPlan
+from pydantic import ValidationError
+
+from src.schemas.story import StoryPlan, StoryPlanCandidate
 from src.story.generator import (
     StoryGenerationError,
     _generate_story_plan,
@@ -53,6 +55,7 @@ class StoryPlanNormalizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(plan.scale_profile, _brief().scale_profile)
         self.assertEqual(repair_count, 0)
         completion.assert_awaited_once()
+        self.assertIs(completion.await_args.kwargs["schema"], StoryPlanCandidate)
 
     def test_act_membership_and_minutes_are_rebuilt_from_beats(self):
         raw = _standard_plan().model_dump()
@@ -161,6 +164,10 @@ class StoryPlanRepairStateMachineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             plan.foreshadowing_payoffs, _standard_plan().foreshadowing_payoffs
         )
+        self.assertEqual(
+            [call.kwargs["schema"] for call in completion.await_args_list],
+            [StoryPlanCandidate, StoryPlanCandidate],
+        )
 
     async def test_repeated_issue_fingerprint_stops_after_one_local_repair(self):
         invalid = _standard_plan().model_dump()
@@ -180,6 +187,23 @@ class StoryPlanRepairStateMachineTests(unittest.IsolatedAsyncioTestCase):
             await _generate_story_plan(_brief(), [])
 
         self.assertEqual(completion.await_count, 2)
+        self.assertIs(
+            completion.await_args_list[0].kwargs["schema"], StoryPlanCandidate
+        )
+        repair_schema = completion.await_args_list[1].kwargs["schema"]
+        sections_model = repair_schema.model_fields["sections"].annotation
+        self.assertEqual(set(sections_model.model_fields), {"effect_owner_ledger"})
+        repair_schema.model_validate(unchanged_repair)
+        with self.assertRaises(ValidationError):
+            repair_schema.model_validate(
+                {
+                    **unchanged_repair,
+                    "sections": {
+                        **unchanged_repair["sections"],
+                        "beats": invalid["beats"],
+                    },
+                }
+            )
 
     async def test_invalid_candidate_is_never_persisted_as_plan_artifact(self):
         invalid = {"plan_version": 1}

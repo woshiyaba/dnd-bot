@@ -14,10 +14,15 @@ from src.common.utils.json_parser import extract_json_object
 from src.common.utils.llm_util import ModelRole, get_chat_model, get_model_name
 from src.model.canon import Canon, validate_authored_canon, validate_canon
 from src.schemas.story import (
+    CanonDraft,
     StoryDesignBrief,
+    StoryContinuityReview,
     StoryInterviewResponse,
     StoryPlan,
+    StoryPlanCandidate,
     StoryQualityMetrics,
+    continuity_repair_schema,
+    story_plan_section_repair_schema,
 )
 from src.story.prompt import (
     build_canon_authoring_prompt,
@@ -247,7 +252,9 @@ async def _complete_json(
             raise StoryGenerationError(
                 f"故事 {stage} 的 LLM 输出不符合 {schema.__name__}：{exc}"
             ) from exc
-        return structured.model_dump()
+        # Canon.from_dict 等领域构造器用“字段省略”表达可选结构；显式 null 会让
+        # dict(...) / list(...) 等解析路径失效。动态修复模型还用 alias 保留真实 Act ID。
+        return structured.model_dump(exclude_none=True, by_alias=True)
     parsed = extract_json_object(_message_text(response))
     if parsed is None:
         raise StoryGenerationError(f"故事 {stage} 的 LLM 输出不是可解析的 JSON 对象")
@@ -386,6 +393,7 @@ async def generate_canon(
         ),
         stage="编译",
         role=ModelRole.STORY_AUTHORING,
+        schema=CanonDraft,
     )
 
     for attempt in range(MAX_REPAIR_ATTEMPTS + 1):
@@ -400,6 +408,7 @@ async def generate_canon(
             build_canon_repair_prompt(draft, errors),
             stage=f"修复（第 {attempt + 1} 次）",
             role=ModelRole.STORY_REPAIR,
+            schema=CanonDraft,
         )
 
     raise AssertionError("Canon 修复循环未按预期结束")
@@ -502,10 +511,11 @@ async def generate_staged_canon(
             build_continuity_review_prompt(confirmed_brief=brief, canon=raw),
             stage="连贯性复核",
             role=ModelRole.STORY_CONTINUITY,
+            schema=StoryContinuityReview,
         )
-        _validate_continuity_review(review)
         if on_artifact:
             await on_artifact("continuity", "continuity_review", review, 0)
+    _validate_continuity_review(review)
     issues = [
         item
         for item in review.get("issues", [])
@@ -544,6 +554,7 @@ async def generate_staged_canon(
                 ),
                 stage="连贯性定向修复",
                 role=ModelRole.STORY_REPAIR,
+                schema=continuity_repair_schema(affected_ids),
             )
             replacement = repaired.get("act_fragments")
             if not isinstance(replacement, dict) or set(replacement) != set(
@@ -591,6 +602,7 @@ async def generate_staged_canon(
                 build_continuity_review_prompt(confirmed_brief=brief, canon=raw),
                 stage="修复后连贯性复核",
                 role=ModelRole.STORY_CONTINUITY,
+                schema=StoryContinuityReview,
             )
             if on_artifact:
                 await on_artifact(
@@ -623,6 +635,7 @@ async def _generate_story_plan(
         "effect_owner_ledger 的 owner_kind 与 owner_id 必须遵守 schema 中的 ID 类别配对。",
         stage="计划",
         role=ModelRole.STORY_PLANNING,
+        schema=StoryPlanCandidate,
     )
     previous_fingerprint: tuple[tuple[str, tuple[str | int, ...]], ...] | None = None
     local_repairs = 0
@@ -664,6 +677,7 @@ async def _generate_story_plan(
                 repair_prompt,
                 stage="计划结构重规划",
                 role=ModelRole.STORY_REPAIR,
+                schema=StoryPlanCandidate,
             )
             replans += 1
             continue
@@ -686,10 +700,12 @@ async def _generate_story_plan(
             prompt=repair_prompt,
             max_attempts=MAX_STORY_PLAN_LOCAL_REPAIRS,
         )
+        repair_schema = story_plan_section_repair_schema(sections)
         repair = await _complete_json(
             repair_prompt,
             stage=f"计划局部修复（第 {local_repairs + 1} 次）",
             role=ModelRole.STORY_REPAIR,
+            schema=repair_schema,
         )
         try:
             raw = merge_story_plan_sections(
@@ -998,16 +1014,7 @@ def _adjacent_fragment_summaries(
 
 
 def _validate_continuity_review(review: dict[str, Any]) -> None:
-    if not isinstance(review.get("passed"), bool) or not isinstance(
-        review.get("issues"), list
-    ):
-        raise StoryGenerationError("连贯性复核输出结构不合法")
-    for issue in review["issues"]:
-        if not isinstance(issue, dict) or issue.get("severity") not in {
-            "error",
-            "warning",
-        }:
-            raise StoryGenerationError("连贯性复核 issue 结构不合法")
-    has_errors = any(issue.get("severity") == "error" for issue in review["issues"])
-    if review["passed"] == has_errors:
-        raise StoryGenerationError("连贯性复核的 passed 与 error issues 不一致")
+    try:
+        StoryContinuityReview.model_validate(review)
+    except ValidationError as exc:
+        raise StoryGenerationError(f"连贯性复核输出结构不合法：{exc}") from exc
