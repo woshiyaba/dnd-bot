@@ -10,13 +10,14 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from src.schemas.story import (
     StoryDesignBrief,
     StoryInterviewResponse,
     StoryPlan,
     StoryPlanCandidate,
+    StoryPlanWorkState,
     length_limits,
     minimum_branch_points,
 )
@@ -671,6 +672,68 @@ def build_story_plan_prompt(
         f"<story_plan_json_schema>{json.dumps(StoryPlanCandidate.model_json_schema(), ensure_ascii=False)}</story_plan_json_schema>\n"
         f"<confirmed_design_brief>{json.dumps(brief.model_dump(), ensure_ascii=False)}</confirmed_design_brief>\n"
         f"<reserved_campaign_ids>{json.dumps(reserved_campaign_ids, ensure_ascii=False)}</reserved_campaign_ids>"
+    )
+
+
+def render_story_plan_work_state(state: StoryPlanWorkState) -> str:
+    """把全部已验证小产物渲染为无历史 Prompt 的精简文本视图。"""
+    return json.dumps(
+        state.model_dump(mode="json", exclude_none=True),
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+
+def build_story_plan_stage_prompt(
+    *,
+    confirmed_brief: dict[str, Any] | StoryDesignBrief,
+    current_target: dict[str, Any],
+    response_schema: type[BaseModel],
+    generated_story_so_far: StoryPlanWorkState,
+    instructions: str,
+    reserved_campaign_ids: list[str] | None = None,
+) -> str:
+    """构造一次渐进规划调用；只携带确认稿和当前完整已验证状态。"""
+    brief = normalize_confirmed_design_brief(confirmed_brief)
+    reserved = reserved_campaign_ids or []
+    return (
+        STAGED_GENERATION_RULE
+        + "\n你是 StoryPlan 渐进规划器。只完成 current_target，严格输出一个 JSON 对象，"
+        "不得补写其它阶段、不得返回 Markdown 或解释。若 schema 含 selector/target ID，必须原样返回。\n"
+        + instructions
+        + "\n复杂对象每批最多 3 个，简单实体每批最多 5 个；不得添加 schema 外字段。\n"
+        f"<current_target>{json.dumps(current_target, ensure_ascii=False, separators=(',', ':'))}</current_target>\n"
+        f"<strict_json_schema>{json.dumps(response_schema.model_json_schema(), ensure_ascii=False, separators=(',', ':'))}</strict_json_schema>\n"
+        f"<confirmed_design_brief>{json.dumps(brief.model_dump(), ensure_ascii=False, separators=(',', ':'))}</confirmed_design_brief>\n"
+        f"<reserved_campaign_ids>{json.dumps(reserved, ensure_ascii=False, separators=(',', ':'))}</reserved_campaign_ids>\n"
+        f"<generated_story_so_far>{render_story_plan_work_state(generated_story_so_far)}</generated_story_so_far>"
+    )
+
+
+def build_story_plan_stage_repair_prompt(
+    *,
+    confirmed_brief: StoryDesignBrief,
+    current_target: dict[str, Any],
+    response_schema: type[BaseModel],
+    generated_story_so_far: StoryPlanWorkState,
+    instructions: str,
+    invalid_candidate: dict[str, Any],
+    validation_errors: list[str],
+    reserved_campaign_ids: list[str] | None = None,
+) -> str:
+    """同一小阶段唯一一次定向修复，不携带更早的 Prompt。"""
+    return (
+        build_story_plan_stage_prompt(
+            confirmed_brief=confirmed_brief,
+            current_target=current_target,
+            response_schema=response_schema,
+            generated_story_so_far=generated_story_so_far,
+            instructions=instructions,
+            reserved_campaign_ids=reserved_campaign_ids,
+        )
+        + "\n上次输出未通过当前阶段校验。只修复列出的问题，并再次返回同一 schema。\n"
+        f"<validation_errors>{json.dumps(validation_errors, ensure_ascii=False, separators=(',', ':'))}</validation_errors>\n"
+        f"<invalid_candidate>{json.dumps(invalid_candidate, ensure_ascii=False, separators=(',', ':'))}</invalid_candidate>"
     )
 
 

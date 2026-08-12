@@ -58,6 +58,22 @@ _STAGE_PROGRESS = {
     "continuity_repair": ("定向修复受影响 Act", 92),
 }
 
+_PLAN_PROGRESS = (
+    ("plan:frame", "规划章节骨架", 10),
+    ("plan:beat_outline:", "规划 Beat 大纲", 12),
+    ("plan:branches", "规划分支蓝图", 14),
+    ("plan:beat_detail:", "补充 Beat 细节", 16),
+    ("plan:entity_budget", "规划实体数量", 18),
+    ("plan:entities:", "生成实体清单", 20),
+    ("plan:placement:", "放置故事实体", 22),
+    ("plan:routes:", "编写出口文案", 23),
+    ("plan:clues:", "编写线索细节", 23),
+    ("plan:payoffs:", "编写伏笔回收", 24),
+    ("plan:endings", "规划双结局", 24),
+    ("plan:owners:", "分配效果 owner", 24),
+    ("plan", "完成故事计划", 24),
+)
+
 
 class GenerationCancelled(RuntimeError):
     """任务在安全阶段边界响应了取消。"""
@@ -286,7 +302,7 @@ class StoryService:
             if self._store.is_cancel_requested(task_id):
                 raise GenerationCancelled()
             repairs += max(0, attempt)
-            if artifact_key == "plan":
+            if artifact_key in {"plan:frame", "plan"}:
                 campaign_id = str(payload.get("campaign_id_candidate") or "")
                 self._validate_campaign_id(campaign_id)
                 if (
@@ -301,6 +317,15 @@ class StoryService:
                 attempt=attempt,
             )
             label, base_progress = _STAGE_PROGRESS.get(stage, (stage, 20))
+            if stage == "planning":
+                label, base_progress = next(
+                    (
+                        (item_label, progress)
+                        for prefix, item_label, progress in _PLAN_PROGRESS
+                        if artifact_key == prefix or artifact_key.startswith(prefix)
+                    ),
+                    (label, base_progress),
+                )
             if artifact_key.startswith("fragment:"):
                 count = len(
                     [
@@ -329,8 +354,9 @@ class StoryService:
             if self._store.is_cancel_requested(task_id):
                 raise GenerationCancelled()
             artifacts = self._store.artifacts(task_id)
-            if "plan" in artifacts:
-                campaign_id = str(artifacts["plan"].get("campaign_id_candidate") or "")
+            reservation_source = artifacts.get("plan") or artifacts.get("plan:frame")
+            if reservation_source:
+                campaign_id = str(reservation_source.get("campaign_id_candidate") or "")
                 self._validate_campaign_id(campaign_id)
                 if not self._store.reserve_campaign_id(task_id, campaign_id):
                     raise StoryGenerationError(
@@ -412,7 +438,18 @@ class StoryService:
         errors = validate_confirmed_design_brief(design_brief)
         if errors:
             raise HTTPException(status_code=422, detail="；".join(errors))
-        return normalize_confirmed_design_brief(design_brief)
+        brief = normalize_confirmed_design_brief(design_brief)
+        if (
+            brief.scale_profile is not None
+            and brief.branching_budget is not None
+            and brief.scale_profile.playable_beats
+            < 3 * brief.branching_budget.meaningful_branch_points + 2
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="可玩 Beat 数不足：固定二选一汇流结构要求 playable_beats >= 3B + 2",
+            )
+        return brief
 
     @staticmethod
     def _validate_campaign_id(campaign_id: str) -> None:

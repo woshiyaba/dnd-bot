@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import re
-from typing import Any, Literal
+from typing import Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -465,6 +465,168 @@ class StoryPlanCandidate(BaseModel):
     foreshadowing_payoffs: list[PlanPayoff] = Field(default_factory=list)
     ending_routes: list[PlanEndingRoute] = Field(min_length=2, max_length=2)
     effect_owner_ledger: list[EffectOwner] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# StoryPlan 渐进生成：仅用于生成器的小型封闭产物。
+# ---------------------------------------------------------------------------
+PlanItemT = TypeVar("PlanItemT")
+
+
+class PlanBatch(BaseModel, Generic[PlanItemT]):
+    """带代码锁定目标的小批次；具体阶段再收紧到 3 或 5 项。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    target_id: str = Field(min_length=1, max_length=128)
+    items: list[PlanItemT] = Field(default_factory=list, max_length=5)
+
+
+class PlanComplexBatch(PlanBatch[PlanItemT], Generic[PlanItemT]):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[PlanItemT] = Field(default_factory=list, max_length=3)
+
+
+class PlanSimpleBatch(PlanBatch[PlanItemT], Generic[PlanItemT]):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[PlanItemT] = Field(default_factory=list, max_length=5)
+
+
+class PlanFrameAct(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    purpose: str = Field(min_length=1)
+    turning_point: str = Field(min_length=1)
+    playable_beat_count: int = Field(ge=1, le=12)
+
+
+class StoryPlanFrame(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    campaign_id_candidate: str = Field(pattern=r"^[a-z][a-z0-9_]{2,63}$")
+    acts: list[PlanFrameAct] = Field(min_length=1, max_length=5)
+
+
+class PlanBeatOutline(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    kind: Literal["opening", "exploration", "conflict", "climax"]
+    estimated_minutes: int = Field(ge=1, le=120)
+    objective: str = Field(min_length=1)
+
+
+class PlanBranchBlueprint(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_beat_id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    choice_beat_ids: list[str] = Field(min_length=2, max_length=2)
+    reconverge_at: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    distinct_consequences: list[str] = Field(min_length=2, max_length=2)
+
+
+class PlanBeatDetail(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    beat_id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    pressure: str = Field(min_length=1)
+    dramatic_question: str = ""
+    entry_hook: str = ""
+    fail_forward: str = ""
+
+
+class PlanEntityBudget(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    actors: int = Field(ge=1, le=24)
+    flags: int = Field(ge=0, le=12)
+    items: int = Field(ge=0, le=12)
+    actions: int = Field(ge=0, le=12)
+    payoffs: int = Field(ge=0, le=12)
+
+
+class PlanEntityDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    name: str = Field(min_length=1)
+    summary: str = Field(min_length=1)
+
+
+class PlanBeatPlacement(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    beat_id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    location_ids: list[str] = Field(min_length=1)
+    actor_ids: list[str] = Field(default_factory=list)
+    clue_ids: list[str] = Field(default_factory=list)
+    encounter_id: str | None = None
+
+
+class PlanRouteText(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    condition_summary: str = Field(min_length=1)
+    consequence: str = Field(min_length=1)
+
+
+class PlanClueDetail(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    clue_id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    answers: str = Field(min_length=1)
+    unlocks: list[str] = Field(default_factory=list)
+    alternative_approaches: list[str] = Field(min_length=2)
+
+
+class PlanPayoffDetail(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    flag_id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    setup_beat_id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    payoff_beat_id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    description: str = Field(min_length=1)
+
+
+class PlanEndingDetail(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ending_id: Literal["ending_win", "ending_lose"]
+    objective: str = Field(min_length=1)
+    required_facts: list[str] = Field(default_factory=list)
+    payoffs: list[str] = Field(default_factory=list)
+
+
+class PlanEffectOwnerChoice(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    effect_id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    owner_kind: Literal[
+        "discovery", "encounter_win", "initial_state", "rule_action", "dm_free_write"
+    ]
+    owner_id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+
+
+class StoryPlanWorkState(BaseModel):
+    """只累计已经通过阶段契约的 StoryPlan 小产物。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    frame: StoryPlanFrame | None = None
+    beat_outlines: list[PlanBeatOutline] = Field(default_factory=list)
+    branch_blueprints: list[PlanBranchBlueprint] = Field(default_factory=list)
+    beat_details: list[PlanBeatDetail] = Field(default_factory=list)
+    entity_budget: PlanEntityBudget | None = None
+    entities: PlanEntities = Field(default_factory=PlanEntities)
+    placements: list[PlanBeatPlacement] = Field(default_factory=list)
+    routes: dict[str, list[PlanRouteText]] = Field(default_factory=dict)
+    clues: list[PlanClueDetail] = Field(default_factory=list)
+    payoffs: list[PlanPayoffDetail] = Field(default_factory=list)
+    endings: list[PlanEndingDetail] = Field(default_factory=list)
+    owners: list[PlanEffectOwnerChoice] = Field(default_factory=list)
 
 
 class StorySummary(BaseModel):
