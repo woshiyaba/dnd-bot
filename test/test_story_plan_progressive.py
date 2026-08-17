@@ -26,6 +26,7 @@ from src.story.generator import (
     BranchBatch,
     StoryGenerationError,
     _batch_sizes,
+    _enforce_fragment_constants,
     _finalize_progressive_plan,
     _generate_story_plan_progressively,
     _route_targets,
@@ -340,6 +341,90 @@ class FixedTopologyTests(unittest.TestCase):
                         for target in targets
                     )
                 )
+
+
+class FragmentConstantEnforcementTests(unittest.TestCase):
+    def test_act_fragment_mechanical_fields_are_rebuilt_from_plan(self):
+        plan = _standard_plan()
+        fragment = {
+            "beats": [
+                {
+                    "id": "beat_rooftops",
+                    "act_id": "act_wrong",
+                    "kind": "climax",
+                    "estimated_minutes": 99,
+                    "location_ids": ["location_wrong"],
+                    "objective": "截住携带星盘零件的守卫",
+                    "pressure": "守卫正把零件送往仪式场",
+                    "exits": [
+                        {
+                            "trigger_id": "trigger_wrong",
+                            "next_beat_id": "beat_wrong",
+                        }
+                    ],
+                    "advance_conditions": [
+                        {
+                            "id": "trigger_wrong",
+                            "kind": "action",
+                            "predicate": {"action": "取得路线信息"},
+                        }
+                    ],
+                    "key_info": [],
+                }
+            ]
+        }
+
+        normalized = _enforce_fragment_constants(
+            "act:act_investigation", fragment, plan
+        )
+
+        beat = normalized["beats"][0]
+        self.assertEqual(beat["act_id"], "act_investigation")
+        self.assertEqual(beat["kind"], "exploration")
+        self.assertEqual(beat["estimated_minutes"], 14)
+        self.assertEqual(beat["location_ids"], ["location_rooftops"])
+        self.assertEqual(
+            beat["exits"],
+            [
+                {
+                    "trigger_id": "trigger_beat_rooftops_1",
+                    "next_beat_id": "beat_convergence",
+                }
+            ],
+        )
+        self.assertEqual(
+            beat["advance_conditions"][0]["id"], "trigger_beat_rooftops_1"
+        )
+        # 模型创作的 trigger 语义保留，只有 id 被强制。
+        self.assertEqual(beat["advance_conditions"][0]["kind"], "action")
+
+    def test_top_level_fragment_derives_registry_locked_fields(self):
+        plan = _standard_plan()
+        fragment = {
+            "campaign_id": "campaign_wrong",
+            "title": "月蚀星盘",
+            "premise": "找回星盘",
+            "theme": "知识",
+            "tone": "紧张",
+            "duration_minutes": 45,
+            "length_mode": "standard",
+            "act_count": 3,
+            "runtime_location_scoping": False,
+            "recommended_player_count": 2,
+            "gameplay_focus": ["调查"],
+            "content_warnings": [],
+            "declared_flags": [],
+            "start_beat_id": "beat_wrong",
+            "win_condition": {"id": "win_condition", "kind": "flag", "predicate": {}},
+            "lose_condition": {"id": "lose_condition", "kind": "semantic", "predicate": {}},
+        }
+
+        normalized = _enforce_fragment_constants("top_level", fragment, plan)
+
+        self.assertEqual(normalized["campaign_id"], "moon_astrolabe")
+        self.assertEqual(normalized["start_beat_id"], "beat_opening")
+        self.assertIs(normalized["runtime_location_scoping"], True)
+        self.assertEqual(normalized["declared_flags"], ["flag_understood_ritual"])
 
 
 class ProgressiveGenerationTests(unittest.IsolatedAsyncioTestCase):

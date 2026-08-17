@@ -447,6 +447,31 @@ class StoryGeneratorTests(unittest.IsolatedAsyncioTestCase):
         )
         structured_model.ainvoke.assert_awaited_once()
 
+    async def test_schema_free_completion_forces_json_object_mode(self):
+        bound_model = AsyncMock()
+        bound_model.ainvoke.return_value = SimpleNamespace(content='{"a": 1}')
+        model = Mock()
+        model.bind.return_value = bound_model
+        with (
+            patch(
+                "src.story.generator.get_model_name",
+                return_value="deepseek/deepseek-v4-pro",
+            ) as get_name,
+            patch("src.story.generator.get_chat_model", return_value=model) as get_model,
+        ):
+            result = await story_generator._complete_json(
+                "只输出一个 JSON 对象",
+                stage="分片",
+                role=ModelRole.STORY_AUTHORING,
+            )
+
+        self.assertEqual(result, {"a": 1})
+        get_name.assert_called_once_with(ModelRole.STORY_AUTHORING)
+        get_model.assert_called_once_with("deepseek/deepseek-v4-pro")
+        model.bind.assert_called_once_with(response_format={"type": "json_object"})
+        model.with_structured_output.assert_not_called()
+        bound_model.ainvoke.assert_awaited_once()
+
     async def test_canon_authoring_and_repair_use_reasoning_roles(self):
         valid_raw, _canon = _generated_canon()
         completion = AsyncMock(

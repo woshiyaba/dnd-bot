@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -84,6 +85,7 @@ REFERENCE_CANON_PATHS = (
 MAX_REPAIR_ATTEMPTS = 10
 MAX_STORY_PLAN_LOCAL_REPAIRS = 2
 MAX_STORY_PLAN_REPLANS = 1
+MAX_ASSEMBLY_REPAIRS = 2
 
 ArtifactCallback = Callable[[str, str, dict[str, Any], int], Awaitable[None]]
 StageStartCallback = Callable[[str], Awaitable[None]]
@@ -236,17 +238,22 @@ async def _complete_json(
     role: ModelRole,
     schema: type[BaseModel] | None = None,
 ) -> dict[str, Any]:
-    """调用真实 LLM 获取 JSON；提供 Schema 时交给 LangChain 约束输出。"""
+    """调用真实 LLM 获取 JSON；提供 Schema 时交给 LangChain 约束输出。
+
+    无 Schema 时也用 ``response_format={"type": "json_object"}`` 强制供应商只返回
+    合法 JSON 对象（无 Markdown 围栏、无前后缀正文），避免依赖正则从自由文本里抠 JSON。
+    """
     model_name = get_model_name(role)
     try:
         model = get_chat_model(model_name)
-        completion_model = (
+        if schema is not None:
             # DeepSeek 思考模式不接受 LangChain 强制函数选择；JSON mode
             # 由供应商保证 JSON 语法，再由下方 Pydantic 执行业务结构校验。
-            model.with_structured_output(schema, method="json_mode")
-            if schema
-            else model
-        )
+            completion_model = model.with_structured_output(schema, method="json_mode")
+        else:
+            # 分片、计划小阶段、连贯性复核等没有 Pydantic 模型的产物，也强制 JSON
+            # 对象语法，把「输出不是 JSON」这类不稳定降到最低。
+            completion_model = model.bind(response_format={"type": "json_object"})
         response = await completion_model.ainvoke(prompt)
     except Exception as exc:
         logger.exception(
@@ -505,14 +512,12 @@ async def generate_staged_canon(
         fragments[fragment_kind] = fragment
 
     raw = _assemble_canon(plan, fragments)
-    canon, errors = _canon_errors(raw)
-    if canon is not None:
-        errors.extend(validate_generated_canon(canon, brief))
-        errors.extend(validate_effect_owner_ledger(canon, plan))
-    if canon is None or errors:
-        raise StoryGenerationError(
-            "分片汇总 Canon 未通过完整校验：" + "；".join(errors)
-        )
+    raw, canon = await _repair_assembled_canon(
+        raw,
+        brief=brief,
+        plan=plan,
+        stage_label="分片汇总 Canon 未通过完整校验",
+    )
     if on_artifact:
         await on_artifact("validating", "assembled_canon", raw, 0)
 
@@ -573,6 +578,7 @@ async def generate_staged_canon(
             ):
                 raise StoryGenerationError("连贯性修复必须只返回全部受影响 Act 分片")
             for act_id, fragment in replacement.items():
+                fragment = _enforce_fragment_constants(f"act:{act_id}", fragment, plan)
                 fragment_errors = _fragment_errors(
                     f"act:{act_id}", fragment, plan, registry, fragments
                 )
@@ -597,14 +603,12 @@ async def generate_staged_canon(
                 )
             artifacts["continuity_repair"] = repair_marker
         raw = _assemble_canon(plan, fragments)
-        canon, errors = _canon_errors(raw)
-        if canon is not None:
-            errors.extend(validate_generated_canon(canon, brief))
-            errors.extend(validate_effect_owner_ledger(canon, plan))
-        if canon is None or errors:
-            raise StoryGenerationError(
-                "连贯性修复后 Canon 未通过完整校验：" + "；".join(errors)
-            )
+        raw, canon = await _repair_assembled_canon(
+            raw,
+            brief=brief,
+            plan=plan,
+            stage_label="连贯性修复后 Canon 未通过完整校验",
+        )
         final_review = artifacts.get("continuity_review_final")
         if final_review is None:
             if on_stage_start:
@@ -826,6 +830,7 @@ async def _generate_story_plan_progressively(
         validate=lambda value: _validate_entity_budget(value, playable_count),
         on_artifact=on_artifact,
         on_stage_start=on_stage_start,
+        role=ModelRole.STORY_PLANNING_FAST,
     )
     state.entity_budget = budget
     repairs += used
@@ -897,16 +902,17 @@ async def _generate_story_plan_progressively(
             ),
             on_artifact=on_artifact,
             on_stage_start=on_stage_start,
+            role=ModelRole.STORY_PLANNING_FAST,
         )
         state.placements.extend(batch.items)
         repairs += used
 
     route_targets = _route_targets(state.beat_outlines, state.branch_blueprints)
-    for beat_id in placement_ids:
-        key = f"plan:routes:{beat_id}"
+
+    async def build_route(beat_id: str) -> tuple[str, list[PlanRouteText], int]:
         targets = route_targets[beat_id]
         batch, used = await _run_plan_stage(
-            artifact_key=key,
+            artifact_key=f"plan:routes:{beat_id}",
             label=f"出口文案 {beat_id}",
             schema=RouteBatch,
             brief=brief,
@@ -923,7 +929,14 @@ async def _generate_story_plan_progressively(
             on_artifact=on_artifact,
             on_stage_start=on_stage_start,
         )
-        state.routes[beat_id] = list(batch.items)
+        return beat_id, list(batch.items), used
+
+    # 各 Beat 的出口文案彼此独立，并发生成以显著缩短端到端延迟。
+    route_results = await asyncio.gather(
+        *(build_route(beat_id) for beat_id in placement_ids)
+    )
+    for beat_id, items, used in route_results:
+        state.routes[beat_id] = items
         repairs += used
 
     clue_ids = [item.id for item in state.entities.clues]
@@ -1024,6 +1037,7 @@ async def _generate_story_plan_progressively(
             ),
             on_artifact=on_artifact,
             on_stage_start=on_stage_start,
+            role=ModelRole.STORY_PLANNING_FAST,
         )
         state.owners.extend(batch.items)
         repairs += used
@@ -1055,8 +1069,13 @@ async def _run_plan_stage(
     normalize: Callable[[BaseModel], BaseModel] | None = None,
     reserved_campaign_ids: list[str] | None = None,
     resumed_validate: Callable[[Any], list[str]] | None = None,
+    role: ModelRole = ModelRole.STORY_PLANNING,
 ) -> tuple[Any, int]:
-    """加载或生成一个小阶段；一次初稿加至多一次定向修复。"""
+    """加载或生成一个小阶段；一次初稿加至多一次定向修复。
+
+    ``role`` 允许把纯机械的小阶段切到 fast 模型，降低端到端延迟；修复仍走
+    ``STORY_REPAIR`` 职责。
+    """
     if artifact_key in artifacts:
         try:
             value = schema.model_validate(artifacts[artifact_key])
@@ -1088,7 +1107,7 @@ async def _run_plan_stage(
         raw = await _complete_json(
             prompt,
             stage=f"计划 {label}",
-            role=ModelRole.STORY_PLANNING,
+            role=role,
         )
     except StoryGenerationError as exc:
         if "输出不是可解析的 JSON 对象" not in str(exc):
@@ -1849,6 +1868,80 @@ def _validate_story_plan_candidate(
     return plan, _story_plan_issues(plan, brief), normalized
 
 
+def _enforce_fragment_constants(
+    fragment_kind: str,
+    fragment: dict[str, Any],
+    plan: StoryPlan,
+) -> dict[str, Any]:
+    """把可由 StoryPlan 确定性推导的机械字段回填进分片，再交给确定性校验。
+
+    模型只需写叙事内容（objective/pressure、出口文案、线索正文、遭遇细节等），
+    而 id、act_id、kind、estimated_minutes、location_ids、exits 与 Trigger ID 这些
+    「必须逐字符与计划一致」的字段由代码强制生成，从源头消除最脆弱的一类校验失败。
+    """
+    if fragment_kind == "top_level":
+        fragment = dict(fragment)
+        fragment["campaign_id"] = plan.campaign_id_candidate
+        fragment["start_beat_id"] = plan.start_beat_id
+        fragment["runtime_location_scoping"] = True
+        fragment["declared_flags"] = sorted(item.id for item in plan.entities.flags)
+        return fragment
+
+    if not (fragment_kind.startswith("act:") or fragment_kind == "endings"):
+        return fragment
+
+    plan_beats = {beat.id: beat for beat in plan.beats}
+    normalized_beats: list[dict[str, Any]] = []
+    for raw_beat in fragment.get("beats", []):
+        if not isinstance(raw_beat, dict):
+            normalized_beats.append(raw_beat)
+            continue
+        beat = dict(raw_beat)
+        beat_id = str(beat.get("id", ""))
+        planned = plan_beats.get(beat_id)
+        if planned is None:
+            normalized_beats.append(beat)
+            continue
+        beat["act_id"] = planned.act_id
+        beat["kind"] = planned.kind
+        beat["estimated_minutes"] = planned.estimated_minutes
+        beat["location_ids"] = list(planned.location_ids)
+        # 出口与推进条件 Trigger ID 完全由计划推导，不信任模型逐字符复写。
+        beat["exits"] = [
+            {
+                "trigger_id": f"trigger_{beat_id}_{index + 1}",
+                "next_beat_id": exit_.to_beat_id,
+            }
+            for index, exit_ in enumerate(planned.exits)
+        ]
+        conditions = beat.get("advance_conditions")
+        if isinstance(conditions, list):
+            for index, trigger in enumerate(conditions):
+                if isinstance(trigger, dict):
+                    trigger["id"] = f"trigger_{beat_id}_{index + 1}"
+        encounter = beat.get("encounter")
+        if isinstance(encounter, dict) and planned.encounter_id:
+            encounter["id"] = planned.encounter_id
+        # 线索正文保留模型创作，只把 id 与顺序对齐到计划的 clue_ids。
+        clues = beat.get("key_info")
+        if isinstance(clues, list):
+            planned_clue_ids = list(planned.clue_ids)
+            by_id = {
+                str(item.get("id")): item
+                for item in clues
+                if isinstance(item, dict)
+            }
+            if set(by_id) == set(planned_clue_ids):
+                beat["key_info"] = [
+                    {**by_id[clue_id], "id": clue_id}
+                    for clue_id in planned_clue_ids
+                    if clue_id in by_id
+                ]
+        normalized_beats.append(beat)
+    fragment["beats"] = normalized_beats
+    return fragment
+
+
 async def _generate_fragment(
     *,
     fragment_kind: str,
@@ -1874,6 +1967,7 @@ async def _generate_fragment(
         role=ModelRole.STORY_AUTHORING,
     )
     for attempt in range(MAX_REPAIR_ATTEMPTS + 1):
+        raw = _enforce_fragment_constants(fragment_kind, raw, plan)
         errors = _fragment_errors(
             fragment_kind, raw, plan, registry, compiled_fragments
         )
@@ -2079,6 +2173,35 @@ def _assemble_canon(
     ]
     raw["beats"].extend(fragments["endings"].get("beats", []))
     return raw
+
+
+async def _repair_assembled_canon(
+    raw: dict[str, Any],
+    *,
+    brief: StoryDesignBrief,
+    plan: StoryPlan,
+    stage_label: str,
+) -> tuple[dict[str, Any], Canon]:
+    """对汇总 Canon 执行完整校验，并在失败时做有界修复。
+
+    分片各自通过校验后仍可能因跨分片一致性问题（owner 重复、遭遇/结局计数等）
+    在汇总时失败；这里再给一次完整修复机会，避免前面几十次调用前功尽弃。
+    """
+    for attempt in range(MAX_ASSEMBLY_REPAIRS + 1):
+        canon, errors = _canon_errors(raw)
+        if canon is not None:
+            errors.extend(validate_generated_canon(canon, brief))
+            errors.extend(validate_effect_owner_ledger(canon, plan))
+        if canon is not None and not errors:
+            return raw, canon
+        if attempt == MAX_ASSEMBLY_REPAIRS:
+            raise StoryGenerationError(f"{stage_label}：" + "；".join(errors))
+        raw = await _complete_json(
+            build_canon_repair_prompt(raw, errors),
+            stage=f"汇总修复（第 {attempt + 1} 次）",
+            role=ModelRole.STORY_REPAIR,
+        )
+    raise AssertionError("汇总修复循环未按预期结束")
 
 
 def _adjacent_fragment_summaries(
