@@ -40,6 +40,7 @@ class ModelRole(StrEnum):
     ACTION_COMPILER = "action_compiler"
     STORY_INTERVIEW = "story_interview"
     STORY_PLANNING = "story_planning"
+    STORY_PLANNING_FAST = "story_planning_fast"
     STORY_AUTHORING = "story_authoring"
     STORY_REPAIR = "story_repair"
     STORY_CONTINUITY = "story_continuity"
@@ -57,6 +58,7 @@ _ROLE_ENV_NAMES: dict[ModelRole, str] = {
     ModelRole.ACTION_COMPILER: "ACTION_COMPILER_MODEL",
     ModelRole.STORY_INTERVIEW: "STORY_INTERVIEW_MODEL",
     ModelRole.STORY_PLANNING: "STORY_PLANNING_MODEL",
+    ModelRole.STORY_PLANNING_FAST: "STORY_PLANNING_FAST_MODEL",
     ModelRole.STORY_AUTHORING: "STORY_AUTHORING_MODEL",
     ModelRole.STORY_REPAIR: "STORY_REPAIR_MODEL",
     ModelRole.STORY_CONTINUITY: "STORY_CONTINUITY_MODEL",
