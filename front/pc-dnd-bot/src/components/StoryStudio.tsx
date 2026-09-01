@@ -270,7 +270,10 @@ export function StoryStudio({
               <div className="studio-generation-progress" aria-live="polite">
                 <div>
                   <strong>{generationTask.stage}</strong>
-                  <span>{generationTask.progress}%</span>
+                  <span>
+                    {generationTask.progress}% · 模型调用 {generationTask.llm_calls_used}/
+                    {generationTask.llm_calls_limit}
+                  </span>
                 </div>
                 <progress max={100} value={generationTask.progress} />
                 {isGenerating ? (

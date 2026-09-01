@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import tempfile
 import unittest
@@ -23,9 +24,11 @@ from src.schemas.story import (
 )
 from src.services.story_service import StoryService
 from src.story.generator import (
+    StoryCallContext,
     StoryGenerationError,
     _fragment_errors,
     _generate_story_plan,
+    _invoke_story_model,
     _load_reference_fragments,
     generate_staged_canon,
 )
@@ -35,7 +38,11 @@ from src.story.prompt import (
     build_story_plan_prompt,
     validate_confirmed_design_brief,
 )
-from src.story.store import StoryGenerationStore
+from src.story.store import (
+    StoryGenerationStore,
+    StoryQueueFull,
+    StoryRateLimitExceeded,
+)
 from src.story.validation import (
     story_plan_id_registry,
     validate_fragment_ids,
@@ -538,6 +545,55 @@ class StoryContinuityStructuredOutputTests(unittest.IsolatedAsyncioTestCase):
             {"act_fragments": {"model_dump": {"beats": [beat]}}}
         )
 
+    async def test_fragments_run_in_two_waves_with_concurrency_two(self):
+        plan = _standard_plan()
+        wave_a = {"top_level", "cast", "locations", "actions"}
+        wave_b = {*(f"act:{act.id}" for act in plan.acts), "endings"}
+        completed: set[str] = set()
+        active = 0
+        peak = 0
+        wave_order_errors: list[str] = []
+
+        async def generate_fragment(**kwargs):
+            nonlocal active, peak
+            fragment_kind = kwargs["fragment_kind"]
+            if fragment_kind in wave_b and not wave_a.issubset(completed):
+                wave_order_errors.append(fragment_kind)
+            active += 1
+            peak = max(peak, active)
+            await asyncio.sleep(0)
+            active -= 1
+            completed.add(fragment_kind)
+            return {}, 0
+
+        canon = object()
+        metrics = object()
+        with (
+            patch("src.story.generator._generate_fragment", new=generate_fragment),
+            patch("src.story.generator._fragment_errors", return_value=[]),
+            patch(
+                "src.story.generator._assemble_canon",
+                return_value={"campaign_id": "moon_astrolabe"},
+            ),
+            patch("src.story.generator._canon_errors", return_value=(canon, [])),
+            patch("src.story.generator.validate_generated_canon", return_value=[]),
+            patch("src.story.generator.validate_effect_owner_ledger", return_value=[]),
+            patch("src.story.generator.canon_quality_metrics", return_value=metrics),
+            patch(
+                "src.story.generator._complete_json",
+                new=AsyncMock(return_value={"passed": True, "issues": []}),
+            ),
+        ):
+            await generate_staged_canon(
+                confirmed_brief=_brief(),
+                resume_artifacts={"plan": plan.model_dump()},
+                fragment_concurrency=2,
+            )
+
+        self.assertEqual(completed, wave_a | wave_b)
+        self.assertEqual(peak, 2)
+        self.assertEqual(wave_order_errors, [])
+
     async def test_staged_continuity_calls_use_structured_output_schemas(self):
         plan = _standard_plan()
         artifacts = {"plan": plan.model_dump()}
@@ -600,6 +656,86 @@ class StoryContinuityStructuredOutputTests(unittest.IsolatedAsyncioTestCase):
 
 
 class StoryGenerationStoreTests(unittest.TestCase):
+    def test_llm_call_budget_stops_at_24_and_survives_restart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "generation.sqlite3"
+            store = StoryGenerationStore(path)
+            store.create_task("task_budget", {})
+            store.next_queued_task()
+
+            for expected in range(1, 25):
+                self.assertEqual(
+                    store.reserve_llm_call("task_budget", limit=24), expected
+                )
+            self.assertIsNone(store.reserve_llm_call("task_budget", limit=24))
+            store.close()
+
+            restored = StoryGenerationStore(path)
+            self.assertEqual(restored.get_task("task_budget")["llm_call_count"], 24)
+            self.assertIsNone(restored.reserve_llm_call("task_budget", limit=24))
+            restored.close()
+
+    def test_public_rate_limit_and_task_admission_are_persistent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "generation.sqlite3"
+            store = StoryGenerationStore(path)
+            store.consume_rate_limit(
+                "same_ip", "interview", limit=2, window=timedelta(hours=1)
+            )
+            store.consume_rate_limit(
+                "same_ip", "interview", limit=2, window=timedelta(hours=1)
+            )
+            store.create_task(
+                "task_0",
+                {},
+                requester_key="same_ip",
+                global_active_limit=20,
+                requester_active_limit=1,
+                requester_daily_limit=5,
+            )
+            with self.assertRaises(StoryRateLimitExceeded):
+                store.create_task(
+                    "task_active",
+                    {},
+                    requester_key="same_ip",
+                    global_active_limit=20,
+                    requester_active_limit=1,
+                    requester_daily_limit=5,
+                )
+            with self.assertRaises(StoryQueueFull):
+                store.create_task(
+                    "task_global",
+                    {},
+                    requester_key="other_ip",
+                    global_active_limit=1,
+                )
+            store.mark_failed("task_0", "test")
+            for index in range(1, 5):
+                store.create_task(
+                    f"task_{index}",
+                    {},
+                    requester_key="same_ip",
+                    requester_active_limit=1,
+                    requester_daily_limit=5,
+                )
+                store.mark_failed(f"task_{index}", "test")
+            with self.assertRaises(StoryRateLimitExceeded):
+                store.create_task(
+                    "task_daily",
+                    {},
+                    requester_key="same_ip",
+                    requester_active_limit=1,
+                    requester_daily_limit=5,
+                )
+            store.close()
+
+            restored = StoryGenerationStore(path)
+            with self.assertRaises(StoryRateLimitExceeded):
+                restored.consume_rate_limit(
+                    "same_ip", "interview", limit=2, window=timedelta(hours=1)
+                )
+            restored.close()
+
     def test_restart_recovers_only_validated_artifacts_and_limits_replays(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "generation.sqlite3"
@@ -692,7 +828,127 @@ class StoryGenerationStoreTests(unittest.TestCase):
 
 
 class StoryGenerationServiceFailureTests(unittest.IsolatedAsyncioTestCase):
-    async def test_story_plan_repair_logs_round_issues_and_full_prompt(self):
+    async def test_provider_retries_each_consume_one_call(self):
+        reservations: list[str] = []
+
+        async def reserve(stage: str) -> int:
+            reservations.append(stage)
+            return len(reservations)
+
+        model = AsyncMock()
+        model.ainvoke.side_effect = [TimeoutError(), {"ok": True}]
+        response = await _invoke_story_model(
+            model,
+            "prompt",
+            stage="测试阶段",
+            model_name="test-model",
+            call_context=StoryCallContext(
+                reserve_call=reserve,
+                semaphore=asyncio.Semaphore(1),
+                timeout_seconds=1,
+            ),
+        )
+
+        self.assertEqual(response, {"ok": True})
+        self.assertEqual(reservations, ["测试阶段", "测试阶段"])
+        self.assertEqual(model.ainvoke.await_count, 2)
+
+    async def test_story_llm_semaphore_caps_provider_concurrency_at_three(self):
+        active = 0
+        peak = 0
+        full = asyncio.Event()
+        release = asyncio.Event()
+
+        class BlockingModel:
+            async def ainvoke(self, _prompt: str) -> dict[str, bool]:
+                nonlocal active, peak
+                active += 1
+                peak = max(peak, active)
+                if active == 3:
+                    full.set()
+                await release.wait()
+                active -= 1
+                return {"ok": True}
+
+        async def reserve(_stage: str) -> int:
+            return 1
+
+        context = StoryCallContext(
+            reserve_call=reserve,
+            semaphore=asyncio.Semaphore(3),
+            timeout_seconds=1,
+        )
+        calls = [
+            asyncio.create_task(
+                _invoke_story_model(
+                    BlockingModel(),
+                    "prompt",
+                    stage="并发测试",
+                    model_name="test-model",
+                    call_context=context,
+                )
+            )
+            for _ in range(6)
+        ]
+        try:
+            await asyncio.wait_for(full.wait(), timeout=1)
+            self.assertEqual(peak, 3)
+        finally:
+            release.set()
+            await asyncio.gather(*calls)
+
+    async def test_service_starts_two_story_workers(self):
+        with tempfile.TemporaryDirectory() as directory:
+            service = StoryService(
+                Path(directory) / "canons",
+                Path(directory) / "generation.sqlite3",
+            )
+            blocker = asyncio.Event()
+
+            async def wait_worker(_worker_number: int) -> None:
+                await blocker.wait()
+
+            with (
+                patch("src.services.story_service.STORY_TASK_WORKERS", 2),
+                patch.object(service, "_worker_loop", new=wait_worker),
+            ):
+                await service._ensure_workers()
+                self.assertEqual(len(service._worker_tasks), 2)
+                await service.stop()
+            service._store.close()
+
+    async def test_task_budget_blocks_the_25th_model_attempt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            service = StoryService(
+                Path(directory) / "canons",
+                Path(directory) / "generation.sqlite3",
+            )
+            service._store.create_task("task_budget", _brief().model_dump())
+            claimed = service._store.next_queued_task()
+            provider_attempts = 0
+
+            async def exhaust_budget(**kwargs):
+                nonlocal provider_attempts
+                context = kwargs["call_context"]
+                for _ in range(25):
+                    await context.reserve_call("预算测试")
+                    provider_attempts += 1
+
+            with patch(
+                "src.services.story_service.generate_staged_canon",
+                new=exhaust_budget,
+            ):
+                await service._run_task(claimed)
+
+            response = service.get_generation_task("task_budget")
+            self.assertEqual(response.status, "failed")
+            self.assertEqual(response.llm_calls_used, 24)
+            self.assertEqual(response.llm_calls_limit, 24)
+            self.assertEqual(provider_attempts, 24)
+            self.assertIn("24", response.error)
+            service._store.close()
+
+    async def test_story_plan_repair_logs_only_metadata(self):
         invalid = {"plan_version": 1}
         repaired = _standard_plan().model_dump()
         completion = AsyncMock(side_effect=[invalid, repaired])
@@ -708,9 +964,9 @@ class StoryGenerationServiceFailureTests(unittest.IsolatedAsyncioTestCase):
         repair_prompt = completion.await_args_list[1].args[0]
         log_output = "\n".join(repair_logs.output)
         self.assertIn("修复轮次=1/", log_output)
-        self.assertIn("StoryPlan 字段不合法", log_output)
-        self.assertIn("系统提示词：", log_output)
-        self.assertIn(repair_prompt, log_output)
+        self.assertIn("prompt_chars=", log_output)
+        self.assertNotIn("StoryPlan 字段不合法", log_output)
+        self.assertNotIn(repair_prompt, log_output)
 
     async def test_continuity_or_validation_failure_creates_no_public_draft(self):
         with tempfile.TemporaryDirectory() as directory:

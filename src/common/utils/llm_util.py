@@ -250,6 +250,7 @@ def build_model_registry(
                 model=model.model_id,
                 base_url=provider.base_url,
                 api_key=provider.api_key,
+                max_retries=0,
             )
         except Exception as exc:
             raise LLMConfigurationError(

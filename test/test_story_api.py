@@ -25,6 +25,7 @@ from src.services.story_service import StoryService
 import src.story.generator as story_generator
 from src.story.loader import CanonRegistry
 from src.story.generator import StoryGenerationError, _canon_errors, continue_interview
+from src.story.store import StoryQueueFull, StoryRateLimitExceeded
 
 _CONFIRMED_BRIEF = {
     "revision": 1,
@@ -114,9 +115,50 @@ class StoryApiTests(unittest.TestCase):
         self.assertEqual(fetched.status_code, 200, fetched.text)
         self.assertEqual(deleted.status_code, 200, deleted.text)
         self.assertEqual(created.json()["task_id"], "task_public_contract")
+        self.assertEqual(created.json()["llm_calls_used"], 0)
+        self.assertEqual(created.json()["llm_calls_limit"], 24)
         self.assertEqual(deleted.json()["status"], "cancelled")
         self.assertNotIn("design_brief", created.json())
         self.assertNotIn("story_plan", created.json())
+
+    def test_story_status_rate_limit_returns_retry_after(self):
+        client = TestClient(app)
+        with patch(
+            "src.api.stories.story_service.consume_public_rate_limit",
+            side_effect=StoryRateLimitExceeded("请稍后重试", retry_after=37),
+        ):
+            response = client.get("/api/stories/generation-tasks/task_limited")
+
+        self.assertEqual(response.status_code, 429, response.text)
+        self.assertEqual(response.headers["retry-after"], "37")
+        self.assertEqual(response.json()["detail"]["code"], "story_rate_limited")
+
+    def test_story_queue_full_returns_service_unavailable(self):
+        client = TestClient(app)
+        with patch(
+            "src.api.stories.story_service.create_generation_task",
+            new=AsyncMock(side_effect=StoryQueueFull("故事生成队列已满")),
+        ):
+            response = client.post(
+                "/api/stories/generation-tasks",
+                json={"design_brief": _CONFIRMED_BRIEF},
+            )
+
+        self.assertEqual(response.status_code, 503, response.text)
+        self.assertEqual(response.headers["retry-after"], "60")
+        self.assertEqual(response.json()["detail"]["code"], "story_queue_full")
+
+    def test_story_write_body_is_limited_to_128_kib(self):
+        response = TestClient(app).post(
+            "/api/stories/interview",
+            json={
+                "conversation": [{"role": "user", "content": "测试"}],
+                "padding": "x" * (128 * 1024),
+            },
+        )
+
+        self.assertEqual(response.status_code, 413, response.text)
+        self.assertEqual(response.json()["detail"]["code"], "story_input_too_large")
 
     def test_duplicate_beat_ids_fail_canon_validation(self):
         raw, _canon = _generated_canon()
@@ -281,6 +323,7 @@ class StoryGeneratorTests(unittest.IsolatedAsyncioTestCase):
         model.with_structured_output.assert_called_once_with(
             StoryInterviewResponse,
             method="json_mode",
+            include_raw=True,
         )
         structured_model.ainvoke.assert_awaited_once()
 
@@ -346,12 +389,11 @@ class StoryGeneratorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("soft_choices_only", repair_prompt)
         self.assertIn("StoryInterviewResponse", repair_prompt)
         log_output = "\n".join(repair_logs.output)
-        self.assertIn(f"修复轮次=1/{story_generator.MAX_REPAIR_ATTEMPTS}", log_output)
+        self.assertIn(f"修复轮次=1/{story_generator.MAX_INTERVIEW_REPAIRS}", log_output)
         self.assertIn("待修复问题=2 个", log_output)
-        self.assertIn("design_brief.branching_budget.choice_scope", log_output)
-        self.assertIn("design_brief.side_content.focus", log_output)
-        self.assertIn("系统提示词：", log_output)
-        self.assertIn(repair_prompt, log_output)
+        self.assertIn("prompt_chars=", log_output)
+        self.assertNotIn("soft_choices_only", log_output)
+        self.assertNotIn(repair_prompt, log_output)
 
     async def test_story_interview_repairs_all_long_scale_conflicts_at_once(self):
         invalid = {
@@ -428,7 +470,7 @@ class StoryGeneratorTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(
             completion.await_count,
-            story_generator.MAX_REPAIR_ATTEMPTS + 1,
+            story_generator.MAX_INTERVIEW_REPAIRS + 1,
         )
         self.assertEqual(
             [call.kwargs["role"] for call in completion.await_args_list],
@@ -436,14 +478,18 @@ class StoryGeneratorTests(unittest.IsolatedAsyncioTestCase):
                 ModelRole.STORY_INTERVIEW,
                 *[
                     ModelRole.STORY_REPAIR
-                    for _ in range(story_generator.MAX_REPAIR_ATTEMPTS)
+                    for _ in range(story_generator.MAX_INTERVIEW_REPAIRS)
                 ],
             ],
         )
 
     async def test_invalid_llm_json_fails_explicitly(self):
         structured_model = AsyncMock()
-        structured_model.ainvoke.side_effect = ValueError("结构化输出解析失败")
+        structured_model.ainvoke.return_value = {
+            "raw": SimpleNamespace(content="这不是 JSON"),
+            "parsed": None,
+            "parsing_error": ValueError("结构化输出解析失败"),
+        }
         model = Mock()
         model.with_structured_output.return_value = structured_model
         with (
@@ -461,8 +507,9 @@ class StoryGeneratorTests(unittest.IsolatedAsyncioTestCase):
         model.with_structured_output.assert_called_once_with(
             StoryInterviewResponse,
             method="json_mode",
+            include_raw=True,
         )
-        structured_model.ainvoke.assert_awaited_once()
+        self.assertEqual(structured_model.ainvoke.await_count, 2)
 
     async def test_canon_authoring_and_repair_use_reasoning_roles(self):
         valid_raw, _canon = _generated_canon()
@@ -511,6 +558,7 @@ class StoryGeneratorTests(unittest.IsolatedAsyncioTestCase):
         model.with_structured_output.assert_called_once_with(
             CanonDraft,
             method="json_mode",
+            include_raw=True,
         )
         structured_model.ainvoke.assert_awaited_once()
 

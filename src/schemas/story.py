@@ -260,6 +260,15 @@ class StoryInterviewRequest(BaseModel):
     conversation: list[StoryConversationMessage] = Field(min_length=1, max_length=100)
     design_brief: StoryDesignBrief = Field(default_factory=StoryDesignBrief)
 
+    @model_validator(mode="after")
+    def validate_prompt_size(self) -> "StoryInterviewRequest":
+        """限制一次访谈进入模型的总文本规模。"""
+        total = sum(len(item.content) for item in self.conversation)
+        total += len(self.design_brief.model_dump_json())
+        if total > 32_000:
+            raise ValueError("故事访谈内容总长度不能超过 32000 字符")
+        return self
+
 
 class StoryInterviewResponse(BaseModel):
     """LLM 故事策划输出的结构化访谈结果。"""
@@ -288,6 +297,13 @@ class StoryDraftRequest(BaseModel):
     """用玩家已确认的设计稿生成可发布 Canon。"""
 
     design_brief: StoryDesignBrief
+
+    @model_validator(mode="after")
+    def validate_prompt_size(self) -> "StoryDraftRequest":
+        """限制确认稿进入生成管线的总文本规模。"""
+        if len(self.design_brief.model_dump_json()) > 16_000:
+            raise ValueError("故事设计稿总长度不能超过 16000 字符")
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -1040,6 +1056,8 @@ class StoryGenerationTaskResponse(BaseModel):
     progress: int = Field(ge=0, le=100)
     created_at: datetime
     updated_at: datetime
+    llm_calls_used: int = Field(default=0, ge=0)
+    llm_calls_limit: int = Field(default=24, ge=1)
     error: str | None = None
     draft: StoryDraftResponse | None = None
 

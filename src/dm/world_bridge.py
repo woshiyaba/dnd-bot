@@ -1038,12 +1038,17 @@ async def judge_trigger(
     )
     if not isinstance(data, dict):
         raise RuntimeError(f"[dm] judge_trigger LLM 未返回可解析 JSON：{prompt}")
-    answer = bool(data.get("answer"))
+    answer = data.get("answer")
+    if type(answer) is not bool:
+        raise WorldStateDecisionError("[dm] judge_trigger.answer 必须是 JSON 布尔值")
+    reason = data.get("reason", "")
+    if not isinstance(reason, str):
+        raise WorldStateDecisionError("[dm] judge_trigger.reason 必须是字符串")
     logger.info(
         "[judge_trigger] 「%s」→ %s | 依据=%s",
         prompt,
         "是" if answer else "否",
-        data.get("reason", ""),
+        reason,
     )
     return answer
 

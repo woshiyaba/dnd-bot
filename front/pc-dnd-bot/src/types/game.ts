@@ -333,6 +333,8 @@ export type StoryGenerationTaskResponse = {
   progress: number
   created_at: string
   updated_at: string
+  llm_calls_used: number
+  llm_calls_limit: number
   error?: string | null
   draft?: StoryDraftResponse | null
 }

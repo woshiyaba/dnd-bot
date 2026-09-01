@@ -11,6 +11,19 @@ from typing import Any
 
 TASK_TTL = timedelta(hours=24)
 DRAFT_TTL = timedelta(minutes=30)
+ACTIVE_TASK_STATUSES = ("queued", "running", "cancel_requested")
+
+
+class StoryRateLimitExceeded(RuntimeError):
+    """某个公开故事额度已经耗尽。"""
+
+    def __init__(self, message: str, *, retry_after: int):
+        super().__init__(message)
+        self.retry_after = max(1, int(retry_after))
+
+
+class StoryQueueFull(RuntimeError):
+    """全局故事生成队列已经达到容量。"""
 
 
 def utc_now() -> datetime:
@@ -64,11 +77,13 @@ class StoryGenerationStore:
                     stage TEXT NOT NULL,
                     progress INTEGER NOT NULL,
                     design_brief_json TEXT NOT NULL,
+                    requester_key TEXT,
                     campaign_id TEXT,
                     draft_id TEXT,
                     error_public TEXT,
                     cancel_requested INTEGER NOT NULL DEFAULT 0,
                     repair_count INTEGER NOT NULL DEFAULT 0,
+                    llm_call_count INTEGER NOT NULL DEFAULT 0,
                     continuity_passed INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
@@ -112,7 +127,33 @@ class StoryGenerationStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_generation_tasks_queue
                     ON generation_tasks(status, created_at);
+                CREATE TABLE IF NOT EXISTS story_rate_events (
+                    requester_key TEXT NOT NULL,
+                    bucket TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_story_rate_events_lookup
+                    ON story_rate_events(requester_key, bucket, created_at);
                 """)
+            columns = {
+                str(row["name"])
+                for row in self._connection.execute(
+                    "PRAGMA table_info(generation_tasks)"
+                ).fetchall()
+            }
+            if "requester_key" not in columns:
+                self._connection.execute(
+                    "ALTER TABLE generation_tasks ADD COLUMN requester_key TEXT"
+                )
+            if "llm_call_count" not in columns:
+                self._connection.execute(
+                    "ALTER TABLE generation_tasks "
+                    "ADD COLUMN llm_call_count INTEGER NOT NULL DEFAULT 0"
+                )
+            self._connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_generation_tasks_requester "
+                "ON generation_tasks(requester_key, created_at)"
+            )
 
     def recover_interrupted(self) -> int:
         """启动时把 running 恢复为 queued；validated artifacts 决定最近安全阶段。"""
@@ -171,23 +212,131 @@ class StoryGenerationStore:
             )
             return next_attempt
 
-    def create_task(self, task_id: str, design_brief: dict[str, Any]) -> dict[str, Any]:
+    def create_task(
+        self,
+        task_id: str,
+        design_brief: dict[str, Any],
+        *,
+        requester_key: str | None = None,
+        global_active_limit: int | None = None,
+        requester_active_limit: int | None = None,
+        requester_daily_limit: int | None = None,
+    ) -> dict[str, Any]:
+        """原子检查公开额度并创建任务。"""
         now = utc_now()
         with self._lock, self._connection:
+            status_placeholders = ",".join("?" for _ in ACTIVE_TASK_STATUSES)
+            if global_active_limit is not None:
+                active = self._connection.execute(
+                    f"SELECT COUNT(*) AS count FROM generation_tasks "
+                    f"WHERE status IN ({status_placeholders})",
+                    ACTIVE_TASK_STATUSES,
+                ).fetchone()
+                if int(active["count"]) >= global_active_limit:
+                    raise StoryQueueFull("故事生成队列已满，请稍后重试")
+            if requester_key and requester_active_limit is not None:
+                active = self._connection.execute(
+                    f"SELECT COUNT(*) AS count FROM generation_tasks "
+                    f"WHERE requester_key=? AND status IN ({status_placeholders})",
+                    (requester_key, *ACTIVE_TASK_STATUSES),
+                ).fetchone()
+                if int(active["count"]) >= requester_active_limit:
+                    raise StoryRateLimitExceeded(
+                        "当前来源已有未结束的故事任务",
+                        retry_after=60,
+                    )
+            if requester_key and requester_daily_limit is not None:
+                cutoff = now - timedelta(hours=24)
+                rows = self._connection.execute(
+                    """
+                    SELECT created_at FROM generation_tasks
+                    WHERE requester_key=? AND created_at>=?
+                    ORDER BY created_at
+                    """,
+                    (requester_key, _iso(cutoff)),
+                ).fetchall()
+                if len(rows) >= requester_daily_limit:
+                    oldest = datetime.fromisoformat(rows[0]["created_at"])
+                    retry_after = int(
+                        (oldest + timedelta(hours=24) - now).total_seconds()
+                    )
+                    raise StoryRateLimitExceeded(
+                        "故事生成额度已用尽，请稍后重试",
+                        retry_after=retry_after,
+                    )
             self._connection.execute(
                 """
                 INSERT INTO generation_tasks(
-                    task_id,status,stage,progress,design_brief_json,created_at,updated_at
-                ) VALUES(?, 'queued', '等待生成', 0, ?, ?, ?)
+                    task_id,status,stage,progress,design_brief_json,requester_key,
+                    created_at,updated_at
+                ) VALUES(?, 'queued', '等待生成', 0, ?, ?, ?, ?)
                 """,
                 (
                     task_id,
                     json.dumps(design_brief, ensure_ascii=False),
+                    requester_key,
                     _iso(now),
                     _iso(now),
                 ),
             )
         return self.get_task(task_id) or {}
+
+    def consume_rate_limit(
+        self,
+        requester_key: str,
+        bucket: str,
+        *,
+        limit: int,
+        window: timedelta,
+    ) -> None:
+        """原子消费一个固定窗口公开接口额度。"""
+        now = utc_now()
+        cutoff = now - window
+        with self._lock, self._connection:
+            self._connection.execute(
+                "DELETE FROM story_rate_events "
+                "WHERE requester_key=? AND bucket=? AND created_at<?",
+                (requester_key, bucket, _iso(cutoff)),
+            )
+            rows = self._connection.execute(
+                """
+                SELECT created_at FROM story_rate_events
+                WHERE requester_key=? AND bucket=? AND created_at>=?
+                ORDER BY created_at
+                """,
+                (requester_key, bucket, _iso(cutoff)),
+            ).fetchall()
+            if len(rows) >= limit:
+                oldest = datetime.fromisoformat(rows[0]["created_at"])
+                retry_after = int((oldest + window - now).total_seconds())
+                raise StoryRateLimitExceeded(
+                    "故事接口访问过于频繁，请稍后重试",
+                    retry_after=retry_after,
+                )
+            self._connection.execute(
+                "INSERT INTO story_rate_events(requester_key,bucket,created_at) "
+                "VALUES(?,?,?)",
+                (requester_key, bucket, _iso(now)),
+            )
+
+    def reserve_llm_call(self, task_id: str, *, limit: int) -> int | None:
+        """在真实请求发出前原子预占一次模型调用。"""
+        with self._lock, self._connection:
+            changed = self._connection.execute(
+                """
+                UPDATE generation_tasks
+                SET llm_call_count=llm_call_count+1,updated_at=?
+                WHERE task_id=? AND status='running' AND llm_call_count<?
+                """,
+                (_iso(utc_now()), task_id, limit),
+            ).rowcount
+            if not changed:
+                return None
+            row = self._connection.execute(
+                "SELECT llm_call_count FROM generation_tasks WHERE task_id=?",
+                (task_id,),
+            ).fetchone()
+            return int(row["llm_call_count"])
 
     def next_queued_task(self) -> dict[str, Any] | None:
         with self._lock, self._connection:
@@ -510,6 +659,10 @@ class StoryGenerationStore:
                 """,
                 (_iso(task_cutoff),),
             )
+            self._connection.execute(
+                "DELETE FROM story_rate_events WHERE created_at<=?",
+                (_iso(now - timedelta(hours=24)),),
+            )
 
     @staticmethod
     def _task_dict(row: sqlite3.Row) -> dict[str, Any]:
@@ -519,11 +672,13 @@ class StoryGenerationStore:
             "stage": row["stage"],
             "progress": int(row["progress"]),
             "design_brief": json.loads(row["design_brief_json"]),
+            "requester_key": row["requester_key"],
             "campaign_id": row["campaign_id"],
             "draft_id": row["draft_id"],
             "error": row["error_public"],
             "cancel_requested": bool(row["cancel_requested"]),
             "repair_count": int(row["repair_count"]),
+            "llm_call_count": int(row["llm_call_count"]),
             "continuity_passed": bool(row["continuity_passed"]),
             "created_at": datetime.fromisoformat(row["created_at"]),
             "updated_at": datetime.fromisoformat(row["updated_at"]),

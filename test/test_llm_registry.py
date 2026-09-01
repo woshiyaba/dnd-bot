@@ -74,16 +74,19 @@ class ModelRegistryTests(unittest.TestCase):
                     "model": "deepseek-v4-pro",
                     "base_url": "https://api.deepseek.com",
                     "api_key": "deepseek-secret",
+                    "max_retries": 0,
                 },
                 {
                     "model": "deepseek-v4-flash",
                     "base_url": "https://api.deepseek.com",
                     "api_key": "deepseek-secret",
+                    "max_retries": 0,
                 },
                 {
                     "model": "qwen3.5-plus",
                     "base_url": ("https://dashscope.aliyuncs.com/compatible-mode/v1"),
                     "api_key": "dashscope-secret",
+                    "max_retries": 0,
                 },
             ],
         )

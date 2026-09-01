@@ -2,41 +2,35 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any, Iterable
 
 from src.character.skills import is_combat_skill, skill_definition
 from src.combat.rules import in_reach
 from src.model.combatant import Character, Combatant
-from src.model.enums import Ability
 from src.model.rule_action import ActionDefinition
 
-_DICE_PATTERN = re.compile(r"(\d+d(?:4|6|8|10|12|20)(?:[+-]\d+)?)", re.I)
-_SAVE_METHODS = {f"{ability.value}_save": ability.value for ability in Ability}
-_DAMAGE_WORDS = {
-    "强酸": "acid",
-    "冷冻": "cold",
-    "寒冰": "cold",
-    "火焰": "fire",
-    "力场": "force",
-    "闪电": "lightning",
-    "黯蚀": "necrotic",
-    "毒素": "poison",
-    "心灵": "psychic",
-    "光耀": "radiant",
-    "雷鸣": "thunder",
-    "挥砍": "slashing",
-    "穿刺": "piercing",
-    "钝击": "bludgeoning",
-}
+_SUPPORTED_SKILL_IDS = frozenset(
+    {
+        "feature_divine_smite",
+        "sacred_flame",
+        "cure_wounds",
+        "revivify",
+        "healing_word",
+        "inflict_wounds",
+        "mass_cure_wounds",
+        "mass_healing_word",
+        "harm",
+        "heal",
+    }
+)
 
 
 def skill_action_definition(
     actor: Character, skill_id: str
 ) -> tuple[ActionDefinition | None, str | None]:
-    """把常见的结构化技能目录条目适配成规则行动定义。
+    """把规则已完整建模的技能转换成行动定义。
 
-    无法安全转换的技能返回明确原因，并由行动面板以禁用状态展示。
+    白名单外技能返回明确原因，并由行动面板以禁用状态展示。
     """
     raw = skill_definition(skill_id)
     if raw is None:
@@ -44,6 +38,8 @@ def skill_action_definition(
     learned = next((item for item in actor.skills if item.skill_id == skill_id), None)
     if learned is None:
         return None, "角色未掌握该技能"
+    if skill_id not in _SUPPORTED_SKILL_IDS:
+        return None, "该技能尚未完成规则建模"
 
     if skill_id == "feature_divine_smite":
         effects = [
@@ -107,141 +103,160 @@ def skill_action_definition(
             None,
         )
 
-    if skill_id == "skill_second_wind":
-        return _simple_skill_action(
-            actor,
-            learned,
-            raw,
-            targeting={
-                "faction": "self",
-                "life_state": "alive",
-                "min_targets": 1,
-                "max_targets": 1,
-            },
-            effects=[
-                {
-                    "id": "healing",
-                    "kind": "healing",
-                    "target_mode": "actor",
-                    "dice": "1d10",
-                    "amount_bonus_source": "actor_level",
-                    "when": {"outcomes": ["always"]},
-                }
-            ],
-        )
+    targeting, checks, effects = _skill_action_contract(actor, skill_id)
+    return _simple_skill_action(
+        learned,
+        raw,
+        targeting=targeting,
+        checks=checks,
+        effects=effects,
+    )
+
+
+def _skill_action_contract(
+    actor: Character, skill_id: str
+) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
+    """返回十项白名单技能的完整机械合同。"""
+    ally_one = {
+        "faction": "ally",
+        "life_state": "alive",
+        "range": "any",
+        "min_targets": 1,
+        "max_targets": 1,
+    }
+    ally_six = {**ally_one, "max_targets": 6}
+    enemy_one = {
+        "faction": "enemy",
+        "life_state": "alive",
+        "range": "any",
+        "min_targets": 1,
+        "max_targets": 1,
+    }
+    always = {"outcomes": ["always"]}
 
     if skill_id == "revivify":
-        return _simple_skill_action(
-            actor,
-            learned,
-            raw,
-            targeting={
-                "faction": "ally",
-                "life_state": "down",
-                "range": "melee",
-                "min_targets": 1,
-                "max_targets": 1,
-            },
-            effects=[
+        return (
+            {**ally_one, "life_state": "down", "range": "melee"},
+            [],
+            [
                 {
                     "id": "revive",
                     "kind": "revive",
                     "target_mode": "selected_one",
                     "amount": 1,
-                    "when": {"outcomes": ["always"]},
+                    "when": always,
                 }
             ],
         )
 
-    damage = raw.get("damage_calculation")
-    healing = raw.get("healing_calculation")
-    if isinstance(damage, dict):
-        dice, bonus_source = _calculation_amount(damage)
-        if dice is None:
-            return None, "伤害公式无法转换为受支持的骰子协议"
-        damage_type = _damage_type(str(raw.get("rules_text") or ""))
-        if damage_type is None:
-            return None, "技能文本没有可确定映射的伤害类型"
-        method = str(damage.get("method") or "")
-        checks: list[dict[str, Any]] = []
-        when = {"outcomes": ["always"]}
-        if method == "spell_attack":
-            checks.append(
+    healing = {
+        "cure_wounds": ("1d8", "melee", 1),
+        "healing_word": ("1d4", "any", 1),
+        "mass_cure_wounds": ("3d8", "any", 6),
+        "mass_healing_word": ("1d4", "any", 6),
+    }
+    if skill_id in healing:
+        dice, range_kind, maximum = healing[skill_id]
+        return (
+            {**(ally_six if maximum == 6 else ally_one), "range": range_kind},
+            [],
+            [
+                {
+                    "id": "healing",
+                    "kind": "healing",
+                    "target_mode": "selected_each",
+                    "dice": dice,
+                    "amount_bonus_source": "spellcasting_modifier",
+                    "when": always,
+                }
+            ],
+        )
+
+    if skill_id == "heal":
+        return (
+            ally_one,
+            [],
+            [
+                {
+                    "id": "healing",
+                    "kind": "healing",
+                    "target_mode": "selected_one",
+                    "amount": 70,
+                    "when": always,
+                }
+            ],
+        )
+
+    if skill_id == "inflict_wounds":
+        return (
+            {**enemy_one, "range": "melee"},
+            [
                 {
                     "id": "spell_hit",
                     "kind": "attack_roll",
                     "roller": "actor",
-                    "target_mode": "selected_each",
+                    "target_mode": "selected_one",
                     "bonus_source": "spell_attack",
                 }
-            )
-            when = {"check_template_id": "spell_hit", "outcomes": ["hit", "critical"]}
-        elif method in _SAVE_METHODS:
-            checks.append(
+            ],
+            [
                 {
-                    "id": "saving_throw",
-                    "kind": "saving_throw",
-                    "roller": "target",
-                    "target_mode": "selected_each",
-                    "ability": _SAVE_METHODS[method],
-                    "dc_source": "spell_save",
-                }
-            )
-            when = {"check_template_id": "saving_throw", "outcomes": ["failure"]}
-        elif method:
-            return None, f"暂不支持技能判定方式 {method}"
-        effect = {
-            "id": "damage",
-            "kind": "damage",
-            "target_mode": "selected_each",
-            "dice": dice,
-            "damage_type": damage_type,
-            "when": when,
-        }
-        if bonus_source:
-            effect["amount_bonus_source"] = bonus_source
-        effects = [effect]
-        if method in _SAVE_METHODS and str(damage.get("on_save") or "") == "half":
-            effects.append(
-                {
-                    **effect,
-                    "id": "damage_on_save",
-                    "multiplier": 0.5,
+                    "id": "damage",
+                    "kind": "damage",
+                    "target_mode": "selected_one",
+                    "dice": "3d10",
+                    "damage_type": "necrotic",
                     "when": {
-                        "check_template_id": "saving_throw",
-                        "outcomes": ["success"],
+                        "check_template_id": "spell_hit",
+                        "outcomes": ["hit", "critical"],
                     },
                 }
-            )
-        return _simple_skill_action(actor, learned, raw, checks=checks, effects=effects)
-
-    if isinstance(healing, dict):
-        dice, bonus_source = _calculation_amount(healing)
-        if dice is None:
-            return None, "治疗公式无法转换为受支持的骰子协议"
-        effect: dict[str, Any] = {
-            "id": "healing",
-            "kind": "healing",
-            "target_mode": "selected_each",
-            "dice": dice,
-            "when": {"outcomes": ["always"]},
-        }
-        if bonus_source:
-            effect["amount_bonus_source"] = bonus_source
-        return _simple_skill_action(
-            actor,
-            learned,
-            raw,
-            targeting={
-                "faction": "ally",
-                "life_state": "alive",
-                "min_targets": 1,
-                "max_targets": int(raw.get("max_targets", 1)),
-            },
-            effects=[effect],
+            ],
         )
 
-    return None, "该技能包含尚未实现的规则原语"
+    save_ability = "dexterity" if skill_id == "sacred_flame" else "constitution"
+    dice = (
+        f"{1 + (actor.level >= 5) + (actor.level >= 11) + (actor.level >= 17)}d8"
+        if skill_id == "sacred_flame"
+        else "14d6"
+    )
+    damage_type = "radiant" if skill_id == "sacred_flame" else "necrotic"
+    checks = [
+        {
+            "id": "saving_throw",
+            "kind": "saving_throw",
+            "roller": "target",
+            "target_mode": "selected_one",
+            "ability": save_ability,
+            "dc_source": "spell_save",
+        }
+    ]
+    effects = [
+        {
+            "id": "damage",
+            "kind": "damage",
+            "target_mode": "selected_one",
+            "dice": dice,
+            "damage_type": damage_type,
+            "when": {
+                "check_template_id": "saving_throw",
+                "outcomes": ["failure"],
+            },
+        }
+    ]
+    if skill_id == "harm":
+        effects.append(
+            {
+                **effects[0],
+                "id": "damage_on_save",
+                "multiplier": 0.5,
+                "when": {
+                    "check_template_id": "saving_throw",
+                    "outcomes": ["success"],
+                },
+            }
+        )
+    return enemy_one, checks, effects
 
 
 def canon_action_definitions(
@@ -333,7 +348,6 @@ def world_action_entries(
 
 
 def _simple_skill_action(
-    actor: Character,
     learned: Any,
     raw: dict[str, Any],
     *,
@@ -368,23 +382,6 @@ def _simple_skill_action(
         ),
         None,
     )
-
-
-def _calculation_amount(calculation: dict[str, Any]) -> tuple[str | None, str | None]:
-    base = calculation.get("base") or []
-    text = str(base[0]) if base else ""
-    match = _DICE_PATTERN.search(text)
-    if match is None:
-        return None, None
-    bonus = "spellcasting_modifier" if "施法关键属性调整值" in text else None
-    return match.group(1).lower(), bonus
-
-
-def _damage_type(text: str) -> str | None:
-    for word, damage_type in _DAMAGE_WORDS.items():
-        if word in text:
-            return damage_type
-    return None
 
 
 def _action_entries(

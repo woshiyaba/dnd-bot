@@ -132,6 +132,32 @@ class RoleRoutingTests(unittest.IsolatedAsyncioTestCase):
             "selected/dm_narration",
         )
 
+    async def test_story_trigger_requires_a_real_json_boolean(self):
+        async def judge(answer):
+            with (
+                patch(
+                    "src.dm.world_bridge.get_model_name",
+                    return_value="selected/dm_trigger",
+                ),
+                patch(
+                    "src.dm.world_bridge.dm_complete_json",
+                    AsyncMock(return_value={"answer": answer, "reason": "测试"}),
+                ),
+            ):
+                return await world_bridge.judge_trigger(
+                    "玩家是否已经行动？",
+                    {"location": "大厅", "actors": []},
+                    messages=[],
+                    use_llm=True,
+                )
+
+        self.assertFalse(await judge(False))
+        self.assertTrue(await judge(True))
+        for invalid in ("false", "true", 0, 1, None):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(world_bridge.WorldStateDecisionError):
+                    await judge(invalid)
+
     async def test_combat_decision_and_narration_use_flash_roles(self):
         complete = AsyncMock(return_value={"surprised": []})
         narrate = AsyncMock(return_value="战斗开始。")

@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import secrets
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,8 @@ from src.schemas.story import (
     StorySummary,
 )
 from src.story.generator import (
+    StoryCallContext,
+    StoryGenerationCancelled,
     StoryGenerationError,
     continue_interview,
     generate_canon,
@@ -57,14 +60,20 @@ _STAGE_PROGRESS = {
     "continuity": ("复核故事连贯性", 90),
     "continuity_repair": ("定向修复受影响 Act", 92),
 }
-
-
-class GenerationCancelled(RuntimeError):
-    """任务在安全阶段边界响应了取消。"""
+STORY_TASK_CALL_LIMIT = int(os.getenv("STORY_TASK_CALL_LIMIT", "24"))
+STORY_TASK_WORKERS = int(os.getenv("STORY_TASK_WORKERS", "2"))
+STORY_GLOBAL_LLM_CONCURRENCY = int(os.getenv("STORY_GLOBAL_LLM_CONCURRENCY", "3"))
+STORY_FRAGMENT_CONCURRENCY = int(os.getenv("STORY_FRAGMENT_CONCURRENCY", "2"))
+STORY_CALL_TIMEOUT_SECONDS = float(os.getenv("STORY_CALL_TIMEOUT_SECONDS", "120"))
+STORY_TASK_TIMEOUT_SECONDS = float(os.getenv("STORY_TASK_TIMEOUT_SECONDS", "1200"))
+STORY_GLOBAL_TASK_LIMIT = 20
+STORY_REQUESTER_ACTIVE_LIMIT = 1
+STORY_REQUESTER_DAILY_LIMIT = 5
+STORY_INTERVIEW_CALL_LIMIT = 3
 
 
 class StoryService:
-    """单 worker 生成故事，以 SQLite 保存所有可恢复边界。"""
+    """用有限 worker 生成故事，以 SQLite 保存所有可恢复边界。"""
 
     def __init__(
         self,
@@ -88,7 +97,9 @@ class StoryService:
         self._canon_cache: dict[str, Canon] = {}
         self._publish_lock = asyncio.Lock()
         self._worker_lock = asyncio.Lock()
-        self._worker_task: asyncio.Task[None] | None = None
+        self._worker_tasks: set[asyncio.Task[None]] = set()
+        self._llm_semaphore: asyncio.Semaphore | None = None
+        self._llm_loop: asyncio.AbstractEventLoop | None = None
         self._stopping = False
 
     async def start(self) -> None:
@@ -97,19 +108,17 @@ class StoryService:
         recovered = self._store.recover_interrupted()
         if recovered:
             logger.warning("[story_worker] 恢复 %d 个中断任务", recovered)
-        await self._ensure_worker()
+        await self._ensure_workers()
 
     async def stop(self) -> None:
         """停止消费者；running 记录留给下次启动恢复。"""
         self._stopping = True
-        task = self._worker_task
-        if task is not None and not task.done():
+        tasks = list(self._worker_tasks)
+        for task in tasks:
             task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
-        self._worker_task = None
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        self._worker_tasks.clear()
 
     async def interview(
         self,
@@ -121,6 +130,23 @@ class StoryService:
         return await continue_interview(
             conversation=conversation,
             design_brief=design_brief,
+            call_context=self._local_call_context(STORY_INTERVIEW_CALL_LIMIT),
+        )
+
+    def consume_public_rate_limit(
+        self,
+        requester_key: str,
+        bucket: str,
+        *,
+        limit: int,
+        window_seconds: int,
+    ) -> None:
+        """消费一个公开故事接口额度。"""
+        self._store.consume_rate_limit(
+            requester_key,
+            bucket,
+            limit=limit,
+            window=timedelta(seconds=window_seconds),
         )
 
     def list_stories(self) -> list[StorySummary]:
@@ -130,14 +156,28 @@ class StoryService:
         return [self.summary(canon) for canon in registry.all()]
 
     async def create_generation_task(
-        self, design_brief: dict[str, Any] | StoryDesignBrief
+        self,
+        design_brief: dict[str, Any] | StoryDesignBrief,
+        *,
+        requester_key: str | None = None,
     ) -> StoryGenerationTaskResponse:
         """提交异步生成任务，立即返回可轮询状态。"""
         brief = self._validated_brief(design_brief)
         self._store.purge_expired()
         task_id = secrets.token_urlsafe(24)
-        task = self._store.create_task(task_id, brief.model_dump())
-        await self._ensure_worker()
+        task = self._store.create_task(
+            task_id,
+            brief.model_dump(),
+            requester_key=requester_key,
+            global_active_limit=STORY_GLOBAL_TASK_LIMIT,
+            requester_active_limit=(
+                STORY_REQUESTER_ACTIVE_LIMIT if requester_key else None
+            ),
+            requester_daily_limit=(
+                STORY_REQUESTER_DAILY_LIMIT if requester_key else None
+            ),
+        )
+        await self._ensure_workers()
         return self._task_response(task)
 
     def get_generation_task(self, task_id: str) -> StoryGenerationTaskResponse:
@@ -153,7 +193,9 @@ class StoryService:
         task = self._store.request_cancel(task_id)
         if task is None:
             raise HTTPException(status_code=404, detail="故事生成任务不存在或已经过期")
-        if task["status"] == "cancel_requested" and self._worker_task is None:
+        if task["status"] == "cancel_requested" and not any(
+            not worker.done() for worker in self._worker_tasks
+        ):
             self._store.mark_cancelled(task_id)
             task = self._store.get_task(task_id) or task
         return self._task_response(task)
@@ -163,7 +205,10 @@ class StoryService:
     ) -> StoryDraftResponse:
         """同步兼容包装：仍用真实 LLM，草稿改为 SQLite 持久化。"""
         brief = self._validated_brief(design_brief)
-        raw, canon = await generate_canon(confirmed_brief=brief.model_dump())
+        raw, canon = await generate_canon(
+            confirmed_brief=brief.model_dump(),
+            call_context=self._local_call_context(STORY_TASK_CALL_LIMIT),
+        )
         self._validate_campaign_id(canon.campaign_id)
         draft_id = secrets.token_urlsafe(24)
         quality = canon_quality_metrics(canon, continuity_passed=False)
@@ -182,10 +227,16 @@ class StoryService:
         )
 
     async def create_draft_via_task(
-        self, design_brief: dict[str, Any] | StoryDesignBrief
+        self,
+        design_brief: dict[str, Any] | StoryDesignBrief,
+        *,
+        requester_key: str | None = None,
     ) -> StoryDraftResponse:
         """旧同步 HTTP 接口的兼容包装：提交同一任务管线并等待终态。"""
-        submitted = await self.create_generation_task(design_brief)
+        submitted = await self.create_generation_task(
+            design_brief,
+            requester_key=requester_key,
+        )
         while True:
             task = self._store.get_task(submitted.task_id)
             if task is None:
@@ -253,17 +304,23 @@ class StoryService:
             self._canon_cache.pop(draft_id, None)
             return self.summary(canon)
 
-    async def _ensure_worker(self) -> None:
+    async def _ensure_workers(self) -> None:
         async with self._worker_lock:
             if self._stopping:
                 return
-            if self._worker_task is None or self._worker_task.done():
-                self._worker_task = asyncio.create_task(
-                    self._worker_loop(), name="story-generation-worker"
+            self._worker_tasks = {
+                task for task in self._worker_tasks if not task.done()
+            }
+            while len(self._worker_tasks) < max(1, STORY_TASK_WORKERS):
+                worker_number = len(self._worker_tasks) + 1
+                task = asyncio.create_task(
+                    self._worker_loop(worker_number),
+                    name=f"story-generation-worker-{worker_number}",
                 )
+                self._worker_tasks.add(task)
 
-    async def _worker_loop(self) -> None:
-        """顺序领取 queued 任务；队列耗尽后退出，由下一次提交再次唤醒。"""
+    async def _worker_loop(self, worker_number: int) -> None:
+        """顺序领取 queued 任务；多个 worker 通过 SQLite 原子避免重复领取。"""
         try:
             while not self._stopping:
                 task = self._store.next_queued_task()
@@ -273,7 +330,9 @@ class StoryService:
         except asyncio.CancelledError:
             raise
         except Exception:
-            logger.exception("[story_worker] 消费循环异常退出")
+            logger.exception(
+                "[story_worker] 消费循环异常退出 | worker=%d", worker_number
+            )
 
     async def _run_task(self, task: dict[str, Any]) -> None:
         task_id = task["task_id"]
@@ -284,7 +343,7 @@ class StoryService:
         ) -> None:
             nonlocal repairs
             if self._store.is_cancel_requested(task_id):
-                raise GenerationCancelled()
+                raise StoryGenerationCancelled()
             repairs += max(0, attempt)
             if artifact_key == "plan":
                 campaign_id = str(payload.get("campaign_id_candidate") or "")
@@ -319,15 +378,37 @@ class StoryService:
 
         async def begin_stage(stage_key: str) -> None:
             if self._store.is_cancel_requested(task_id):
-                raise GenerationCancelled()
+                raise StoryGenerationCancelled()
             try:
                 self._store.begin_stage_attempt(task_id, stage_key)
             except RuntimeError as exc:
                 raise StoryGenerationError(str(exc)) from exc
 
+        async def reserve_call(stage: str) -> int:
+            if self._store.is_cancel_requested(task_id):
+                raise StoryGenerationCancelled()
+            count = self._store.reserve_llm_call(
+                task_id,
+                limit=STORY_TASK_CALL_LIMIT,
+            )
+            if count is None:
+                if self._store.is_cancel_requested(task_id):
+                    raise StoryGenerationCancelled()
+                raise StoryGenerationError(
+                    f"模型调用预算已用尽（{STORY_TASK_CALL_LIMIT}/{STORY_TASK_CALL_LIMIT}）"
+                )
+            logger.info(
+                "[story_worker] 模型调用 | task_id=%s | stage=%s | call=%d/%d",
+                task_id,
+                stage,
+                count,
+                STORY_TASK_CALL_LIMIT,
+            )
+            return count
+
         try:
             if self._store.is_cancel_requested(task_id):
-                raise GenerationCancelled()
+                raise StoryGenerationCancelled()
             artifacts = self._store.artifacts(task_id)
             if "plan" in artifacts:
                 campaign_id = str(artifacts["plan"].get("campaign_id_candidate") or "")
@@ -336,16 +417,23 @@ class StoryService:
                     raise StoryGenerationError(
                         "恢复任务的 campaign_id 已被其它任务占用"
                     )
-            raw, canon, quality = await generate_staged_canon(
-                confirmed_brief=task["design_brief"],
-                reserved_campaign_ids=self._store.reserved_campaign_ids(),
-                resume_artifacts=artifacts,
-                on_artifact=persist,
-                on_stage_start=begin_stage,
-                initial_repair_count=repairs,
-            )
+            async with asyncio.timeout(STORY_TASK_TIMEOUT_SECONDS):
+                raw, canon, quality = await generate_staged_canon(
+                    confirmed_brief=task["design_brief"],
+                    reserved_campaign_ids=self._store.reserved_campaign_ids(),
+                    resume_artifacts=artifacts,
+                    on_artifact=persist,
+                    on_stage_start=begin_stage,
+                    initial_repair_count=repairs,
+                    call_context=StoryCallContext(
+                        reserve_call=reserve_call,
+                        semaphore=self._story_llm_semaphore(),
+                        timeout_seconds=STORY_CALL_TIMEOUT_SECONDS,
+                    ),
+                    fragment_concurrency=STORY_FRAGMENT_CONCURRENCY,
+                )
             if self._store.is_cancel_requested(task_id):
-                raise GenerationCancelled()
+                raise StoryGenerationCancelled()
             self._validate_campaign_id(canon.campaign_id)
             draft_id = secrets.token_urlsafe(24)
             self._store.complete_task(
@@ -355,7 +443,7 @@ class StoryService:
                 raw=raw,
                 quality=quality.model_dump(),
             )
-        except GenerationCancelled:
+        except StoryGenerationCancelled:
             self._store.mark_cancelled(task_id)
         except Exception as exc:
             logger.exception("[story_worker] 任务失败 | task_id=%s", task_id)
@@ -385,8 +473,45 @@ class StoryService:
             progress=task["progress"],
             created_at=task["created_at"],
             updated_at=task["updated_at"],
+            llm_calls_used=task.get("llm_call_count", 0),
+            llm_calls_limit=STORY_TASK_CALL_LIMIT,
             error=task.get("error"),
             draft=draft_response,
+        )
+
+    def _story_llm_semaphore(self) -> asyncio.Semaphore:
+        """按当前事件循环懒建全局故事模型信号量。"""
+        loop = asyncio.get_running_loop()
+        if self._llm_semaphore is None or self._llm_loop is not loop:
+            self._llm_loop = loop
+            self._llm_semaphore = asyncio.Semaphore(
+                max(1, STORY_GLOBAL_LLM_CONCURRENCY)
+            )
+        return self._llm_semaphore
+
+    def _local_call_context(self, limit: int) -> StoryCallContext:
+        """为访谈和旧同步入口创建进程内调用预算。"""
+        used = 0
+        lock = asyncio.Lock()
+
+        async def reserve(stage: str) -> int:
+            nonlocal used
+            async with lock:
+                if used >= limit:
+                    raise StoryGenerationError(f"模型调用预算已用尽（{limit}/{limit}）")
+                used += 1
+                logger.info(
+                    "[story_service] 模型调用 | stage=%s | call=%d/%d",
+                    stage,
+                    used,
+                    limit,
+                )
+                return used
+
+        return StoryCallContext(
+            reserve_call=reserve,
+            semaphore=self._story_llm_semaphore(),
+            timeout_seconds=STORY_CALL_TIMEOUT_SECONDS,
         )
 
     @staticmethod
@@ -427,9 +552,13 @@ class StoryService:
         """只公开阶段性失败原因，移除 URL、令牌与供应商细节。"""
         if isinstance(exc, HTTPException):
             text = str(exc.detail)
+        elif isinstance(exc, TimeoutError):
+            text = "故事生成超过 20 分钟，任务已停止"
         elif isinstance(exc, StoryGenerationError):
             raw = str(exc)
-            if "campaign_id" in raw or "ID" in raw and "占用" in raw:
+            if "模型调用预算已用尽" in raw:
+                text = f"故事生成已达到 {STORY_TASK_CALL_LIMIT} 次模型调用上限"
+            elif "campaign_id" in raw or "ID" in raw and "占用" in raw:
                 text = "故事 ID 已被占用，请重新提交生成"
             elif "LLM 调用失败" in raw:
                 text = "故事生成模型调用失败，请稍后重试"
