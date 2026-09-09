@@ -129,7 +129,41 @@ def validate_story_plan(plan: StoryPlan, brief: StoryDesignBrief) -> list[str]:
     clue_ids = set(registry["clues"])
     encounter_ids = set(registry["encounters"])
     flag_ids = set(registry["flags"])
+    if plan.plan_version >= 3:
+        loss = plan.lose_condition
+        if encounter_ids and (
+            loss is None
+            or loss.kind != "combat_outcome"
+            or loss.predicate.outcome != "players_lose"
+            or loss.predicate.encounter_id is not None
+        ):
+            errors.append(
+                "有战斗的新计划 lose_condition 必须是不绑定 encounter_id 的 players_lose，覆盖普通遭遇和高潮战败；当前引擎不支持用叙述把团灭自动改成获胜或复活"
+            )
+        for actor in plan.entities.actors:
+            if actor.kind == "player":
+                errors.append(
+                    f"玩家角色 «{actor.id}» 不得登记为 Canon actor；从角色名册和各拍 actor_ids 删除，玩家由运行时 party 提供"
+                )
+            elif actor.kind is None:
+                errors.append(f"角色 «{actor.id}» 缺少明确的 kind（npc 或 monster）")
     for beat in plan.beats:
+        if plan.plan_version >= 3:
+            if beat.encounter_id and not beat.enemy_actor_ids:
+                errors.append(
+                    f"Beat «{beat.id}» 的 Encounter «{beat.encounter_id}» 缺少明确敌方名单 enemy_actor_ids；先登记敌人，再放入本拍 actor_ids"
+                )
+            if not beat.encounter_id and beat.enemy_actor_ids:
+                errors.append(
+                    f"Beat «{beat.id}» 没有 Encounter，enemy_actor_ids 必须为空"
+                )
+            if len(set(beat.enemy_actor_ids)) != len(beat.enemy_actor_ids):
+                errors.append(f"Beat «{beat.id}» 的 enemy_actor_ids 不得重复")
+            for actor_id in beat.enemy_actor_ids:
+                if actor_id not in actor_ids or actor_id not in beat.actor_ids:
+                    errors.append(
+                        f"Beat «{beat.id}» 的敌人 «{actor_id}» 必须同时登记在角色名册与本拍 actor_ids"
+                    )
         for label, values, allowed in (
             ("location", beat.location_ids, location_ids),
             ("actor", beat.actor_ids, actor_ids),
@@ -371,6 +405,8 @@ def validate_story_plan(plan: StoryPlan, brief: StoryDesignBrief) -> list[str]:
             errors.append("紧凑计划最多允许 12 个 actor")
         triggers = []
         for beat in playable:
+            if not beat.pressure.strip():
+                errors.append(f"Beat «{beat.id}» 缺少推进故事的 pressure")
             if not beat.fail_forward.strip():
                 errors.append(f"Beat «{beat.id}» 缺少可执行的 fail_forward")
             for exit_ in beat.exits:
@@ -378,6 +414,14 @@ def validate_story_plan(plan: StoryPlan, brief: StoryDesignBrief) -> list[str]:
                     errors.append(f"Beat «{beat.id}» 缺少结构化出口 trigger")
                 else:
                     triggers.append(exit_.trigger.model_dump(exclude_none=True))
+                    if (
+                        plan.plan_version >= 4
+                        and exit_.trigger.kind == "location"
+                        and beat.location_ids == [exit_.trigger.predicate.location_id]
+                    ):
+                        errors.append(
+                            f"Beat «{beat.id}» 的出口 location 指向本拍唯一初始地点，会在首次行动后无条件跳拍；改成要求玩家实际达成目标的 action/semantic 条件，不可改指本拍之外的地点"
+                        )
         for name in ("win_condition", "lose_condition"):
             condition = getattr(plan, name)
             if condition is None:

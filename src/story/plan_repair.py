@@ -179,6 +179,9 @@ def _story_plan_structure_signature(raw: dict[str, Any]) -> tuple[Any, ...]:
 def _field_issue_category(
     path: tuple[str | int, ...], error_type: str
 ) -> Literal["local", "structural"]:
+    # 固定槽位是编译前输入，不能按编译后的 StoryPlan 区段局部合并。
+    if path and path[0] == "endings":
+        return "structural"
     names = {str(part) for part in path}
     structural_id_fields = {
         "id",
@@ -255,6 +258,9 @@ def _issue_path(message: str) -> tuple[str | int, ...]:
 
 def _is_structural(message: str) -> bool:
     structural_markers = (
+        "玩家角色",
+        "缺少明确敌方名单",
+        "必须同时登记在角色名册",
         "数量",
         "重复",
         "跨类别",
@@ -282,6 +288,8 @@ def _is_structural(message: str) -> bool:
 
 def _affected_sections(message: str) -> set[str]:
     sections: set[str] = set()
+    if "lose_condition" in message:
+        sections.add("lose_condition")
     if "scale_profile" in message:
         sections.add("scale_profile")
     if any(marker in message for marker in ("Act «", "Beat «", "路径", "节奏")):

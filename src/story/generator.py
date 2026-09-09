@@ -41,6 +41,7 @@ from src.schemas.story import (
     PlanEntityBudget,
     PlanEntityDraft,
     PlanEntity,
+    PlanEntities,
     PlanPayoffDetail,
     PlanRouteText,
     PlanSimpleBatch,
@@ -56,6 +57,8 @@ from src.schemas.story import (
     story_plan_section_repair_schema,
     canon_fragment_schema,
     canon_object_repair_schema,
+    story_entity_roster_schema,
+    story_execution_plan_schema,
 )
 from src.story.prompt import (
     build_canon_authoring_prompt,
@@ -65,6 +68,7 @@ from src.story.prompt import (
     build_fragment_repair_prompt,
     build_story_plan_prompt,
     build_compact_plan_constraints,
+    build_frozen_entity_constraints,
     build_story_plan_repair_prompt,
     build_story_plan_replan_prompt,
     build_story_plan_stage_prompt,
@@ -110,7 +114,7 @@ MAX_STORY_PLAN_LOCAL_REPAIRS = 2
 MAX_STORY_PLAN_REPLANS = 1
 DEFAULT_CALL_TIMEOUT_SECONDS = 120.0
 MAX_ASSEMBLY_REPAIRS = 2
-GENERATION_VERSION = 2
+GENERATION_VERSION = 4
 
 ArtifactCallback = Callable[[str, str, dict[str, Any], int], Awaitable[None]]
 StageStartCallback = Callable[[str], Awaitable[None]]
@@ -284,14 +288,23 @@ async def _complete_json(
         prompt = "只输出一个完整 JSON 对象。\n" + prompt
     model_name = get_model_name(role)
     options: dict[str, Any] = {
-        "max_tokens": 12288 if schema is StoryPlanCandidate else 8192
+        "max_tokens": (
+            12288
+            if schema is not None
+            and schema.__name__ in {"StoryPlanCandidate", "StoryExecutionPlan"}
+            else 8192
+        )
     }
     if model_name.partition("/")[2].startswith("deepseek-v4"):
         # ChatOpenAI 会重命名 max_tokens，DeepSeek 的原生字段通过 extra_body 发送。
         options["extra_body"] = {"max_tokens": options.pop("max_tokens")}
         # V4 默认 high 思考会让 JSON 编译超时；创作事实和复核仍保留 low 思考。
         # https://api-docs.deepseek.com/guides/thinking_mode/
-        if role == ModelRole.STORY_AUTHORING or schema is StoryPlanCandidate:
+        if (
+            role in {ModelRole.STORY_AUTHORING, ModelRole.STORY_REPAIR}
+            or schema is not None
+            and schema.__name__ in {"StoryPlanCandidate", "StoryExecutionPlan"}
+        ):
             options["extra_body"]["thinking"] = {"type": "disabled"}
         elif role in {
             ModelRole.STORY_PLANNING,
@@ -526,12 +539,17 @@ def _log_repair_attempt(
     """只记录修复元数据，不把故事正文和隐藏 Canon 写入日志。"""
     logger.info(
         "[story_generator] 开始%s | 修复轮次=%d/%d | 待修复问题=%d 个 "
-        "| prompt_chars=%d",
+        "| prompt_chars=%d | schema_fields=%s",
         stage,
         repair_round,
         max_attempts,
         len(errors),
         len(prompt),
+        [
+            error.partition(":")[0]
+            for error in errors
+            if re.match(r"^[a-z_][a-z_0-9.]*:", error)
+        ][:8],
     )
 
 
@@ -707,7 +725,8 @@ async def generate_staged_canon(
     if "generation_context" in artifacts and artifacts["generation_context"] != context:
         raise StoryGenerationError("生成版本、设计稿或参考资料已改变，请重新提交任务")
     if "plan" not in artifacts and any(
-        key.startswith("plan:") and key != "plan:core" for key in artifacts
+        key.startswith("plan:") and key not in {"plan:core", "plan:entities"}
+        for key in artifacts
     ):
         raise StoryGenerationError(
             "旧版渐进规划中间产物不能用于新版生成，请重新提交任务"
@@ -738,7 +757,7 @@ async def generate_staged_canon(
             )
     else:
         if call_context and call_context.ensure_budget:
-            call_context.ensure_budget(brief.scale_profile.acts + 10)
+            call_context.ensure_budget(brief.scale_profile.acts + 11)
         reserved = sorted(
             set(reserved_campaign_ids or [])
             | {path.stem for path in CANON_DIR.glob("*.json")}
@@ -874,6 +893,12 @@ async def generate_staged_canon(
                     confirmed_brief=brief,
                     canon=raw,
                     story_core=artifacts.get("plan:core"),
+                    previous_review=(
+                        artifacts.get("continuity_review", {}).get("report")
+                        if repaired
+                        else None
+                    ),
+                    changed_object_ids=snapshot.get("continuity_repair_ids"),
                 ),
                 stage="修复后连贯性复核" if repaired else "连贯性复核",
                 role=ModelRole.STORY_CONTINUITY,
@@ -889,17 +914,17 @@ async def generate_staged_canon(
             break
         if repaired:
             raise StoryGenerationError("定向修复后仍有连贯性错误，任务终止")
-        ids = {
-            str(value)
-            for issue in issues
-            for value in issue.get("affected_object_ids", [])
-        }
-        act_ids = {
-            str(value)
-            for issue in issues
-            for value in issue.get("affected_act_ids", [])
-        }
-        ids.update(beat.id for beat in plan.beats if beat.act_id in act_ids)
+        ids = set()
+        for issue in issues:
+            object_ids = issue.get("affected_object_ids", [])
+            if object_ids:
+                ids.update(str(value) for value in object_ids)
+            else:
+                ids.update(
+                    beat.id
+                    for beat in plan.beats
+                    if beat.act_id in issue.get("affected_act_ids", [])
+                )
         if not ids:
             raise StoryGenerationError("连贯性复核错误缺少合法受影响对象")
         await begin("continuity_repair")
@@ -920,6 +945,7 @@ async def generate_staged_canon(
             "canon": raw,
             "repair_count": total_repairs + 1,
             "continuity_repaired": True,
+            "continuity_repair_ids": sorted(ids),
         }
         # 整个候选先校验，再以单个快照原子保存，避免部分 Act 已更新而标记未提交。
         await persist("continuity_repair", "assembled_canon", snapshot, 1)
@@ -965,7 +991,7 @@ async def _generate_compact_story_plan(
             "act_count": brief.scale_profile.acts,
             "playable_beat_count": brief.scale_profile.playable_beats,
         },
-        instructions="一次确定全局真相、角色动机、因果链、结局意图和 Act 骨架。每 Act 1–3 个可玩 Beat，数量严格匹配确认稿。不要生成正文或战斗卡面。",
+        instructions="一次确定全局真相、角色动机、因果链、结局意图和 Act 骨架。每 Act 1–3 个可玩 Beat，数量严格匹配确认稿。玩家身份由 brief.player_role 给定，不要把玩家另写成 NPC；未命名的玩家主角统一称玩家，不替玩家起名，已出现的玩家人物姓名列入 player_character_names。每场战斗必须有区别于玩家的明确对手。引擎的失败推进针对调查、交流等非团灭挫折；任意遭遇整队战败均进入失败结局，失败结局不能只适用于最终决战。不要生成正文或战斗卡面。",
         artifacts=artifacts,
         validate=lambda value: _validate_plan_frame(
             value, brief, reserved, check_reserved=True
@@ -978,17 +1004,72 @@ async def _generate_compact_story_plan(
         reserved_campaign_ids=reserved,
         call_context=call_context,
     )
+    roster, _ = await _run_plan_stage(
+        artifact_key="plan:entities",
+        label="角色与地点名册",
+        schema=story_entity_roster_schema(
+            brief.scale_profile.locations,
+            brief.scale_profile.encounters,
+            brief.scale_profile.clues,
+        ),
+        brief=brief,
+        state=StoryPlanWorkState(),
+        target={"story_core": core.model_dump()},
+        instructions=(
+            "只生成实体名册，不生成 Beat 或卡面。严格按 schema 的数组长度创建地点、遭遇和线索，"
+            "每个对象用唯一且明确的类别前缀 ID；已有 Act ID 和 ending_win/ending_lose 不得重复使用。"
+            "actors 只登记非玩家角色与怪物，kind 必须为 npc 或 monster，不复制 brief.player_role 中的玩家。"
+            "每场战斗都要在 actors 中登记真实对手，encounters 是战斗本身，不是敌方角色。"
+            "flags/items/actions 只创建必要的少量项；没有规则道具或特殊行动时留空。所有叙事说明用简体中文。"
+        ),
+        artifacts=artifacts,
+        validate=lambda value: _entity_roster_errors(
+            value, {act.id for act in core.acts}, set(core.player_character_names)
+        ),
+        on_artifact=on_artifact,
+        on_stage_start=on_stage_start,
+        call_context=call_context,
+        role=ModelRole.STORY_AUTHORING,
+    )
     if on_stage_start:
         await on_stage_start("plan")
     plan, repairs = await _generate_story_plan(
         brief,
         [value for value in reserved if value != core.campaign_id_candidate],
         story_core=core.model_dump(),
+        frozen_entities=roster.model_dump(exclude_none=True),
         call_context=call_context,
     )
     if [act.id for act in plan.acts] != [act.id for act in core.acts]:
         raise StoryGenerationError("执行计划不得改变已经确认的 Act 骨架")
     return plan, repairs
+
+
+def _entity_roster_errors(
+    roster: PlanEntities, act_ids: set[str], player_names: set[str]
+) -> list[str]:
+    """名册先验收数量、非玩家类型与跨类别 ID；后续计划只能引用这些事实。"""
+    ids = [
+        item.id
+        for category in type(roster).model_fields
+        for item in getattr(roster, category)
+    ]
+    errors = [
+        f"实体 ID «{value}» 重复或占用了章节/结局 ID"
+        for value in set(ids)
+        if ids.count(value) > 1 or value in act_ids | {"ending_win", "ending_lose"}
+    ]
+    errors.extend(
+        f"角色 «{actor.id}» 必须是明确的非玩家 npc 或 monster；玩家由运行时 party 提供"
+        for actor in roster.actors
+        if actor.kind not in {"npc", "monster"}
+    )
+    errors.extend(
+        f"玩家人物 «{actor.name}» 已由 party 扮演，不得重复登记为 actor «{actor.id}»"
+        for actor in roster.actors
+        if actor.name in player_names
+    )
+    return errors
 
 
 BeatOutlineBatch = PlanComplexBatch[PlanBeatOutline]
@@ -2130,28 +2211,71 @@ async def _generate_story_plan(
     *,
     call_context: StoryCallContext | None = None,
     story_core: dict[str, Any] | None = None,
+    frozen_entities: dict[str, Any] | None = None,
 ) -> tuple[StoryPlan, int]:
     """生成并归一化 StoryPlan，按问题类别执行有界修复。"""
+    plan_schema = (
+        story_execution_plan_schema(frozen_entities)
+        if frozen_entities is not None
+        else StoryPlanCandidate
+    )
     raw = await _complete_json(
         build_story_plan_prompt(
-            brief, reserved_campaign_ids=reserved_campaign_ids, story_core=story_core
+            brief,
+            reserved_campaign_ids=reserved_campaign_ids,
+            story_core=story_core,
+            frozen_entities=frozen_entities,
         )
         + "\n生成前额外自检：branch_points.choices 必须是源 Beat 的不同出口 Beat ID，"
         "不是选择文案；剧情分支须在高潮前汇流，最终胜负结局不作为 meaningful branch；"
         "effect_owner_ledger 的 owner_kind 与 owner_id 必须遵守 schema 中的 ID 类别配对。",
         stage="计划",
         role=ModelRole.STORY_PLANNING,
-        schema=StoryPlanCandidate,
+        schema=plan_schema,
         call_context=call_context,
     )
+    if frozen_entities is not None and raw.get("endings") is None:
+        raw["endings"] = {}
     previous_fingerprint: tuple[tuple[str, tuple[str | int, ...]], ...] | None = None
     local_repairs = 0
     replans = 0
 
     while True:
+        if frozen_entities is not None:
+            raw["entities"] = deepcopy(frozen_entities)
+            if not frozen_entities["flags"]:
+                raw["foreshadowing_payoffs"] = []
+            if not frozen_entities["flags"] and not frozen_entities["items"]:
+                raw["effect_owner_ledger"] = []
         if story_core is not None:
             raw["campaign_id_candidate"] = story_core["campaign_id_candidate"]
             raw["plan_version"] = GENERATION_VERSION
+            if isinstance(raw.get("beats"), list):
+                playable = [
+                    beat
+                    for beat in raw["beats"]
+                    if isinstance(beat, dict) and beat.get("kind") != "ending"
+                ]
+                slots = [
+                    act["id"]
+                    for act in story_core["acts"]
+                    for _ in range(act["playable_beat_count"])
+                ]
+                if len(playable) == len(slots):
+                    # 章节归属来自已验收骨架的顺序与配额，不让模型重复分配。
+                    raw["acts"] = [
+                        {
+                            key: value
+                            for key, value in act.items()
+                            if key != "playable_beat_count"
+                        }
+                        for act in story_core["acts"]
+                    ]
+                    for beat, act_id in zip(playable, slots):
+                        beat["act_id"] = act_id
+                    for beat in raw["beats"]:
+                        if isinstance(beat, dict) and beat.get("kind") == "ending":
+                            beat["act_id"] = story_core["acts"][-1]["id"]
         plan, issues, raw = _validate_story_plan_candidate(raw, brief)
         if plan is not None and story_core is not None:
             expected = {
@@ -2196,6 +2320,7 @@ async def _generate_story_plan(
                 confirmed_brief=brief,
                 issues=issues,
                 reserved_campaign_ids=reserved_campaign_ids,
+                frozen_entities=frozen_entities,
             )
             if story_core is not None:
                 repair_prompt += build_compact_plan_constraints(brief, story_core)
@@ -2210,9 +2335,11 @@ async def _generate_story_plan(
                 repair_prompt,
                 stage="计划结构重规划",
                 role=ModelRole.STORY_REPAIR,
-                schema=StoryPlanCandidate,
+                schema=plan_schema,
                 call_context=call_context,
             )
+            if frozen_entities is not None and raw.get("endings") is None:
+                raw["endings"] = {}
             replans += 1
             continue
 
@@ -2221,6 +2348,8 @@ async def _generate_story_plan(
                 "StoryPlan 局部修复预算耗尽：" + "；".join(errors)
             )
         sections = affected_story_plan_sections(issues)
+        if frozen_entities is not None:
+            sections.discard("entities")
         repair_prompt = build_story_plan_repair_prompt(
             candidate=raw,
             confirmed_brief=brief,
@@ -2229,6 +2358,11 @@ async def _generate_story_plan(
         )
         if story_core is not None:
             repair_prompt += build_compact_plan_constraints(brief, story_core)
+        if frozen_entities is not None:
+            repair_prompt += build_frozen_entity_constraints(frozen_entities)
+        repair_prompt += "\n本轮必须实际修改下列校验失败字段，不能原样复制旧区段。允许修改分钟数和线索归属，只有 ID 与出口拓扑固定：\n" + "\n".join(
+            errors
+        )
         _log_repair_attempt(
             stage="StoryPlan 局部修复",
             repair_round=local_repairs + 1,
@@ -2237,13 +2371,29 @@ async def _generate_story_plan(
             max_attempts=MAX_STORY_PLAN_LOCAL_REPAIRS,
         )
         repair_schema = story_plan_section_repair_schema(sections)
-        repair = await _complete_json(
-            repair_prompt,
-            stage=f"计划局部修复（第 {local_repairs + 1} 次）",
-            role=ModelRole.STORY_REPAIR,
-            schema=repair_schema,
-            call_context=call_context,
-        )
+        for format_attempt in range(2):
+            repair = await _complete_json(
+                repair_prompt,
+                stage=f"计划局部修复（第 {local_repairs + 1} 次）",
+                role=ModelRole.STORY_REPAIR,
+                schema=repair_schema,
+                call_context=call_context,
+            )
+            try:
+                repair = repair_schema.model_validate(repair).model_dump(
+                    exclude_none=True
+                )
+                break
+            except ValidationError as exc:
+                detail = "；".join(_story_interview_validation_errors(exc))
+                if format_attempt:
+                    raise StoryGenerationError(
+                        "计划局部修复输出结构不合法：" + detail
+                    ) from exc
+                repair_prompt += (
+                    "\n上次修复输出的层级或字段类型不符合 schema，请重新输出。sections.beats 必须直接是数组，不得再包一层 beats 对象。错误："
+                    + detail
+                )
         try:
             raw = merge_story_plan_sections(
                 previous=raw,
@@ -2325,6 +2475,7 @@ def _enforce_fragment_constants(
         return fragment
 
     plan_beats = {beat.id: beat for beat in plan.beats}
+    plan_actors = {actor.id: actor for actor in plan.entities.actors}
     normalized_beats: list[dict[str, Any]] = []
     if not isinstance(fragment.get("beats"), list):
         return fragment
@@ -2354,6 +2505,9 @@ def _enforce_fragment_constants(
                 beat["entry_state"].update(
                     location_id=None, preserve_current_scene=True
                 )
+                if plan.plan_version >= 4:
+                    # 败局继承战败现场，不把计划中的角色再次实例化到场景中。
+                    beat["entry_state"]["actors"] = []
         # 出口与推进条件 Trigger ID 完全由计划推导，不信任模型逐字符复写。
         beat["exits"] = [
             {
@@ -2370,8 +2524,6 @@ def _enforce_fragment_constants(
                 if exit_.trigger is not None
             ]
             beat["advance_conditions"] = conditions
-            if planned.fail_forward and isinstance(beat.get("stuck_fallback"), dict):
-                beat["stuck_fallback"]["hint"] = planned.fail_forward
         if isinstance(conditions, list):
             for index, trigger in enumerate(conditions):
                 if isinstance(trigger, dict):
@@ -2379,9 +2531,43 @@ def _enforce_fragment_constants(
         encounter = beat.get("encounter")
         if isinstance(encounter, dict) and planned.encounter_id:
             encounter["id"] = planned.encounter_id
+            if plan.plan_version >= 3:
+                encounter["monster_ids"] = list(planned.enemy_actor_ids)
+        entry = beat.get("entry_state")
+        if (
+            plan.plan_version >= 3
+            and isinstance(entry, dict)
+            and isinstance(entry.get("actors"), list)
+        ):
+            for actor in entry["actors"]:
+                if not isinstance(actor, dict):
+                    continue
+                actor_id = actor.get("actor_id")
+                spec = plan_actors.get(actor_id) if isinstance(actor_id, str) else None
+                if spec is not None and spec.kind in {"npc", "monster"}:
+                    actor["name"] = spec.name
+                    actor["type"] = spec.kind
+                    # 卡面只引用已验证 Cast；运行时 build_beat_scene 已负责装配。
+                    actor.pop("card", None)
         # 线索正文保留模型创作，只把 id 与顺序对齐到计划的 clue_ids。
         clues = beat.get("key_info")
         if isinstance(clues, list):
+            if plan.plan_version >= 3:
+                for clue in clues:
+                    if not isinstance(clue, dict):
+                        continue
+                    effects = clue.get("discovery_effects")
+                    flags = (
+                        effects.get("flags_set") if isinstance(effects, dict) else None
+                    )
+                    clue_id = clue.get("id")
+                    if (
+                        isinstance(flags, dict)
+                        and isinstance(clue_id, str)
+                        and flags.get(clue_id) is True
+                    ):
+                        # 发现自身由引擎 discovered_clues 记录，不重复编译成同名 Flag。
+                        flags.pop(clue_id)
             planned_clue_ids = list(planned.clue_ids)
             by_id = {
                 str(item.get("id")): item for item in clues if isinstance(item, dict)
@@ -2423,7 +2609,8 @@ async def _generate_fragment(
         stage=f"分片 {fragment_kind}",
         role=ModelRole.STORY_AUTHORING,
         schema=canon_fragment_schema(
-            "act" if fragment_kind.startswith("act:") else fragment_kind
+            "act" if fragment_kind.startswith("act:") else fragment_kind,
+            authoring=plan.plan_version >= 3,
         ),
         call_context=call_context,
     )
@@ -2496,7 +2683,8 @@ async def _generate_fragment(
             stage=f"分片 {fragment_kind} 修复（第 {attempt + 1} 次）",
             role=ModelRole.STORY_REPAIR,
             schema=canon_fragment_schema(
-                "act" if fragment_kind.startswith("act:") else fragment_kind
+                "act" if fragment_kind.startswith("act:") else fragment_kind,
+                authoring=plan.plan_version >= 3,
             ),
             call_context=call_context,
         )
@@ -2660,6 +2848,24 @@ def _fragment_errors(
             )
             if actual_encounter_id != planned.encounter_id:
                 errors.append(f"Beat «{planned.id}» 的 Encounter 必须与 StoryPlan 一致")
+            if plan.plan_version >= 3:
+                if (
+                    planned.encounter_id
+                    and (raw_beat.get("encounter") or {}).get("monster_ids")
+                    != planned.enemy_actor_ids
+                ):
+                    errors.append(
+                        f"Beat «{planned.id}» 的敌方名单必须与 StoryPlan.enemy_actor_ids 一致"
+                    )
+                actors = {actor.id: actor for actor in plan.entities.actors}
+                for actor in raw_beat["entry_state"]["actors"]:
+                    spec = actors.get(actor["actor_id"])
+                    if spec is not None and (
+                        actor["type"] != spec.kind or actor["name"] != spec.name
+                    ):
+                        errors.append(
+                            f"Beat «{planned.id}» 的角色 «{spec.id}» 身份与类型必须与 StoryPlan 一致"
+                        )
             planned_targets = [exit_.to_beat_id for exit_ in planned.exits]
             actual_targets = [
                 str(exit_.get("next_beat_id")) for exit_ in raw_beat.get("exits", [])
@@ -2700,8 +2906,18 @@ def _fragment_errors(
                 str(item.get("actor_id") or item.get("npc_ref"))
                 for item in (raw_beat.get("entry_state") or {}).get("actors", [])
             }
-            if actual_actor_ids != set(planned.actor_ids):
-                errors.append(f"Beat «{planned.id}» 的在场角色必须精确匹配 StoryPlan")
+            inherited_scene = plan.plan_version >= 4 and planned.id == "ending_lose"
+            if inherited_scene and (
+                raw_beat["entry_state"].get("preserve_current_scene") is not True
+                or raw_beat["entry_state"].get("location_id") is not None
+            ):
+                errors.append("失败结局必须继承当前战败现场，不得重设地点")
+            if actual_actor_ids != set(planned.actor_ids) and not (
+                inherited_scene and not actual_actor_ids
+            ):
+                errors.append(
+                    f"Beat «{planned.id}» 的在场角色必须精确匹配 StoryPlan；缺少 {sorted(set(planned.actor_ids) - actual_actor_ids)}，多余 {sorted(actual_actor_ids - set(planned.actor_ids))}；补齐缺少角色的 actor_id/location_id/disposition，保留已有正确角色"
+                )
     return errors
 
 
@@ -2832,20 +3048,30 @@ async def _repair_canon_objects(
     )
     if not targets:
         raise StoryGenerationError("校验问题无法定位到可修复对象：" + "；".join(errors))
-    schema = canon_object_repair_schema(targets)
+    schema = canon_object_repair_schema(targets, authoring=plan.plan_version >= 3)
+    output_schema = canon_object_repair_schema(targets)
     prompt = (
         "修复以下对象的明确错误，返回 JSON，根对象必须只有 objects 字段，"
         "objects 内的键必须精确匹配待修复对象。"
         "每项返回完整对象，保留 ID、Beat 拓扑、所属关系、时间、已锁定触发条件与效果 owner。"
         "不得改写未列出的对象，不得加入模板或离线故事。\n"
+        "新计划中 entry_state.actors 只写 actor_id/location_id/disposition；name/type/card 从计划和 Cast 装配，不重复输出。\n"
         f"返回层级示意：{json.dumps({'objects': dict.fromkeys(targets, {})}, ensure_ascii=False)}\n"
         f"<schema>{json.dumps(schema.model_json_schema(), ensure_ascii=False, separators=(',', ':'))}</schema>\n"
         f"<errors>{json.dumps(errors, ensure_ascii=False)}</errors>\n"
         f"<brief>{json.dumps(brief.model_dump(), ensure_ascii=False, separators=(',', ':'))}</brief>\n"
         f"<plan>{json.dumps(plan.model_dump(exclude_none=True), ensure_ascii=False, separators=(',', ':'))}</plan>\n"
         f"<objects>{json.dumps({key: objects[key] for key in targets}, ensure_ascii=False, separators=(',', ':'))}</objects>"
+        "\n只按 errors 修复指定对象。若修复 ending_lose，必须适用于任意遭遇战败：不得写固定战场、固定观众、某个特定对手或最终决战；保留当前现场，任务失败的共同后果可作为战败后的叙述。不得改写全局胜负条件。"
     )
     for attempt in range(2):
+        _log_repair_attempt(
+            stage="对象定向修复",
+            repair_round=attempt + 1,
+            errors=errors,
+            prompt=prompt,
+            max_attempts=2,
+        )
         replacement = await _complete_json(
             prompt,
             stage="对象定向修复",
@@ -2853,8 +3079,26 @@ async def _repair_canon_objects(
             schema=schema,
             call_context=call_context,
         )
+        if plan.plan_version >= 3 and isinstance(replacement.get("objects"), dict):
+            for key, value in replacement["objects"].items():
+                if key == "top_level" and key in targets and isinstance(value, dict):
+                    replacement["objects"][key] = _enforce_fragment_constants(
+                        "top_level", value, plan, brief
+                    )
+                if (
+                    key in targets
+                    and key.startswith("beats:")
+                    and isinstance(value, dict)
+                ):
+                    if value.get("id") != key.partition(":")[2]:
+                        raise StoryGenerationError(
+                            f"对象修复不得更改 ID «{key.partition(':')[2]}»"
+                        )
+                    replacement["objects"][key] = _enforce_fragment_constants(
+                        "endings", {"beats": [value]}, plan, brief
+                    )["beats"][0]
         try:
-            replacement = schema.model_validate(replacement).model_dump(
+            replacement = output_schema.model_validate(replacement).model_dump(
                 by_alias=True, exclude_none=True
             )["objects"]
             break

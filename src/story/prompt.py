@@ -18,6 +18,7 @@ from src.schemas.story import (
     StoryPlan,
     StoryPlanCandidate,
     StoryPlanWorkState,
+    story_execution_plan_schema,
     canon_fragment_schema,
     length_limits,
     minimum_branch_points,
@@ -175,10 +176,12 @@ STAGED_GENERATION_RULE = f"""{STORY_SCALE_RULE}
 - 不同目标的分支出口使用 action Trigger；单出口按计划使用具体条件，高潮保留一个指向 ending_win 的出口。每拍最多一个 semantic。
 - 所有敌人按 1 级角色与确认人数静态设计；运行时 LLM 不得改变 HP、AC、伤害、DC 或敌人数量。
 - 每个持久化 Flag/Item 只有一个 owner；DM 只能写 owner_kind=dm_free_write 的普通 Flag。
+- KeyInfo 的发现状态由引擎自动记录在 discovered_clues；禁止把 clue ID 写入 discovery_effects.flags_set，flags_set 只能使用计划已声明的 flag ID。
 - 新 Beat 必须填写 act_id、estimated_minutes、objective、pressure、relevant_clue_ids、payoff_flag_ids；
   每个 KeyInfo 与 Encounter 必须用 location_id 绑定本拍地点，KeyInfo 还要给出 discovery_hints。
 - top_level 必须固定输出 runtime_location_scoping=true，确保 DM 只看到当前地点内容。
 - 只输出调用阶段要求的一个 JSON 对象，不得输出 Markdown、解释、模板故事或离线兜底。
+- 面向玩家和 DM 的叙事文字使用简体中文；协议字段与 ID 保持 schema 指定的英文形式。
 """
 
 _FRAGMENT_CONTRACTS = {
@@ -211,7 +214,7 @@ check_templates 与 effect_templates 必须是引擎封闭协议；禁止自由�
     "endings": """【本阶段：Endings】
 只返回 {"beats":[]}，精确包含计划中的两个 ending Beat：一个 ending_outcome=win，一个 =lose。
 保持计划 id、act_id、estimated_minutes 和地点；advance_conditions 与 exits 为空。失败结局可用
-preserve_current_scene=true。结局叙述应回应 payoff flags、线索和物品差异，但不得创建额外结局路线。""",
+preserve_current_scene=true。全局战败覆盖任意遭遇时，失败文字必须适用于任意战败现场，不能写固定战场、观众或某个特定对手；可以叙述战败后的共同后果。结局叙述应回应 payoff flags、线索和物品差异，但不得创建额外结局路线。""",
 }
 
 CANON_AUTHORING_RULE = """你是 D&D 短篇冒险的【Canon 编译器】，不是运行时地下城主。
@@ -654,31 +657,54 @@ def build_canon_repair_prompt(
     )
 
 
+FIXED_ENDINGS_INPUT_RULE = (
+    "\n执行计划的 beats 只写可玩节点；结局只填写 endings.ending_win 与 endings.ending_lose 两个槽位的 objective、required_facts、payoffs 和可选 estimated_minutes。"
+    "不得在 beats 中再创建 ending 节点，不输出 ending_routes，不为结局起 ID；编译器从这两个槽位同时生成节点与路线映射。"
+)
+
+
 def build_story_plan_prompt(
     confirmed_brief: dict[str, Any] | StoryDesignBrief,
     *,
     reserved_campaign_ids: list[str],
     story_core: dict[str, Any] | None = None,
+    frozen_entities: dict[str, Any] | None = None,
 ) -> str:
     """构造只负责因果、节奏与不可变实体概要的计划任务。"""
     brief = normalize_confirmed_design_brief(confirmed_brief)
     prompt = (
         STAGED_GENERATION_RULE
         + "\n你是 StoryPlan 规划器。先解决故事因果与规模，不生成 Canon 卡面或规则细节。"
-        "严格输出 StoryPlanCandidate schema：plan_version、campaign_id_candidate、start_beat_id、scale_profile、"
-        "acts、beats、entities、clue_graph、branch_points、foreshadowing_payoffs、ending_routes、"
-        "effect_owner_ledger。beats 包含两个结局 Beat；可玩 Beat 数不包含结局。"
+        "严格使用下方 JSON schema。"
         "scale_profile、acts[].beat_ids、acts[].estimated_minutes、branch_points[].choices、"
         "beats[].payoff_flag_ids 可省略，程序会从确认稿和权威字段确定性派生。"
         "不要输出 id_registry，它将由代码从计划派生。每个 clue 至少两种接近方式。"
         "每个 Flag/Item 在 effect_owner_ledger 中恰好一项。\n"
-        f"<story_plan_json_schema>{json.dumps(StoryPlanCandidate.model_json_schema(), ensure_ascii=False)}</story_plan_json_schema>\n"
+        f"<story_plan_json_schema>{json.dumps((story_execution_plan_schema(frozen_entities) if frozen_entities is not None else StoryPlanCandidate).model_json_schema(), ensure_ascii=False)}</story_plan_json_schema>\n"
         f"<confirmed_design_brief>{json.dumps(brief.model_dump(), ensure_ascii=False)}</confirmed_design_brief>\n"
         f"<reserved_campaign_ids>{json.dumps(reserved_campaign_ids, ensure_ascii=False)}</reserved_campaign_ids>"
     )
     if story_core is not None:
         prompt += build_compact_plan_constraints(brief, story_core)
+    if frozen_entities is not None:
+        prompt += (
+            build_frozen_entity_constraints(frozen_entities) + FIXED_ENDINGS_INPUT_RULE
+        )
+    else:
+        prompt += "\nbeats 包含两个结局 Beat，ending_routes 与结局一一对应；可玩 Beat 数不包含结局。"
     return prompt
+
+
+def build_frozen_entity_constraints(entities: dict[str, Any]) -> str:
+    """冻结已验收名册，明确后续生成和修复不得增加实体。"""
+    return (
+        "\n实体名册已经验收并锁定。本次不返回 entities，也不能增加、删除、重命名其中的任何对象。"
+        "所有 Beat/线索/owner 只引用下列既有 ID，每条 clue 只属于一个 Beat、每个 encounter 只属于一个 Beat。"
+        "actors/locations 均至少使用一次。beats[].clue_ids 表示首次发现归属，不是相关线索列表；同一 clue ID 只能出现一次，后续引用写入剧情文字。\n"
+        "名册的 flags 为空时不返回 foreshadowing_payoffs；flags/items 都为空时不返回 effect_owner_ledger，线索不是持久化效果。"
+        "不能为胜利条件或伏笔新造 flag，按实际战斗或行动条件推进。\n"
+        f"<frozen_entities>{json.dumps(entities, ensure_ascii=False, separators=(',', ':'))}</frozen_entities>"
+    )
 
 
 def build_compact_plan_constraints(
@@ -686,15 +712,24 @@ def build_compact_plan_constraints(
 ) -> str:
     """初稿和修复共用同一份紧凑计划契约，避免修复时遗忘数量与拓扑。"""
     return (
-        "\n采用 plan_version=2。执行计划中的实体、线索、出口与效果 owner 必须相互一致。"
+        "\n采用 plan_version=4。执行计划中的实体、线索、出口与效果 owner 必须相互一致。"
+        "玩家角色由运行时 party 提供，brief.player_role 描述的是玩家，不得在 entities.actors/cast/actor_ids 中复制主角。"
+        "entities.actors 每项明确 kind=npc 或 monster；npc 包括人类敌人，不是友好阵营的同义词。"
+        "每个有 encounter_id 的 Beat 必须填写非空 enemy_actor_ids，敌人须先登记在 entities.actors 并加入本拍 actor_ids。"
+        "encounters 中的遭遇条目不等于敌人角色；例如守卫战需要独立的守卫 actor。没有遭遇时 enemy_actor_ids=[]。"
         "不要重复写正文或卡面。严格沿用故事核心的 campaign ID 与 Act 骨架。"
+        "按核心 Act 顺序与各 Act 的拍数顺序编写 beats；程序按这个顺序编译章节归属，结局放在最后一章。"
         "首拍 opening、末个可玩拍 climax；分支采用连续四拍的二选一汇流，climax 指向 ending_win。"
         "两个结局 ID 必须严格是 ending_win 和 ending_lose。失败只通过全局 lose_condition 进入 ending_lose；不要为失败结局添加普通出口或分支。"
         f"可玩拍/章节/地点/遭遇/线索数量分别严格为 {brief.scale_profile.playable_beats}/{brief.scale_profile.acts}/{brief.scale_profile.locations}/{brief.scale_profile.encounters}/{brief.scale_profile.clues}。"
         f"剧情分支严格为 {brief.branching_budget.meaningful_branch_points} 个；为 0 时所有可玩拍只有一个出口，按顺序连接。"
+        f"每条完整游玩路线的 estimated_minutes 合计以 {brief.duration_minutes} 分钟为目标，包含开场、沿途可玩拍和一个结局；互斥分支与两个结局不能累计相加。"
+        "先按确认稿 pacing 分配总时长，再填写每拍分钟数，不要给每拍独立估时后使总时长超标。"
         "每个 exits[].trigger 必须填写 kind、predicate、description；trigger ID 由代码覆盖。"
+        "location 条件必须对应本拍内的实际移动，不能指向本拍唯一初始地点造成自动跳拍；只有一个地点时，用实际行动或明确的 semantic 目标完成条件。"
         "提供 win_condition 与 lose_condition，禁止用 action 作为全局胜负条件。"
-        "战斗胜利绑定高潮 encounter；全局战败可不绑定 encounter。"
+        "战斗胜利绑定高潮 encounter；有战斗时 lose_condition 必须为不绑定 encounter_id 的 combat_outcome/players_lose，覆盖任意遭遇的队伍战败。"
+        "未团灭的调查/交流挫折可以失败推进；真正 players_lose 由引擎进入失败结局，不得承诺靠叙述复活或强行转为战斗胜利。"
         "每个非结局 Beat 提供可执行的 fail_forward；线索接近方式必须是不会泄露答案的发现提示。"
         "所有硬门槛必须在同一路径有前置来源，不能依赖互斥分支独有的物品。"
         "item owner 只能是 discovery 或 rule_action。flags/items/actions 按实际用途最少创建。"
@@ -729,7 +764,7 @@ def build_story_plan_stage_prompt(
         + "\n你是 StoryPlan 渐进规划器。只完成 current_target，严格输出一个 JSON 对象，"
         "不得补写其它阶段、不得返回 Markdown 或解释。若 schema 含 selector/target ID，必须原样返回。\n"
         + instructions
-        + "\n复杂对象每批最多 3 个，简单实体每批最多 5 个；不得添加 schema 外字段。\n"
+        + "\n对象数量以当前 schema 与 current_target 为准；不得添加 schema 外字段。\n"
         f"<current_target>{json.dumps(current_target, ensure_ascii=False, separators=(',', ':'))}</current_target>\n"
         f"<strict_json_schema>{json.dumps(response_schema.model_json_schema(), ensure_ascii=False, separators=(',', ':'))}</strict_json_schema>\n"
         f"<confirmed_design_brief>{json.dumps(brief.model_dump(), ensure_ascii=False, separators=(',', ':'))}</confirmed_design_brief>\n"
@@ -799,21 +834,36 @@ def build_story_plan_replan_prompt(
     confirmed_brief: StoryDesignBrief,
     issues: list[PlanValidationIssue],
     reserved_campaign_ids: list[str],
+    frozen_entities: dict[str, Any] | None = None,
 ) -> str:
     """构造允许调整 ID、数量和图结构的完整 StoryPlan 重规划任务。"""
-    closure = sorted(STORY_PLAN_DEPENDENCY_CLOSURE)
+    closure = sorted(
+        set(STORY_PLAN_DEPENDENCY_CLOSURE)
+        - ({"entities", "ending_routes"} if frozen_entities is not None else set())
+        | ({"endings"} if frozen_entities is not None else set())
+    )
+    rebuild_rule = (
+        "允许重建 acts、beats、受影响实体 ID、Beat 数量与 exits 图结构。"
+        if frozen_entities is None
+        else "允许重建 acts、beats 与 exits 图结构；冻结名册中的实体 ID 不可更改。"
+    )
     return (
         "你是 StoryPlan 结构重规划器。只输出完整 StoryPlanCandidate JSON，不要解释。"
         "保持确认设计稿、内容边界和已有且合法的 campaign_id_candidate；"
-        "允许重建 acts、beats、受影响实体 ID、Beat 数量与 exits 图结构。"
+        f"{rebuild_rule}"
         "必须完整返回依赖闭包，禁止与旧计划按 ID 局部拼接。"
         "返回前核对目标数量、DAG、可达性、分支汇流、payoff 与 owner 契约。\n"
         f"<required_dependency_closure>{json.dumps(closure, ensure_ascii=False)}</required_dependency_closure>\n"
         f"<validation_issues>{json.dumps(_story_plan_issue_payloads(issues), ensure_ascii=False)}</validation_issues>\n"
-        f"<story_plan_candidate_schema>{json.dumps(StoryPlanCandidate.model_json_schema(), ensure_ascii=False)}</story_plan_candidate_schema>\n"
+        f"<story_plan_candidate_schema>{json.dumps((story_execution_plan_schema(frozen_entities) if frozen_entities is not None else StoryPlanCandidate).model_json_schema(), ensure_ascii=False)}</story_plan_candidate_schema>\n"
         f"<immutable_design_brief>{json.dumps(confirmed_brief.model_dump(), ensure_ascii=False)}</immutable_design_brief>\n"
         f"<reserved_campaign_ids>{json.dumps(reserved_campaign_ids, ensure_ascii=False)}</reserved_campaign_ids>\n"
         f"<previous_story_plan_candidate>{json.dumps(candidate, ensure_ascii=False)}</previous_story_plan_candidate>"
+        + (
+            build_frozen_entity_constraints(frozen_entities) + FIXED_ENDINGS_INPUT_RULE
+            if frozen_entities is not None
+            else ""
+        )
     )
 
 
@@ -948,6 +998,12 @@ def build_fragment_prompt(
             contract,
             f"你是 Canon 分片编译器。本次只生成 fragment_kind={fragment_kind} 的完整 JSON 分片。",
             "只能使用 immutable_id_registry 中已经存在的全局 ID；不能新增、重命名或删除 ID。",
+            (
+                "玩家在运行时 party 中，不得生成玩家的 NPC 副本。新计划中 entry_state.actors 只返回 actor_id、location_id、disposition；"
+                "name/type/card 由已验证角色计划和 Cast 统一装配，不要重复生成。Encounter.monster_ids 必须等于本拍 enemy_actor_ids。"
+                if story_plan.get("plan_version", 1) >= 3
+                else "entry_state.actors.type 只能是 npc 或 monster。"
+            ),
             "字段约定：top_level 返回顶层公开字段、runtime_location_scoping=true、declared_flags、"
             "start_beat_id、win/lose_condition；"
             "cast 返回 {cast:[]}；locations 返回 {locations:[]}；act:<id> 返回该 Act 的 {beats:[]}；"
@@ -959,7 +1015,7 @@ def build_fragment_prompt(
             f"<adjacent_fragments>{json.dumps(adjacent_fragments or [], ensure_ascii=False)}</adjacent_fragments>",
             f"<compiled_dependencies>{json.dumps(dependencies, ensure_ascii=False, separators=(',', ':'))}</compiled_dependencies>",
             f"<story_core>{json.dumps(compiled.get('story_core', {}), ensure_ascii=False, separators=(',', ':'))}</story_core>",
-            f"<fragment_schema>{json.dumps(canon_fragment_schema(contract_key).model_json_schema(), ensure_ascii=False, separators=(',', ':'))}</fragment_schema>",
+            f"<fragment_schema>{json.dumps(canon_fragment_schema(contract_key, authoring=story_plan.get('plan_version', 1) >= 3).model_json_schema(), ensure_ascii=False, separators=(',', ':'))}</fragment_schema>",
             f"<functional_reference_fragments>{json.dumps(examples, ensure_ascii=False, separators=(',', ':'))}</functional_reference_fragments>",
         ]
     )
@@ -981,6 +1037,9 @@ def build_fragment_repair_prompt(
         STAGED_GENERATION_RULE
         + f"\n只修复 fragment_kind={fragment_kind} 的下列错误，返回该完整分片。"
         "不得修改其它片段，不得改变确认设计、StoryPlan、ID 或 owner。\n"
+        "修复仅返回本分片约定的顶层字段，禁止混入 top_level/cast 等其它分片。"
+        "以 fragment_schema 为唯一输出结构；不要复制依赖对象或重复战斗卡面。\n"
+        f"<fragment_schema>{json.dumps(canon_fragment_schema('act' if fragment_kind.startswith('act:') else fragment_kind, authoring=story_plan.get('plan_version', 1) >= 3).model_json_schema(), ensure_ascii=False, separators=(',', ':'))}</fragment_schema>\n"
         f"<immutable_design_brief>{json.dumps(brief.model_dump(), ensure_ascii=False)}</immutable_design_brief>\n"
         f"<validated_story_plan>{json.dumps(story_plan, ensure_ascii=False)}</validated_story_plan>\n"
         f"<immutable_id_registry>{json.dumps(id_registry, ensure_ascii=False)}</immutable_id_registry>\n"
@@ -995,22 +1054,39 @@ def build_continuity_review_prompt(
     confirmed_brief: dict[str, Any] | StoryDesignBrief,
     canon: dict[str, Any],
     story_core: dict[str, Any] | None = None,
+    previous_review: dict[str, Any] | None = None,
+    changed_object_ids: list[str] | None = None,
 ) -> str:
     """构造结构化 Pro 连贯性复核；报告问题但无权覆盖确定性校验。"""
     brief = normalize_confirmed_design_brief(confirmed_brief)
-    return (
+    prompt = (
         "你是故事连贯性复核员。只输出 JSON："
         '{"passed":true,"issues":[{"severity":"error|warning","code":"snake_case",'
         '"message":"问题与具体证据","affected_act_ids":["act_id"],"affected_object_ids":["npc或beat等对象ID"]}]}。'
         "检查因果、角色动机、线索答案、伏笔回收、分支后果、失败推进与结局回应；不要重写 Canon。"
         "只有具体矛盾、缺失关键因果和不可执行的硬门槛报告 error，审美建议使用 warning。"
         "角色、地点、行动或结局的问题须填 affected_object_ids；顶层问题使用 top_level。\n"
+        "引擎先检查全局 lose_condition/win_condition，命中后直接进入对应 ending_outcome 结局，不要求当前 Beat 再设置一条结局出口。"
+        "不能仅因 Beat.exits 没有失败出口就报告失败结局不可达；先核对全局条件。"
+        "全局 players_lose 不绑定 encounter_id 是引擎的预期规则，覆盖任何遭遇整队战败，不得建议缩窄为最终战斗。"
+        "failure_style 的失败推进适用于非团灭的调查或交流受挫；正文若把失败结局局限在决战，报告并修复相关结局 Beat 的文字，不得改写已锁定的全局条件。"
+        "entry_state.actors 是非玩家名册，玩家由运行时 party 提供。角色卡面可从 cast 引用，不要求每拍复制。"
+        "stuck_fallback.hint 是叙事提示，不能自行修改 HP、复活玩家、改写战斗胜负或跳过结构化推进条件。"
         "逐条检查互斥路线的物品前提、条件行动的成功/失败效果、消耗后能否继续、关键 NPC 死亡后线索来源。"
         "自然语言条件、自由行动、条件效果和未托管 flag 未被静态检查证明；不得仅凭 ID 存在就认定可执行。"
         f"<story_core>{json.dumps(story_core or {}, ensure_ascii=False)}</story_core>\n"
         f"<immutable_design_brief>{json.dumps(brief.model_dump(), ensure_ascii=False)}</immutable_design_brief>\n"
         f"<canon>{json.dumps(canon, ensure_ascii=False)}</canon>"
     )
+    prompt += "\n运行约定：preserve_current_scene=true 的失败结局保留战败时的地点与人物，location_ids 不会将玩家传送到其它现场；仍须检查结局文字是否错误假定了指定地点或对手。队伍战败直接进入败局是当前引擎契约，failure_style 的失败推进只适用于非团灭挫折，不得要求不存在的自动复活或中间战败状态。"
+    if previous_review is not None:
+        prompt += (
+            "\n这是定向修复验收，不是重新制定审稿标准。逐项核验前次 error 是否解决，并检查本轮修改引入的新矛盾。"
+            "此前 warning 保持级别，除非本次修改引入了具体的新故障；不得把未改动内容的审美建议升级为 error。"
+            f"<previous_review>{json.dumps(previous_review, ensure_ascii=False)}</previous_review>"
+            f"<changed_object_ids>{json.dumps(changed_object_ids or [], ensure_ascii=False)}</changed_object_ids>"
+        )
+    return prompt
 
 
 def build_continuity_repair_prompt(

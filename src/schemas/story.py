@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from functools import lru_cache
 import re
-from typing import Any, Generic, Literal, TypeVar
+from typing import Annotated, Any, Generic, Literal, TypeVar, Union
 
 from pydantic import BaseModel, ConfigDict, Field, create_model, model_validator
 
@@ -358,6 +358,16 @@ class CanonTriggerPredicateDraft(CanonDraftModel):
     action: str | None = None
 
 
+TRIGGER_PREDICATE_FIELDS = {
+    "flag": {"flag", "equals", "all", "any"},
+    "item": {"item_id"},
+    "location": {"location_id"},
+    "combat_outcome": {"outcome", "encounter_id"},
+    "semantic": {"prompt"},
+    "action": {"action"},
+}
+
+
 class CanonTriggerDraft(CanonDraftModel):
     """剧情推进或整局胜负条件。"""
 
@@ -370,15 +380,7 @@ class CanonTriggerDraft(CanonDraftModel):
     def validate_predicate(self) -> "CanonTriggerDraft":
         """在模型输出边界拒绝缺参数或混用种类的触发条件。"""
         predicate = self.predicate.model_dump(exclude_none=True)
-        fields = {
-            "flag": {"flag", "equals", "all", "any"},
-            "item": {"item_id"},
-            "location": {"location_id"},
-            "combat_outcome": {"outcome", "encounter_id"},
-            "semantic": {"prompt"},
-            "action": {"action"},
-        }
-        if set(predicate) - fields[self.kind]:
+        if set(predicate) - TRIGGER_PREDICATE_FIELDS[self.kind]:
             raise ValueError("predicate 字段与 Trigger kind 不匹配")
         if self.kind == "flag":
             selectors = [key for key in ("flag", "all", "any") if key in predicate]
@@ -764,8 +766,28 @@ class CanonDraft(CanonDraftModel):
     beats: list[CanonBeatDraft] = Field(min_length=1)
 
 
-@lru_cache(maxsize=8)
-def canon_fragment_schema(kind: str) -> type[BaseModel]:
+@lru_cache(maxsize=1)
+def canon_beat_authoring_schema() -> type[BaseModel]:
+    """章节只编写角色站位和态度；身份、加载类型与卡面引用由计划和 Cast 编译。"""
+    actor = create_model(
+        "CanonActorPlacement",
+        __config__=ConfigDict(extra="forbid"),
+        **{
+            name: (field.annotation, field)
+            for name, field in CanonEntryActorDraft.model_fields.items()
+            if name in {"actor_id", "disposition", "location_id"}
+        },
+    )
+    entry = create_model(
+        "CanonEntryAuthoring", __base__=CanonEntryStateDraft, actors=(list[actor], ...)
+    )
+    return create_model(
+        "CanonBeatAuthoring", __base__=CanonBeatDraft, entry_state=(entry, ...)
+    )
+
+
+@lru_cache(maxsize=16)
+def canon_fragment_schema(kind: str, *, authoring: bool = False) -> type[BaseModel]:
     """从完整 Canon 的唯一字段定义派生分片边界。"""
     fields = {
         "cast": {"cast"},
@@ -780,20 +802,29 @@ def canon_fragment_schema(kind: str) -> type[BaseModel]:
         f"CanonFragment_{kind}",
         __config__=ConfigDict(extra="forbid"),
         **{
-            name: (field.annotation, field)
+            name: (
+                (
+                    list[canon_beat_authoring_schema()]
+                    if authoring and name == "beats"
+                    else field.annotation
+                ),
+                field,
+            )
             for name, field in CanonDraft.model_fields.items()
             if name in fields
         },
     )
 
 
-def canon_object_repair_schema(targets: list[str]) -> type[BaseModel]:
+def canon_object_repair_schema(
+    targets: list[str], *, authoring: bool = False
+) -> type[BaseModel]:
     """只允许返回本轮白名单内的完整对象。"""
     types = {
         "cast": CanonNpcDraft,
         "locations": CanonLocationDraft,
         "action_definitions": CanonActionDefinitionDraft,
-        "beats": CanonBeatDraft,
+        "beats": canon_beat_authoring_schema() if authoring else CanonBeatDraft,
         "top_level": canon_fragment_schema("top_level"),
     }
     objects = create_model(
@@ -899,16 +930,45 @@ class PlanEntity(BaseModel):
     summary: str = ""
 
 
+class PlanActorEntity(PlanEntity):
+    """角色类型只在计划中决定一次；玩家不进入 Canon 在场者名册。"""
+
+    kind: Literal["npc", "monster", "player"] | None = Field(
+        default=None,
+        description="新计划必须明确填写。npc 为非玩家角色，monster 为怪物；玩家属于运行时 party，不得登记为 Canon actor。player 仅用于报告并拒绝错误的玩家登记。",
+    )
+
+
 class PlanEntities(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    actors: list[PlanEntity] = Field(default_factory=list)
+    actors: list[PlanActorEntity] = Field(default_factory=list)
     locations: list[PlanEntity] = Field(default_factory=list)
     encounters: list[PlanEntity] = Field(default_factory=list)
     clues: list[PlanEntity] = Field(default_factory=list)
     flags: list[PlanEntity] = Field(default_factory=list)
     items: list[PlanEntity] = Field(default_factory=list)
     actions: list[PlanEntity] = Field(default_factory=list)
+
+
+@lru_cache(maxsize=32)
+def story_entity_roster_schema(
+    locations: int, encounters: int, clues: int
+) -> type[BaseModel]:
+    """在一个小任务中固定实体数量，后续计划只引用已验收名册。"""
+    return create_model(
+        "StoryEntityRoster",
+        __base__=PlanEntities,
+        actors=(list[PlanActorEntity], Field(min_length=1, max_length=12)),
+        **{
+            name: (list[PlanEntity], Field(min_length=count, max_length=count))
+            for name, count in (
+                ("locations", locations),
+                ("encounters", encounters),
+                ("clues", clues),
+            )
+        },
+    )
 
 
 class PlanAct(BaseModel):
@@ -938,11 +998,15 @@ class PlanBeat(BaseModel):
     kind: Literal["opening", "exploration", "conflict", "climax", "ending"]
     estimated_minutes: int = Field(ge=1, le=120)
     objective: str = Field(min_length=1)
-    pressure: str = Field(min_length=1)
+    pressure: str = ""
     dramatic_question: str = ""
     entry_hook: str = ""
     location_ids: list[str] = Field(default_factory=list)
     actor_ids: list[str] = Field(default_factory=list)
+    enemy_actor_ids: list[str] = Field(
+        default_factory=list,
+        description="有 encounter 时必须明确列出敌方 actor ID，全部属于本拍 actor_ids；无 encounter 时为空。不得包含玩家。",
+    )
     clue_ids: list[str] = Field(default_factory=list)
     encounter_id: str | None = None
     exits: list[PlanExit] = Field(default_factory=list)
@@ -976,6 +1040,29 @@ class PlanPayoff(BaseModel):
     setup_beat_id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
     payoff_beat_id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
     description: str = Field(min_length=1)
+
+
+class PlanEndingContent(BaseModel):
+    """模型创作结局内容，节点标识和胜负类型由编译器决定。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    objective: str = Field(min_length=1)
+    required_facts: list[str] = Field(default_factory=list)
+    payoffs: list[str] = Field(default_factory=list)
+
+
+class PlanEndingSlot(PlanEndingContent):
+    estimated_minutes: int | None = Field(default=None, ge=0, le=120)
+
+
+class PlanEndings(BaseModel):
+    """固定双结局槽位，不要求模型重复创建结局 ID。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ending_win: PlanEndingSlot
+    ending_lose: PlanEndingSlot
 
 
 class PlanEndingRoute(BaseModel):
@@ -1041,10 +1128,22 @@ class PlanActCandidate(PlanAct):
     beat_ids: list[str] | None = None
 
 
+class PlanTriggerCandidate(CanonTriggerDraft):
+    """计划输入允许省略代码派生的 Trigger ID；完整 Canon 仍要求合法 ID。"""
+
+    id: str | None = None
+
+
+class PlanExitCandidate(PlanExit):
+    trigger: PlanTriggerCandidate | None = None
+
+
 class PlanBeatCandidate(PlanBeat):
     """允许省略由伏笔账本唯一推导字段的 Beat 候选。"""
 
     payoff_flag_ids: list[str] | None = None
+    estimated_minutes: int = Field(ge=0, le=120)
+    exits: list[PlanExitCandidate] = Field(default_factory=list)
 
 
 class PlanBranchPointCandidate(PlanBranchPoint):
@@ -1068,10 +1167,133 @@ class StoryPlanCandidate(BaseModel):
     clue_graph: list[PlanClueLink] = Field(default_factory=list)
     branch_points: list[PlanBranchPointCandidate] = Field(default_factory=list)
     foreshadowing_payoffs: list[PlanPayoff] = Field(default_factory=list)
-    ending_routes: list[PlanEndingRoute] = Field(min_length=2, max_length=2)
+    ending_routes: list[PlanEndingRoute] = Field(
+        default_factory=list, min_length=2, max_length=2
+    )
+    endings: PlanEndings | None = None
     effect_owner_ledger: list[EffectOwner] = Field(default_factory=list)
-    win_condition: CanonTriggerDraft | None = None
-    lose_condition: CanonTriggerDraft | None = None
+    win_condition: PlanTriggerCandidate | None = None
+    lose_condition: PlanTriggerCandidate | None = None
+
+
+def story_execution_plan_schema(entities: dict[str, Any]) -> type[BaseModel]:
+    """执行计划中的引用直接使用冻结 ID 枚举，不再让模型发明引用或效果。"""
+    ids = {
+        name: tuple(item["id"] for item in values) for name, values in entities.items()
+    }
+
+    def reference(category: str):
+        return Literal[ids[category]] if ids[category] else type(None)
+
+    predicate = create_model(
+        "PlanBoundPredicate",
+        __base__=CanonTriggerPredicateDraft,
+        **{
+            field: (reference(category) | None, None)
+            for field, category in (
+                ("flag", "flags"),
+                ("item_id", "items"),
+                ("location_id", "locations"),
+                ("encounter_id", "encounters"),
+            )
+        },
+        all=(
+            list[reference("flags")] | None,
+            Field(default=None, max_length=len(ids["flags"])),
+        ),
+        any=(
+            list[reference("flags")] | None,
+            Field(default=None, max_length=len(ids["flags"])),
+        ),
+    )
+    variants = []
+    for kind, names in TRIGGER_PREDICATE_FIELDS.items():
+        if (
+            kind in {"flag", "item"}
+            and not ids[{"flag": "flags", "item": "items"}[kind]]
+        ):
+            continue
+        selected_predicate = create_model(
+            f"PlanPredicate_{kind}",
+            __config__=ConfigDict(extra="forbid"),
+            **{
+                name: (
+                    predicate.model_fields[name].annotation,
+                    predicate.model_fields[name],
+                )
+                for name in sorted(names)
+            },
+        )
+        variants.append(
+            create_model(
+                f"PlanTrigger_{kind}",
+                __base__=PlanTriggerCandidate,
+                kind=(Literal[kind], ...),
+                predicate=(selected_predicate, ...),
+            )
+        )
+    trigger = Annotated[Union[tuple(variants)], Field(discriminator="kind")]
+    exit_ = create_model(
+        "PlanBoundExit", __base__=PlanExitCandidate, trigger=(trigger | None, None)
+    )
+    beat = create_model(
+        "PlanBoundBeat",
+        __base__=PlanBeatCandidate,
+        kind=(Literal["opening", "exploration", "conflict", "climax"], ...),
+        **{
+            field: (list[reference(category)], Field(default_factory=list))
+            for field, category in (
+                ("actor_ids", "actors"),
+                ("enemy_actor_ids", "actors"),
+                ("location_ids", "locations"),
+                ("clue_ids", "clues"),
+            )
+        },
+        encounter_id=(reference("encounters") | None, None),
+        exits=(list[exit_], Field(default_factory=list)),
+    )
+    clue = create_model(
+        "PlanBoundClue", __base__=PlanClueLink, clue_id=(reference("clues"), ...)
+    )
+    fields = {
+        name: (field.annotation, field)
+        for name, field in StoryPlanCandidate.model_fields.items()
+        if name not in {"entities", "ending_routes"}
+    }
+    fields.update(
+        beats=(list[beat], Field(min_length=1)),
+        endings=(PlanEndings, ...),
+        clue_graph=(
+            list[clue],
+            Field(min_length=len(ids["clues"]), max_length=len(ids["clues"])),
+        ),
+        win_condition=(trigger | None, None),
+        lose_condition=(trigger | None, None),
+    )
+    resources = ids["flags"] + ids["items"]
+    if resources:
+        owner = create_model(
+            "PlanBoundOwner", __base__=EffectOwner, effect_id=(Literal[resources], ...)
+        )
+        fields["effect_owner_ledger"] = (
+            list[owner],
+            Field(min_length=len(resources), max_length=len(resources)),
+        )
+    else:
+        fields.pop("effect_owner_ledger")
+    if ids["flags"]:
+        payoff = create_model(
+            "PlanBoundPayoff", __base__=PlanPayoff, flag_id=(reference("flags"), ...)
+        )
+        fields["foreshadowing_payoffs"] = (
+            list[payoff],
+            Field(default_factory=list, max_length=len(ids["flags"])),
+        )
+    else:
+        fields.pop("foreshadowing_payoffs")
+    return create_model(
+        "StoryExecutionPlan", __config__=ConfigDict(extra="forbid"), **fields
+    )
 
 
 def story_plan_section_repair_schema(
@@ -1099,8 +1321,8 @@ def _story_plan_section_repair_schema(
             Field(min_length=2, max_length=2),
         ),
         "effect_owner_ledger": (list[EffectOwner], ...),
-        "win_condition": (CanonTriggerDraft, ...),
-        "lose_condition": (CanonTriggerDraft, ...),
+        "win_condition": (PlanTriggerCandidate, ...),
+        "lose_condition": (PlanTriggerCandidate, ...),
     }
     unknown = sorted(set(section_names) - set(section_fields))
     if unknown:
@@ -1170,6 +1392,9 @@ class StoryPlanFrame(BaseModel):
 class StoryPlanCore(StoryPlanFrame):
     """紧凑全局创作事实，先锁定真相与因果，再生成执行计划。"""
 
+    player_character_names: list[str] = Field(
+        description="故事核心中由 brief.player_role 指定给玩家扮演的人物名字；没有姓名则为空。这里的人物不得再创建 NPC，不要替玩家新增姓名。"
+    )
     truth: str = Field(min_length=1, max_length=2000)
     character_motivations: list[str] = Field(min_length=1, max_length=12)
     causal_chain: list[str] = Field(min_length=1, max_length=12)
@@ -1257,13 +1482,8 @@ class PlanPayoffDetail(BaseModel):
     description: str = Field(min_length=1)
 
 
-class PlanEndingDetail(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+class PlanEndingDetail(PlanEndingContent):
     ending_id: Literal["ending_win", "ending_lose"]
-    objective: str = Field(min_length=1)
-    required_facts: list[str] = Field(default_factory=list)
-    payoffs: list[str] = Field(default_factory=list)
 
 
 class PlanEffectOwnerChoice(BaseModel):

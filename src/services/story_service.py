@@ -26,6 +26,7 @@ from src.schemas.story import (
     StorySummary,
 )
 from src.story.generator import (
+    GENERATION_VERSION,
     StoryCallContext,
     StoryGenerationCancelled,
     StoryGenerationError,
@@ -76,6 +77,7 @@ STORY_INTERVIEW_CALL_LIMIT = 3
 
 _PLAN_PROGRESS = (
     ("plan:core", "确定故事真相与章节", 12),
+    ("plan:entities", "确定角色与地点名册", 16),
     ("plan:frame", "规划章节骨架", 10),
     ("plan:beat_outline:", "规划 Beat 大纲", 12),
     ("plan:branches", "规划分支蓝图", 14),
@@ -321,7 +323,7 @@ class StoryService:
                             StoryPlan.model_validate(artifacts["plan"]),
                         )[1]
                     )
-                    if artifacts.get("generation_context", {}).get("version") == 2:
+                    if artifacts.get("generation_context", {}).get("version", 0) >= 2:
                         reviews = [
                             artifacts.get(key, {})
                             for key in ("continuity_review", "continuity_review_final")
@@ -569,6 +571,11 @@ class StoryService:
                     story=self.summary(canon),
                     quality=quality,
                 )
+        error = task.get("error")
+        if task["status"] == "failed":
+            context = self._store.artifacts(task["task_id"]).get("generation_context")
+            if context and context.get("version") != GENERATION_VERSION:
+                error = "旧版本计划缺少玩家与敌方约束，请按已确认的设计稿重新生成"
         return StoryGenerationTaskResponse(
             task_id=task["task_id"],
             status=task["status"],
@@ -579,7 +586,7 @@ class StoryService:
             llm_calls_used=task.get("llm_call_count", 0),
             llm_calls_limit=STORY_TASK_CALL_LIMIT * (1 + task.get("retry_count", 0)),
             can_retry=self._can_retry(task),
-            error=task.get("error"),
+            error=error,
             draft=draft_response,
         )
 
@@ -589,9 +596,11 @@ class StoryService:
             return False
         if "不兼容" in (task.get("error") or ""):
             return False
-        final = self._store.artifacts(task["task_id"]).get(
-            "continuity_review_final", {}
-        )
+        artifacts = self._store.artifacts(task["task_id"])
+        context = artifacts.get("generation_context")
+        if context and context.get("version") != GENERATION_VERSION:
+            return False
+        final = artifacts.get("continuity_review_final", {})
         return final.get("report", {}).get("passed") is not False
 
     def _story_llm_semaphore(self) -> asyncio.Semaphore:
@@ -653,7 +662,7 @@ class StoryService:
         if errors:
             raise HTTPException(status_code=422, detail="；".join(errors))
         brief = normalize_confirmed_design_brief(design_brief)
-        if brief.scale_profile.acts + 10 > STORY_TASK_CALL_LIMIT:
+        if brief.scale_profile.acts + 11 > STORY_TASK_CALL_LIMIT:
             raise HTTPException(
                 status_code=422,
                 detail="当前模型调用预算不足以生成该规模剧本，请减少章节或调整服务预算",

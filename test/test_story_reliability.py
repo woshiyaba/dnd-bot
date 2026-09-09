@@ -33,7 +33,15 @@ def generated_story():
     """完整标准篇测试数据，所有生产校验均保持启用。"""
     brief = _brief()
     data = _standard_plan().model_dump(exclude_none=True)
-    data["plan_version"] = 2
+    data["plan_version"] = 4
+    for actor in data["entities"]["actors"]:
+        actor["kind"] = "npc"
+    for beat in data["beats"]:
+        if beat["kind"] == "ending":
+            beat["actor_ids"] = []
+        beat["enemy_actor_ids"] = (
+            list(beat["actor_ids"]) if beat.get("encounter_id") else []
+        )
     data["win_condition"] = {
         "id": "win_condition",
         "kind": "semantic",
@@ -57,6 +65,7 @@ def generated_story():
     core = StoryPlanCore.model_validate(
         {
             "campaign_id_candidate": plan.campaign_id_candidate,
+            "player_character_names": [],
             "acts": [
                 {
                     "id": act.id,
@@ -174,6 +183,27 @@ def generated_story():
     return brief, core, plan, raw
 
 
+def execution_candidate(plan):
+    """模型输入只写剧情拍及固定双结局内容，不重复编写结局节点与路线。"""
+    candidate = plan.model_dump(
+        exclude_none=True, exclude={"entities", "ending_routes"}
+    )
+    endings = {beat.id: beat for beat in plan.beats if beat.kind == "ending"}
+    candidate["endings"] = {
+        route.ending_id: {
+            "objective": endings[route.ending_id].objective,
+            "estimated_minutes": endings[route.ending_id].estimated_minutes,
+            "required_facts": route.required_facts,
+            "payoffs": route.payoffs,
+        }
+        for route in plan.ending_routes
+    }
+    candidate["beats"] = [
+        beat for beat in candidate["beats"] if beat["kind"] != "ending"
+    ]
+    return candidate
+
+
 def model_responder(core, plan, raw, calls):
     fragments = _canon_fragments(raw, plan)
 
@@ -183,10 +213,17 @@ def model_responder(core, plan, raw, calls):
         calls.append((stage, len(prompt)))
         if stage == "计划 故事核心与章节":
             return core.model_dump()
+        if stage == "计划 角色与地点名册":
+            return plan.entities.model_dump(exclude_none=True)
         if stage == "计划":
-            return plan.model_dump(exclude_none=True)
+            return execution_candidate(plan)
         if stage.startswith("分片 "):
-            return deepcopy(fragments[stage.removeprefix("分片 ")])
+            fragment = deepcopy(fragments[stage.removeprefix("分片 ")])
+            for beat in fragment.get("beats", []):
+                for actor in beat["entry_state"]["actors"]:
+                    for key in ("name", "type", "card"):
+                        actor.pop(key, None)
+            return fragment
         if "连贯性" in stage:
             return {"passed": True, "issues": []}
         raise AssertionError(stage)
@@ -206,7 +243,7 @@ class StoryReliabilityTests(unittest.IsolatedAsyncioTestCase):
 
         def respond(request):
             requests.append(json.loads(request.content))
-            truncated = len(requests) == 4
+            truncated = len(requests) == 5
             return httpx.Response(
                 200,
                 json={
@@ -250,6 +287,7 @@ class StoryReliabilityTests(unittest.IsolatedAsyncioTestCase):
                     ModelRole.STORY_PLANNING_FAST,
                     ModelRole.STORY_AUTHORING,
                     ModelRole.STORY_CONTINUITY,
+                    ModelRole.STORY_REPAIR,
                 ):
                     await _complete_json(
                         "返回复核结果",
@@ -263,7 +301,7 @@ class StoryReliabilityTests(unittest.IsolatedAsyncioTestCase):
                     role=ModelRole.STORY_CONTINUITY,
                     schema=StoryContinuityReview,
                 )
-        self.assertEqual(len(requests), 5)
+        self.assertEqual(len(requests), 6)
         self.assertTrue(
             all("JSON" in request["messages"][0]["content"] for request in requests)
         )
@@ -271,7 +309,460 @@ class StoryReliabilityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(requests[0]["reasoning_effort"], "low")
         self.assertEqual(requests[1]["thinking"], {"type": "disabled"})
         self.assertEqual(requests[2]["reasoning_effort"], "low")
-        self.assertEqual(requests[4]["thinking"], {"type": "disabled"})
+        self.assertEqual(requests[3]["thinking"], {"type": "disabled"})
+        self.assertNotIn("reasoning_effort", requests[3])
+        self.assertEqual(requests[5]["thinking"], {"type": "disabled"})
+
+    async def test_invalid_actor_type_is_compiled_without_model_repair(self):
+        from src.story.generator import _generate_fragment
+        from src.model.dm_state import build_beat_scene
+
+        brief, _, plan, raw = generated_story()
+        kind = f"act:{plan.acts[0].id}"
+        compiled = _canon_fragments(raw, plan)
+        fragment = deepcopy(compiled[kind])
+        for beat in fragment["beats"]:
+            for clue in beat["key_info"]:
+                clue.setdefault("discovery_effects", {}).setdefault("flags_set", {})[
+                    clue["id"]
+                ] = True
+            for actor in beat["entry_state"]["actors"]:
+                actor.update(
+                    type="player", name="被错误重写的名字", card={"current_hp": 999}
+                )
+        completion = AsyncMock(return_value=fragment)
+        with patch("src.story.generator._complete_json", completion):
+            result, repairs = await _generate_fragment(
+                fragment_kind=kind,
+                brief=brief,
+                plan=plan,
+                registry=story_plan_id_registry(plan),
+                ledger=[item.model_dump() for item in plan.effect_owner_ledger],
+                reference_fragments=[],
+                adjacent_fragments=[],
+                compiled_fragments=compiled,
+            )
+        completion.assert_awaited_once()
+        self.assertEqual(repairs, 0)
+        self.assertEqual(
+            _fragment_errors(
+                kind, result, plan, story_plan_id_registry(plan), compiled
+            ),
+            [],
+        )
+        schema = completion.await_args.kwargs["schema"].model_json_schema()
+        self.assertEqual(
+            set(schema["$defs"]["CanonActorPlacement"]["properties"]),
+            {"actor_id", "disposition", "location_id"},
+        )
+        raw["beats"] = [
+            next((item for item in result["beats"] if item["id"] == beat["id"]), beat)
+            for beat in raw["beats"]
+        ]
+        canon, errors = _full_canon_errors(raw, brief, plan)
+        self.assertEqual(errors, [])
+        scene = build_beat_scene(canon, canon.beat(result["beats"][0]["id"]))
+        for actor in scene["actors"]:
+            self.assertEqual(actor["card"], canon.npc(actor["actor_id"]).card)
+        repaired = deepcopy(result["beats"][0])
+        for actor in repaired["entry_state"]["actors"]:
+            actor["type"] = "enemy"
+        with patch(
+            "src.story.generator._complete_json",
+            return_value={"objects": {f"beats:{repaired['id']}": repaired}},
+        ):
+            result = await _repair_canon_objects(
+                raw,
+                ids={repaired["id"]},
+                errors=["修复文字"],
+                brief=brief,
+                plan=plan,
+                call_context=None,
+            )
+        self.assertEqual(_full_canon_errors(result, brief, plan)[1], [])
+
+    async def test_player_roster_and_missing_enemy_fail_before_compilation(self):
+        from src.story.generator import _validate_story_plan_candidate
+
+        brief, _, plan, _ = generated_story()
+        data = plan.model_dump()
+        data["entities"]["actors"][0]["kind"] = "player"
+        next(beat for beat in data["beats"] if beat["encounter_id"])[
+            "enemy_actor_ids"
+        ] = []
+        _, issues, _ = _validate_story_plan_candidate(data, brief)
+        self.assertTrue(
+            any(
+                "玩家角色" in issue.message and issue.category == "structural"
+                for issue in issues
+            )
+        )
+        self.assertTrue(
+            any(
+                "缺少明确敌方名单" in issue.message and issue.category == "structural"
+                for issue in issues
+            )
+        )
+        with patch("src.story.generator._complete_json", AsyncMock()) as completion:
+            with self.assertRaisesRegex(StoryGenerationError, "已持久化 StoryPlan"):
+                await generate_staged_canon(
+                    confirmed_brief=brief, resume_artifacts={"plan": data}
+                )
+        completion.assert_not_awaited()
+
+    async def test_plan_trigger_ids_are_compiled_before_strict_validation(self):
+        from src.story.generator import _validate_story_plan_candidate
+        from src.schemas.story import CanonTriggerDraft
+
+        brief, _, plan, _ = generated_story()
+        raw = plan.model_dump(exclude_none=True)
+        ending_minutes = next(
+            beat["estimated_minutes"]
+            for beat in raw["beats"]
+            if beat["id"] == "ending_win"
+        )
+        raw["beats"][0]["estimated_minutes"] += ending_minutes - 1
+        for beat in raw["beats"]:
+            if beat["kind"] == "ending":
+                beat["estimated_minutes"] = 0
+                beat["pressure"] = ""
+            for exit_ in beat["exits"]:
+                exit_["trigger"].pop("id")
+        raw["win_condition"].pop("id")
+        raw["lose_condition"].pop("id")
+        climax = next(beat for beat in raw["beats"] if beat["kind"] == "climax")
+        climax["exits"] = []
+        climax["fail_forward"] = ""
+        normalized, issues, _ = _validate_story_plan_candidate(raw, brief)
+        self.assertEqual(issues, [])
+        self.assertEqual(normalized.win_condition.id, "win_condition")
+        compiled_climax = next(
+            beat for beat in normalized.beats if beat.kind == "climax"
+        )
+        self.assertEqual(compiled_climax.exits[0].to_beat_id, "ending_win")
+        self.assertEqual(
+            compiled_climax.exits[0].trigger.predicate,
+            normalized.win_condition.predicate,
+        )
+        self.assertTrue(
+            all(
+                beat.estimated_minutes == 1
+                for beat in normalized.beats
+                if beat.kind == "ending"
+            )
+        )
+        for beat in normalized.beats:
+            for index, exit_ in enumerate(beat.exits, 1):
+                self.assertEqual(exit_.trigger.id, f"trigger_{beat.id}_{index}")
+        with self.assertRaises(ValidationError):
+            CanonTriggerDraft.model_validate(raw["win_condition"])
+        raw["beats"][0]["exits"][0]["trigger"] = {
+            "kind": "location",
+            "predicate": {"location_id": raw["beats"][0]["location_ids"][0]},
+        }
+        self.assertTrue(
+            any(
+                "初始地点" in issue.message
+                for issue in _validate_story_plan_candidate(raw, brief)[1]
+            )
+        )
+
+    async def test_fixed_ending_slots_remove_dangling_ending_ids_without_replanning(
+        self,
+    ):
+        from src.schemas.story import story_execution_plan_schema
+        from src.story.generator import (
+            _generate_story_plan,
+            _validate_story_plan_candidate,
+        )
+
+        brief, core, plan, _ = generated_story()
+        broken = plan.model_dump(exclude_none=True)
+        for beat in broken["beats"]:
+            if beat["kind"] == "ending":
+                beat["id"] += "_alias"
+        _, issues, _ = _validate_story_plan_candidate(broken, brief)
+        self.assertTrue(
+            any("不存在的 Beat «ending_win»" in issue.message for issue in issues)
+        )
+
+        candidate = execution_candidate(plan)
+        for beat in candidate["beats"]:
+            if beat["kind"] == "climax":
+                beat["exits"] = []
+        roster = plan.entities.model_dump(exclude_none=True)
+        schema = story_execution_plan_schema(roster)
+        schema.model_validate(candidate)
+        for change in ("missing", "alias", "duplicate"):
+            with self.subTest(change=change):
+                invalid = deepcopy(candidate)
+                if change == "missing":
+                    invalid["endings"].pop("ending_win")
+                elif change == "alias":
+                    invalid["endings"]["ending_victory"] = invalid["endings"].pop(
+                        "ending_win"
+                    )
+                else:
+                    invalid["beats"].append(
+                        next(
+                            beat.model_dump()
+                            for beat in plan.beats
+                            if beat.kind == "ending"
+                        )
+                    )
+                with self.assertRaises(ValidationError):
+                    schema.model_validate(invalid)
+
+        with patch(
+            "src.story.generator._complete_json", return_value=candidate
+        ) as completion:
+            compiled, repairs = await _generate_story_plan(
+                brief, [], story_core=core.model_dump(), frozen_entities=roster
+            )
+        completion.assert_awaited_once()
+        self.assertEqual(repairs, 0)
+        self.assertEqual(compiled.ending_routes, plan.ending_routes)
+        self.assertEqual(
+            {
+                beat.id: beat.objective
+                for beat in compiled.beats
+                if beat.kind == "ending"
+            },
+            {beat.id: beat.objective for beat in plan.beats if beat.kind == "ending"},
+        )
+        _, issues, _ = _validate_story_plan_candidate(compiled.model_dump(), brief)
+        self.assertEqual(issues, [])
+
+    async def test_missing_ending_slot_replans_before_local_section_merge(self):
+        from src.story.generator import _generate_story_plan
+
+        brief, core, plan, _ = generated_story()
+        candidate = execution_candidate(plan)
+        for change in ("slot", "all", "null"):
+            with self.subTest(change=change):
+                invalid = deepcopy(candidate)
+                if change == "slot":
+                    invalid["endings"].pop("ending_win")
+                elif change == "all":
+                    invalid.pop("endings")
+                else:
+                    invalid["endings"] = None
+                with patch(
+                    "src.story.generator._complete_json",
+                    side_effect=[invalid, deepcopy(candidate)],
+                ) as completion:
+                    compiled, repairs = await _generate_story_plan(
+                        brief,
+                        [],
+                        story_core=core.model_dump(),
+                        frozen_entities=plan.entities.model_dump(exclude_none=True),
+                    )
+                self.assertEqual(repairs, 1)
+                self.assertEqual(
+                    completion.await_args.kwargs["stage"], "计划结构重规划"
+                )
+                self.assertEqual(compiled.ending_routes, plan.ending_routes)
+
+    async def test_plan_repair_corrects_invalid_envelope_before_merge(self):
+        from src.story.generator import _generate_story_plan
+
+        brief, _, plan, _ = generated_story()
+        raw = plan.model_dump(exclude_none=True)
+        valid_beats = deepcopy(raw["beats"])
+        raw["beats"][0]["pressure"] = ""
+        completion = AsyncMock(
+            side_effect=[
+                raw,
+                {
+                    "repair_kind": "story_plan_sections",
+                    "sections": {"beats": {"beats": valid_beats}},
+                },
+                {
+                    "repair_kind": "story_plan_sections",
+                    "sections": {"beats": valid_beats},
+                },
+            ]
+        )
+        with patch("src.story.generator._complete_json", completion):
+            repaired, repairs = await _generate_story_plan(brief, [])
+        self.assertEqual(completion.await_count, 3)
+        self.assertEqual(repairs, 1)
+        self.assertEqual(repaired.beats[0].pressure, plan.beats[0].pressure)
+
+    async def test_frozen_roster_is_reused_and_cannot_be_rewritten_by_plan(self):
+        from src.story.generator import _generate_story_plan, _entity_roster_errors
+        from src.schemas.story import (
+            story_entity_roster_schema,
+            story_execution_plan_schema,
+        )
+
+        brief, core, plan, raw = generated_story()
+        roster = plan.entities.model_dump(exclude_none=True)
+        self.assertTrue(
+            _entity_roster_errors(plan.entities, set(), {plan.entities.actors[0].name})
+        )
+        candidate = execution_candidate(plan)
+        candidate["entities"] = {"clues": [{"id": "clue_invented"}]}
+        with patch(
+            "src.story.generator._complete_json", return_value=candidate
+        ) as completion:
+            result, repairs = await _generate_story_plan(
+                brief, [], frozen_entities=roster
+            )
+        self.assertEqual(result.entities, plan.entities)
+        self.assertEqual(repairs, 0)
+        self.assertNotIn(
+            "entities", completion.await_args.kwargs["schema"].model_fields
+        )
+        schema = story_entity_roster_schema(
+            brief.scale_profile.locations,
+            brief.scale_profile.encounters,
+            brief.scale_profile.clues,
+        )
+        invalid_roster = deepcopy(roster)
+        invalid_roster["clues"].pop()
+        with self.assertRaises(ValidationError):
+            schema.model_validate(invalid_roster)
+        empty_resources = {**roster, "flags": [], "items": []}
+        execution_schema = story_execution_plan_schema(empty_resources)
+        self.assertNotIn("foreshadowing_payoffs", execution_schema.model_fields)
+        self.assertNotIn("effect_owner_ledger", execution_schema.model_fields)
+        bound_beat = execution_schema.model_fields["beats"].annotation.__args__[0]
+        invalid_beat = plan.beats[0].model_dump()
+        invalid_beat["actor_ids"] = ["actor_invented"]
+        with self.assertRaises(ValidationError):
+            bound_beat.model_validate(invalid_beat)
+        invalid_beat = plan.beats[0].model_dump()
+        invalid_beat["exits"][0]["trigger"] = {
+            "kind": "semantic",
+            "predicate": {
+                "prompt": "离开现场",
+                "location_id": roster["locations"][0]["id"],
+            },
+        }
+        with self.assertRaises(ValidationError):
+            bound_beat.model_validate(invalid_beat)
+        calls = []
+        with patch(
+            "src.story.generator._complete_json",
+            side_effect=model_responder(core, plan, raw, calls),
+        ):
+            await generate_staged_canon(
+                confirmed_brief=brief,
+                resume_artifacts={
+                    "plan:core": core.model_dump(),
+                    "plan:entities": roster,
+                },
+            )
+        self.assertEqual(calls[0][0], "计划")
+        self.assertFalse(
+            any(
+                stage in {"计划 故事核心与章节", "计划 角色与地点名册"}
+                for stage, _ in calls
+            )
+        )
+        candidate = execution_candidate(plan)
+        candidate["acts"] = []
+        for beat in candidate["beats"]:
+            beat["act_id"] = "act_wrong"
+        with patch(
+            "src.story.generator._complete_json", return_value=candidate
+        ) as completion:
+            result, repairs = await _generate_story_plan(
+                brief, [], story_core=core.model_dump(), frozen_entities=roster
+            )
+        self.assertEqual(
+            [beat.act_id for beat in result.beats], [beat.act_id for beat in plan.beats]
+        )
+        self.assertEqual(repairs, 0)
+        completion.assert_awaited_once()
+
+    async def test_full_validation_rejects_actor_and_enemy_drift(self):
+        brief, _, plan, raw = generated_story()
+        beat = next(beat for beat in raw["beats"] if beat.get("encounter"))
+        beat["entry_state"]["actors"][0]["type"] = "monster"
+        beat["encounter"]["monster_ids"] = [plan.entities.actors[0].id]
+        errors = _full_canon_errors(raw, brief, plan)[1]
+        self.assertTrue(any("身份与类型" in error for error in errors), errors)
+        self.assertTrue(any("敌方名单" in error for error in errors), errors)
+
+    async def test_battle_failure_must_have_global_route_and_hints_remain_repairable(
+        self,
+    ):
+        from src.story.generator import _validate_story_plan_candidate
+        from src.session.story_nodes import evaluate_advancement, transition_to_beat
+
+        brief, _, plan, raw = generated_story()
+        data = plan.model_dump()
+        data["lose_condition"]["predicate"]["encounter_id"] = next(
+            beat.encounter_id for beat in plan.beats if beat.encounter_id
+        )
+        _, issues, _ = _validate_story_plan_candidate(data, brief)
+        self.assertTrue(any("lose_condition" in issue.message for issue in issues))
+        target = raw["beats"][0]
+        corrected = deepcopy(target)
+        corrected["stuck_fallback"][
+            "hint"
+        ] = "调查受挫时寻找旁证；若队伍战败则进入失败结局。"
+        with patch(
+            "src.story.generator._complete_json",
+            return_value={"objects": {f"beats:{target['id']}": corrected}},
+        ):
+            repaired = await _repair_canon_objects(
+                raw,
+                ids={target["id"]},
+                errors=["失败提示不可执行"],
+                brief=brief,
+                plan=plan,
+                call_context=None,
+            )
+        self.assertEqual(
+            repaired["beats"][0]["stuck_fallback"]["hint"],
+            corrected["stuck_fallback"]["hint"],
+        )
+        self.assertEqual(_full_canon_errors(repaired, brief, plan)[1], [])
+        top = deepcopy(_canon_fragments(raw, plan)["top_level"])
+        top["lose_condition"]["predicate"]["encounter_id"] = "enc_invented"
+        with patch(
+            "src.story.generator._complete_json",
+            return_value={"objects": {"top_level": top}},
+        ):
+            repaired_top = await _repair_canon_objects(
+                raw,
+                ids={"top_level"},
+                errors=["调整顶层说明"],
+                brief=brief,
+                plan=plan,
+                call_context=None,
+            )
+        self.assertEqual(repaired_top["lose_condition"], raw["lose_condition"])
+        canon, _ = _full_canon_errors(repaired, brief, plan)
+        with patch("src.session.story_nodes.current_canon", return_value=canon):
+            for beat in canon.beats:
+                if beat.encounter is None:
+                    continue
+                result = await evaluate_advancement(
+                    {
+                        "story": {"current_beat_id": beat.id},
+                        "last_combat": {
+                            "encounter_id": beat.encounter.id,
+                            "outcome": "players_lose",
+                        },
+                    }
+                )
+                self.assertEqual(result["story"]["pending_next_beat_id"], "ending_lose")
+                scene = {
+                    "location_id": beat.location_ids[0],
+                    "actors": [{"actor_id": beat.encounter.monster_ids[0]}],
+                }
+                transitioned = transition_to_beat(
+                    {"story": {"current_beat_id": beat.id}, "scene": scene},
+                    "ending_lose",
+                )
+                self.assertEqual(
+                    transitioned["scene"]["location_id"], scene["location_id"]
+                )
+                self.assertEqual(transitioned["scene"]["actors"], scene["actors"])
 
     async def test_complete_generation_uses_real_validation_budget_and_store(self):
         brief, core, plan, raw = generated_story()
@@ -304,6 +795,15 @@ class StoryReliabilityTests(unittest.IsolatedAsyncioTestCase):
                     )
                 self.assertEqual(restored, artifacts["assembled_canon"]["canon"])
                 self.assertTrue(metrics.continuity_passed)
+                from fastapi import HTTPException
+
+                stale = deepcopy(artifacts)
+                stale["continuity_review"]["canon_hash"] = "old_content"
+                with (
+                    patch.object(service._store, "artifacts", return_value=stale),
+                    self.assertRaisesRegex(HTTPException, "复核"),
+                ):
+                    await service.publish(task["draft_id"])
                 await service.publish(task["draft_id"])
                 self.assertTrue(
                     (Path(directory) / f"{plan.campaign_id_candidate}.json").exists()
@@ -434,6 +934,7 @@ class StoryReliabilityTests(unittest.IsolatedAsyncioTestCase):
                             "code": "motivation",
                             "message": "动机冲突",
                             "affected_object_ids": [changed["id"]],
+                            "affected_act_ids": [plan.acts[0].id],
                         }
                     ],
                 },
@@ -449,6 +950,11 @@ class StoryReliabilityTests(unittest.IsolatedAsyncioTestCase):
                 confirmed_brief=brief, resume_artifacts=artifacts, on_artifact=save
             )
         self.assertTrue(artifacts["assembled_canon"]["continuity_repaired"])
+        self.assertEqual(
+            artifacts["assembled_canon"]["continuity_repair_ids"], [changed["id"]]
+        )
+        self.assertIn("<previous_review>", completion.await_args_list[2].args[0])
+        self.assertIn("动机冲突", completion.await_args_list[2].args[0])
         self.assertNotEqual(
             artifacts["fragment:cast"]["cast"][0]["secret"], changed["secret"]
         )
@@ -591,6 +1097,29 @@ class StoryReliabilityTests(unittest.IsolatedAsyncioTestCase):
 
 
 class StoryTaskPersistenceTests(unittest.TestCase):
+    def test_old_failed_task_requests_regeneration_without_modifying_artifacts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            service = StoryService(
+                canon_dir=Path(directory), db_path=Path(directory) / "tasks.sqlite3"
+            )
+            with closing(service._store):
+                service._store.create_task("old", _brief().model_dump())
+                service._store.save_artifact(
+                    "old",
+                    stage="planning",
+                    artifact_key="generation_context",
+                    payload={"version": 2},
+                    attempt=0,
+                )
+                service._store.mark_failed("old", "旧失败")
+                response = service.get_generation_task("old")
+                self.assertFalse(response.can_retry)
+                self.assertIn("按已确认的设计稿重新生成", response.error)
+                self.assertEqual(
+                    service._store.artifacts("old"),
+                    {"generation_context": {"version": 2}},
+                )
+
     def test_deadline_and_budget_survive_restart_retry_and_terminal_writes(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "tasks.sqlite3"
