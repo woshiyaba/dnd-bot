@@ -242,6 +242,14 @@ export function useGameRoom(credential: RoomCredential) {
     [acceptSession, credential, run],
   )
 
+  const transferItem = useCallback(
+    async (itemId: string, targetId: string, quantity: number) => {
+      const next = await run(() => gameApi.transferItem(credential, itemId, targetId, quantity))
+      if (next) acceptSession(next)
+    },
+    [acceptSession, credential, run],
+  )
+
   const prepareFreeRoll = useCallback((diceType: DiceType) => {
     if (rollRequestInFlight.current) return
     setRollAnimation({
@@ -309,6 +317,7 @@ export function useGameRoom(credential: RoomCredential) {
     sendMessage,
     submitAction,
     submitLevelUp,
+    transferItem,
     prepareFreeRoll,
     startPreparedRoll,
     dismissRoll,

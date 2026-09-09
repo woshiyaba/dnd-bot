@@ -17,6 +17,8 @@ STORY_PLAN_DEPENDENCY_CLOSURE = {
     "foreshadowing_payoffs",
     "ending_routes",
     "effect_owner_ledger",
+    "win_condition",
+    "lose_condition",
 }
 
 
@@ -283,6 +285,8 @@ def _affected_sections(message: str) -> set[str]:
     if "scale_profile" in message:
         sections.add("scale_profile")
     if any(marker in message for marker in ("Act «", "Beat «", "路径", "节奏")):
+        sections.add("beats")
+    if "地点 «" in message and "没有被任何 Beat 使用" in message:
         sections.add("beats")
     if "Act «" in message:
         sections.add("acts")

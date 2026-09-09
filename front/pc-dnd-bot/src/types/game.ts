@@ -123,7 +123,8 @@ export type CharacterView = {
     cooldown_rounds: number
   }>
   features: string[]
-  inventory: Array<{ item_id: string; quantity: number }>
+  inventory: Array<{ item_id: string; quantity: number; name: string }>
+  equipment: string[]
   current_hp: number
   max_hp: number
   temporary_hp: number
@@ -131,6 +132,7 @@ export type CharacterView = {
   life_state?: string
   conditions: string[]
   current_zone?: string
+  initiative?: number | null
   controller_user_id?: string
   display_name?: string
   is_self: boolean
@@ -177,6 +179,7 @@ export type SessionView = {
   room: {
     room_code: string
     campaign_id: string
+    campaign_title: string
     status: 'lobby' | 'playing' | 'finished'
     revision: number
     is_host: boolean
@@ -192,6 +195,10 @@ export type SessionView = {
     image?: string
     round?: number
     phase?: string
+    actors: Array<{ id: string; name: string; disposition: string }>
+    visited_locations: string[]
+    initiative_order: string[]
+    current_actor_id?: string | null
   }
   party: CharacterView[]
   enemies: CharacterView[]
@@ -321,6 +328,7 @@ export type StoryQualityMetrics = {
 }
 
 export type StoryGenerationTaskResponse = {
+  can_retry: boolean
   task_id: string
   status:
     | 'queued'

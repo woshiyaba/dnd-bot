@@ -5,6 +5,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import hashlib
+import re
+from copy import deepcopy
+from time import perf_counter
 from pathlib import Path
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -15,7 +19,9 @@ from openai import (
     APITimeoutError,
     InternalServerError,
     RateLimitError,
+    LengthFinishReasonError,
 )
+from langchain_core.messages import AIMessage
 from pydantic import BaseModel, ValidationError
 
 from src.common.utils.json_parser import extract_json_object
@@ -45,18 +51,20 @@ from src.schemas.story import (
     StoryPlanCandidate,
     StoryPlanFrame,
     StoryPlanWorkState,
+    StoryPlanCore,
     StoryQualityMetrics,
-    continuity_repair_schema,
     story_plan_section_repair_schema,
+    canon_fragment_schema,
+    canon_object_repair_schema,
 )
 from src.story.prompt import (
     build_canon_authoring_prompt,
     build_canon_repair_prompt,
-    build_continuity_repair_prompt,
     build_continuity_review_prompt,
     build_fragment_prompt,
     build_fragment_repair_prompt,
     build_story_plan_prompt,
+    build_compact_plan_constraints,
     build_story_plan_repair_prompt,
     build_story_plan_replan_prompt,
     build_story_plan_stage_prompt,
@@ -83,6 +91,7 @@ from src.story.validation import (
     validate_fragment_runtime,
     validate_effect_owner_ledger,
     validate_generated_canon,
+    validate_canon_playability,
     validate_story_plan_issues,
 )
 
@@ -101,6 +110,7 @@ MAX_STORY_PLAN_LOCAL_REPAIRS = 2
 MAX_STORY_PLAN_REPLANS = 1
 DEFAULT_CALL_TIMEOUT_SECONDS = 120.0
 MAX_ASSEMBLY_REPAIRS = 2
+GENERATION_VERSION = 2
 
 ArtifactCallback = Callable[[str, str, dict[str, Any], int], Awaitable[None]]
 StageStartCallback = Callable[[str], Awaitable[None]]
@@ -122,6 +132,7 @@ class StoryCallContext:
     reserve_call: CallReservationCallback
     semaphore: asyncio.Semaphore
     timeout_seconds: float = DEFAULT_CALL_TIMEOUT_SECONDS
+    ensure_budget: Callable[[int], None] | None = None
 
 
 def _load_reference_canons() -> list[dict[str, Any]]:
@@ -269,7 +280,26 @@ async def _complete_json(
     call_context: StoryCallContext | None = None,
 ) -> dict[str, Any]:
     """调用真实 LLM 获取 JSON，并对传输和格式各恢复一次。"""
+    if "json" not in prompt.lower():
+        prompt = "只输出一个完整 JSON 对象。\n" + prompt
     model_name = get_model_name(role)
+    options: dict[str, Any] = {
+        "max_tokens": 12288 if schema is StoryPlanCandidate else 8192
+    }
+    if model_name.partition("/")[2].startswith("deepseek-v4"):
+        # ChatOpenAI 会重命名 max_tokens，DeepSeek 的原生字段通过 extra_body 发送。
+        options["extra_body"] = {"max_tokens": options.pop("max_tokens")}
+        # V4 默认 high 思考会让 JSON 编译超时；创作事实和复核仍保留 low 思考。
+        # https://api-docs.deepseek.com/guides/thinking_mode/
+        if role == ModelRole.STORY_AUTHORING or schema is StoryPlanCandidate:
+            options["extra_body"]["thinking"] = {"type": "disabled"}
+        elif role in {
+            ModelRole.STORY_PLANNING,
+            ModelRole.STORY_PLANNING_FAST,
+            ModelRole.STORY_REPAIR,
+            ModelRole.STORY_CONTINUITY,
+        }:
+            options["reasoning_effort"] = "low"
     try:
         model = get_chat_model(model_name)
         if schema is not None:
@@ -279,10 +309,14 @@ async def _complete_json(
                 schema,
                 method="json_mode",
                 include_raw=True,
+                # 必须绑定在底层模型；include_raw 的 RunnableMap 不转发 ainvoke kwargs。
+                **options,
             )
         else:
             # 无 Schema 的小阶段也要求供应商直接返回 JSON 对象。
-            completion_model = model.bind(response_format={"type": "json_object"})
+            completion_model = model.bind(
+                response_format={"type": "json_object"}, **options
+            )
     except Exception as exc:
         raise StoryGenerationError(f"故事 {stage} 的模型初始化失败：{exc}") from exc
 
@@ -296,12 +330,31 @@ async def _complete_json(
             call_context=call_context,
         )
         parsed, raw_text = _structured_response(response, schema)
-        if parsed is not None:
+        raw_message = (
+            response.get("raw")
+            if isinstance(response, dict) and "raw" in response
+            else response
+        )
+        metadata = getattr(raw_message, "response_metadata", {})
+        truncated = (
+            isinstance(metadata, dict) and metadata.get("finish_reason") == "length"
+        )
+        if parsed is not None and not truncated:
             return parsed
         if parse_attempt == 0:
+            if truncated and model_name.partition("/")[2].startswith("deepseek-v4"):
+                options["extra_body"]["thinking"] = {"type": "disabled"}
+                options.pop("reasoning_effort", None)
+                completion_model = (
+                    model.with_structured_output(
+                        schema, method="json_mode", include_raw=True, **options
+                    )
+                    if schema is not None
+                    else model.bind(response_format={"type": "json_object"}, **options)
+                )
             current_prompt = (
                 prompt + "\n\n上一次输出无法解析为 JSON 对象。请重新生成完整结果，"
-                "只输出一个 JSON 对象，不要解释或使用 Markdown。"
+                "只输出一个 JSON 对象，不要解释或使用 Markdown。若输出被截断，请缩短各字段文字，保留全部目标对象。"
                 + (f"\n上次输出：{raw_text[:4000]}" if raw_text else "")
             )
             logger.warning(
@@ -321,7 +374,7 @@ async def _invoke_story_model(
     model_name: str,
     call_context: StoryCallContext | None,
 ) -> Any:
-    """执行一次可计数请求；仅对瞬时传输错误额外尝试一次。"""
+    """计数、限流、超时和观测统一覆盖每次真实请求。"""
     retryable = (
         APIConnectionError,
         APITimeoutError,
@@ -329,36 +382,104 @@ async def _invoke_story_model(
         RateLimitError,
         TimeoutError,
     )
-    for transport_attempt in range(2):
+    for attempt in range(2):
+        queued_at = perf_counter()
+        started_at = None
+        status = "cancelled"
+        response = None
         try:
-            if call_context is None:
-                async with asyncio.timeout(DEFAULT_CALL_TIMEOUT_SECONDS):
-                    return await completion_model.ainvoke(prompt)
-            async with call_context.semaphore:
-                await call_context.reserve_call(stage)
-                async with asyncio.timeout(call_context.timeout_seconds):
-                    return await completion_model.ainvoke(prompt)
+            semaphore = call_context.semaphore if call_context else asyncio.Semaphore(1)
+            async with semaphore:
+                if call_context:
+                    await call_context.reserve_call(stage)
+                started_at = perf_counter()
+                async with asyncio.timeout(
+                    call_context.timeout_seconds
+                    if call_context
+                    else DEFAULT_CALL_TIMEOUT_SECONDS
+                ):
+                    response = await completion_model.ainvoke(prompt)
+                status = "completed"
+                return response
+        except LengthFinishReasonError as exc:
+            # SDK 在 JSON mode 也可能先抛截断异常；保留真实正文，交给上层一次格式修复。
+            usage = exc.completion.usage
+            response = AIMessage(
+                content=exc.completion.choices[0].message.content or "",
+                response_metadata={"finish_reason": "length"},
+                usage_metadata=(
+                    {
+                        "input_tokens": usage.prompt_tokens,
+                        "output_tokens": usage.completion_tokens,
+                        "total_tokens": usage.total_tokens,
+                    }
+                    if usage
+                    else None
+                ),
+            )
+            status = "truncated"
+            return response
         except (StoryGenerationCancelled, StoryGenerationError):
             raise
         except retryable as exc:
-            if transport_attempt == 0:
-                logger.warning(
-                    "[story_generator] 瞬时调用失败，准备重试 | stage=%s | model=%s | error=%s",
-                    stage,
-                    model_name,
-                    type(exc).__name__,
-                )
-                continue
-            raise StoryGenerationError(
-                f"故事 {stage} 的 LLM 调用失败：{type(exc).__name__}"
-            ) from exc
+            status = type(exc).__name__
+            if attempt == 1:
+                raise StoryGenerationError(
+                    f"故事 {stage} 的 LLM 调用失败：{status}"
+                ) from exc
+            retry_after = getattr(getattr(exc, "response", None), "headers", {}).get(
+                "retry-after"
+            )
+            try:
+                delay = max(1.0, float(retry_after)) if retry_after else 1.0
+            except (TypeError, ValueError):
+                delay = 1.0
+            logger.warning(
+                "[story_generator] 瞬时调用失败 | stage=%s | error=%s | retry_after=%.1f",
+                stage,
+                status,
+                delay,
+            )
+            await asyncio.sleep(delay)
         except Exception as exc:
+            status = type(exc).__name__
             logger.exception(
                 "[story_generator] LLM 调用失败 | stage=%s | model=%s",
                 stage,
                 model_name,
             )
-            raise StoryGenerationError(f"故事 {stage} 的 LLM 调用失败：{exc}") from exc
+            raise StoryGenerationError(
+                f"故事 {stage} 的 LLM 调用失败：{status}"
+            ) from exc
+        finally:
+            finished_at = perf_counter()
+            raw = (
+                response.get("raw")
+                if isinstance(response, dict) and "raw" in response
+                else response
+            )
+            usage = getattr(raw, "usage_metadata", None)
+            metadata = getattr(raw, "response_metadata", None)
+            logger.info(
+                "[story_call] stage=%s model=%s attempt=%d status=%s wait_ms=%d elapsed_ms=%d prompt_chars=%d output_chars=%d tokens=%s finish_reason=%s",
+                stage,
+                model_name,
+                attempt + 1,
+                status,
+                int(((started_at or finished_at) - queued_at) * 1000),
+                int((finished_at - (started_at or finished_at)) * 1000),
+                len(prompt),
+                len(_message_text(raw)) if raw is not None else 0,
+                (
+                    {
+                        key: usage.get(key)
+                        for key in ("input_tokens", "output_tokens", "total_tokens")
+                    }
+                    if isinstance(usage, dict)
+                    else None
+                ),
+                metadata.get("finish_reason") if isinstance(metadata, dict) else None,
+            )
     raise AssertionError("故事传输重试循环未按预期结束")
 
 
@@ -424,6 +545,17 @@ def _story_plan_issues(
 ) -> list[PlanValidationIssue]:
     """执行结构化计划校验并兼容旧确认稿的并行预算语义。"""
     issues = validate_story_plan_issues(plan, brief)
+    if plan.plan_version >= 2:
+        issues.extend(
+            PlanValidationIssue(
+                code="fixed_topology",
+                path=("beats",),
+                category="structural",
+                affected_sections=frozenset({"beats", "branch_points"}),
+                message=error,
+            )
+            for error in _fixed_topology_errors(plan, brief)
+        )
     budget = brief.branching_budget
     if (
         budget is not None
@@ -563,245 +695,300 @@ async def generate_staged_canon(
     call_context: StoryCallContext | None = None,
     fragment_concurrency: int = 2,
 ) -> tuple[dict[str, Any], Canon, StoryQualityMetrics]:
-    """严格执行 StoryPlan → 分片 → 全校验 → 连贯性复核 → 定向修复。"""
+    """紧凑规划、并发创作、对象修复与绑定正文版本的可恢复验收。"""
     brief = normalize_confirmed_design_brief(confirmed_brief)
-    reserved = sorted(
-        set(reserved_campaign_ids or [])
-        | {path.stem for path in CANON_DIR.glob("*.json")}
-    )
     artifacts = dict(resume_artifacts or {})
+    references = _load_reference_fragments()
+    context = {
+        "version": GENERATION_VERSION,
+        "brief_hash": _fingerprint(brief.model_dump()),
+        "references_hash": _fingerprint(references),
+    }
+    if "generation_context" in artifacts and artifacts["generation_context"] != context:
+        raise StoryGenerationError("生成版本、设计稿或参考资料已改变，请重新提交任务")
+    if "plan" not in artifacts and any(
+        key.startswith("plan:") and key != "plan:core" for key in artifacts
+    ):
+        raise StoryGenerationError(
+            "旧版渐进规划中间产物不能用于新版生成，请重新提交任务"
+        )
     total_repairs = max(0, initial_repair_count)
 
-    resumed_plan = "plan" in artifacts
-    if resumed_plan:
+    async def persist(
+        stage: str, key: str, payload: dict[str, Any], attempt: int = 0
+    ) -> None:
+        nonlocal total_repairs
+        if on_artifact:
+            await on_artifact(stage, key, payload, attempt)
+        artifacts[key] = payload
+        total_repairs += attempt
+
+    async def begin(key: str) -> None:
+        if on_stage_start:
+            await on_stage_start(key)
+
+    if "generation_context" not in artifacts:
+        await persist("planning", "generation_context", context)
+    if "plan" in artifacts:
         plan = StoryPlan.model_validate(artifacts["plan"])
-        plan_errors = _story_plan_errors(plan, brief)
-        if plan_errors:
+        errors = _story_plan_errors(plan, brief)
+        if errors:
             raise StoryGenerationError(
-                "已持久化 StoryPlan 校验失败：" + "；".join(plan_errors)
+                "已持久化 StoryPlan 校验失败：" + "；".join(errors)
             )
     else:
-        plan, repairs = await _generate_story_plan_progressively(
+        if call_context and call_context.ensure_budget:
+            call_context.ensure_budget(brief.scale_profile.acts + 10)
+        reserved = sorted(
+            set(reserved_campaign_ids or [])
+            | {path.stem for path in CANON_DIR.glob("*.json")}
+        )
+        plan, repairs = await _generate_compact_story_plan(
             brief,
             reserved,
             artifacts=artifacts,
-            on_artifact=on_artifact,
+            on_artifact=persist,
             on_stage_start=on_stage_start,
             call_context=call_context,
         )
-        total_repairs += repairs
-        if on_artifact:
-            # 小阶段已经分别累计修复次数；最终聚合 artifact 不重复计数。
-            await on_artifact("planning", "plan", plan.model_dump(), 0)
-        artifacts["plan"] = plan.model_dump()
+        await persist("planning", "plan", plan.model_dump(), repairs)
 
     registry = story_plan_id_registry(plan)
-    plan_data = plan.model_dump()
     ledger = [item.model_dump() for item in plan.effect_owner_ledger]
-    references = _load_reference_fragments()
-    fragments: dict[str, dict[str, Any]] = {}
-    fragment_gate = asyncio.Semaphore(max(1, int(fragment_concurrency)))
+    fragments: dict[str, dict[str, Any]] = {
+        "story_core": artifacts.get("plan:core", {})
+    }
+    gate = asyncio.Semaphore(max(1, int(fragment_concurrency)))
+    kinds = [
+        "top_level",
+        "cast",
+        "locations",
+        "actions",
+        *(f"act:{act.id}" for act in plan.acts),
+        "endings",
+    ]
+    if call_context and call_context.ensure_budget:
+        missing = sum(
+            f"fragment:{kind}" not in artifacts
+            for kind in kinds
+            if kind != "actions" or plan.entities.actions
+        )
+        snapshot_hash = _fingerprint(artifacts.get("assembled_canon", {}).get("canon"))
+        reviewed = any(
+            artifacts.get(key, {}).get("canon_hash") == snapshot_hash
+            for key in ("continuity_review", "continuity_review_final")
+        )
+        call_context.ensure_budget(missing + int(bool(missing) or not reviewed))
 
-    async def compile_wave(fragment_kinds: list[str]) -> int:
-        """并发生成一波无相互依赖的分片，并保留已经验证的结果。"""
-        pending: list[str] = []
-        for fragment_kind in fragment_kinds:
-            artifact_key = f"fragment:{fragment_kind}"
-            if artifact_key not in artifacts:
-                pending.append(fragment_kind)
+    async def compile_wave(wave: list[str]) -> None:
+        pending = []
+        for kind in wave:
+            key = f"fragment:{kind}"
+            if kind == "actions" and not plan.entities.actions and key not in artifacts:
+                await persist("compiling", key, {"action_definitions": []})
+            if key not in artifacts:
+                pending.append(kind)
                 continue
-            fragment = artifacts[artifact_key]
-            errors = _fragment_errors(
-                fragment_kind,
-                fragment,
-                plan,
-                registry,
-                fragments,
-            )
+            fragment = artifacts[key]
+            errors = _fragment_errors(kind, fragment, plan, registry, fragments)
             if errors:
                 raise StoryGenerationError(
-                    f"已持久化分片 {fragment_kind} 校验失败：" + "；".join(errors)
+                    f"已持久化分片 {kind} 校验失败：" + "；".join(errors)
                 )
-            fragments[fragment_kind] = fragment
+            fragments[kind] = fragment
+        generated = {}
 
-        generated: dict[str, tuple[dict[str, Any], int]] = {}
-        first_pending = pending[0] if pending else None
-        if first_pending and on_stage_start:
-            await on_stage_start(f"fragment:{first_pending}")
-
-        async def compile_one(fragment_kind: str) -> None:
-            artifact_key = f"fragment:{fragment_kind}"
-            async with fragment_gate:
-                if on_stage_start and fragment_kind != first_pending:
-                    await on_stage_start(artifact_key)
+        async def compile_one(kind: str) -> None:
+            async with gate:
+                await begin(f"fragment:{kind}")
                 fragment, repairs = await _generate_fragment(
-                    fragment_kind=fragment_kind,
+                    fragment_kind=kind,
                     brief=brief,
                     plan=plan,
                     registry=registry,
                     ledger=ledger,
                     reference_fragments=references,
-                    adjacent_fragments=_adjacent_plan_summaries(fragment_kind, plan),
+                    adjacent_fragments=_adjacent_plan_summaries(kind, plan),
                     compiled_fragments=fragments,
                     call_context=call_context,
                 )
-                if on_artifact:
-                    await on_artifact("compiling", artifact_key, fragment, repairs)
-                artifacts[artifact_key] = fragment
-                generated[fragment_kind] = (fragment, repairs)
+                await persist("compiling", f"fragment:{kind}", fragment, repairs)
+                generated[kind] = fragment
 
         try:
             async with asyncio.TaskGroup() as group:
-                for fragment_kind in pending:
-                    group.create_task(compile_one(fragment_kind))
+                for kind in pending:
+                    group.create_task(compile_one(kind))
         except* StoryGenerationCancelled as group:
             raise group.exceptions[0]
         except* StoryGenerationError as group:
             raise group.exceptions[0]
+        fragments.update(generated)
 
-        for fragment_kind in fragment_kinds:
-            if fragment_kind in generated:
-                fragments[fragment_kind] = generated[fragment_kind][0]
-        return sum(repairs for _, repairs in generated.values())
-
-    total_repairs += await compile_wave(["top_level", "cast", "locations", "actions"])
-    total_repairs += await compile_wave(
-        [*(f"act:{act.id}" for act in plan.acts), "endings"]
-    )
-
-    raw = _assemble_canon(plan, fragments)
-    raw, canon = await _repair_assembled_canon(
-        raw,
-        brief=brief,
-        plan=plan,
-        stage_label="分片汇总 Canon 未通过完整校验",
-        call_context=call_context,
-    )
-    if on_artifact:
-        await on_artifact("validating", "assembled_canon", raw, 0)
-
-    review = artifacts.get("continuity_review")
-    if review is None:
-        if on_stage_start:
-            await on_stage_start("continuity_review")
-        review = await _complete_json(
-            build_continuity_review_prompt(confirmed_brief=brief, canon=raw),
-            stage="连贯性复核",
-            role=ModelRole.STORY_CONTINUITY,
-            schema=StoryContinuityReview,
-            call_context=call_context,
-        )
-        if on_artifact:
-            await on_artifact("continuity", "continuity_review", review, 0)
-    _validate_continuity_review(review)
-    issues = [
-        item
-        for item in review.get("issues", [])
-        if str(item.get("severity")) == "error"
-    ]
-    if issues:
-        affected_ids = sorted(
-            {
-                str(act_id)
-                for issue in issues
-                for act_id in issue.get("affected_act_ids", [])
-                if str(act_id) in {act.id for act in plan.acts}
-            }
-        )
-        if not affected_ids:
+    await compile_wave(kinds[:4])
+    await compile_wave(kinds[4:])
+    base_raw = _assemble_canon(plan, fragments)
+    input_hash = _fingerprint({"plan": plan.model_dump(), "canon": base_raw})
+    snapshot = artifacts.get("assembled_canon", {})
+    if (
+        snapshot.get("input_hash") == input_hash
+        and snapshot.get("version") == GENERATION_VERSION
+    ):
+        raw = snapshot["canon"]
+        total_repairs = max(total_repairs, int(snapshot.get("repair_count", 0)))
+        canon, errors = _full_canon_errors(raw, brief, plan)
+        if errors:
             raise StoryGenerationError(
-                "连贯性复核发现错误但未提供合法 affected_act_ids"
+                "已持久化 Canon 快照校验失败：" + "；".join(errors)
             )
-        repair_marker = artifacts.get("continuity_repair")
-        if repair_marker is not None:
-            if set(repair_marker.get("affected_act_ids", [])) != set(affected_ids):
-                raise StoryGenerationError("已持久化连贯性修复标记与原始问题不一致")
-        else:
-            if on_stage_start:
-                await on_stage_start("continuity_repair")
-            repaired = await _complete_json(
-                build_continuity_repair_prompt(
-                    confirmed_brief=brief,
-                    story_plan=plan_data,
-                    id_registry=registry,
-                    effect_owner_ledger=ledger,
-                    issues=issues,
-                    act_fragments={
-                        act_id: fragments[f"act:{act_id}"] for act_id in affected_ids
-                    },
-                ),
-                stage="连贯性定向修复",
-                role=ModelRole.STORY_REPAIR,
-                schema=continuity_repair_schema(affected_ids),
-                call_context=call_context,
-            )
-            replacement = repaired.get("act_fragments")
-            if not isinstance(replacement, dict) or set(replacement) != set(
-                affected_ids
-            ):
-                raise StoryGenerationError("连贯性修复必须只返回全部受影响 Act 分片")
-            for act_id, fragment in replacement.items():
-                fragment = _enforce_fragment_constants(f"act:{act_id}", fragment, plan)
-                fragment_errors = _fragment_errors(
-                    f"act:{act_id}", fragment, plan, registry, fragments
-                )
-                if fragment_errors:
-                    raise StoryGenerationError(
-                        f"连贯性修复后的 Act «{act_id}» 非法："
-                        + "；".join(fragment_errors)
-                    )
-                fragments[f"act:{act_id}"] = fragment
-                if on_artifact:
-                    await on_artifact(
-                        "continuity_repair",
-                        f"fragment:act:{act_id}",
-                        fragment,
-                        0,
-                    )
-            total_repairs += 1
-            repair_marker = {"affected_act_ids": affected_ids}
-            if on_artifact:
-                await on_artifact(
-                    "continuity_repair", "continuity_repair", repair_marker, 1
-                )
-            artifacts["continuity_repair"] = repair_marker
-        raw = _assemble_canon(plan, fragments)
-        raw, canon = await _repair_assembled_canon(
-            raw,
+    else:
+        await begin("assembled_canon")
+        raw, canon, repairs = await _repair_assembled_canon(
+            base_raw,
             brief=brief,
             plan=plan,
-            stage_label="连贯性修复后 Canon 未通过完整校验",
+            stage_label="分片汇总 Canon 未通过完整校验",
             call_context=call_context,
         )
-        final_review = artifacts.get("continuity_review_final")
-        if final_review is None:
-            if on_stage_start:
-                await on_stage_start("continuity_review_final")
-            final_review = await _complete_json(
-                build_continuity_review_prompt(confirmed_brief=brief, canon=raw),
-                stage="修复后连贯性复核",
+        snapshot = {
+            "version": GENERATION_VERSION,
+            "input_hash": input_hash,
+            "canon": raw,
+            "repair_count": total_repairs + repairs,
+            "continuity_repaired": False,
+        }
+        await persist("validating", "assembled_canon", snapshot, repairs)
+
+    while True:
+        repaired = bool(snapshot.get("continuity_repaired"))
+        key = "continuity_review_final" if repaired else "continuity_review"
+        canon_hash = _fingerprint(raw)
+        cached = artifacts.get(key, {})
+        if cached.get("canon_hash") == canon_hash:
+            review = cached["report"]
+            _validate_continuity_review(review)
+        else:
+            await begin(key)
+            review = await _complete_json(
+                build_continuity_review_prompt(
+                    confirmed_brief=brief,
+                    canon=raw,
+                    story_core=artifacts.get("plan:core"),
+                ),
+                stage="修复后连贯性复核" if repaired else "连贯性复核",
                 role=ModelRole.STORY_CONTINUITY,
                 schema=StoryContinuityReview,
                 call_context=call_context,
             )
-            if on_artifact:
-                await on_artifact(
-                    "continuity", "continuity_review_final", final_review, 0
-                )
-        review = final_review
-        _validate_continuity_review(review)
-        remaining = [
-            item
-            for item in review.get("issues", [])
-            if str(item.get("severity")) == "error"
-        ]
-        if remaining:
+            _validate_continuity_review(review)
+            await persist(
+                "continuity", key, {"canon_hash": canon_hash, "report": review}
+            )
+        issues = [issue for issue in review["issues"] if issue["severity"] == "error"]
+        if not issues:
+            break
+        if repaired:
             raise StoryGenerationError("定向修复后仍有连贯性错误，任务终止")
+        ids = {
+            str(value)
+            for issue in issues
+            for value in issue.get("affected_object_ids", [])
+        }
+        act_ids = {
+            str(value)
+            for issue in issues
+            for value in issue.get("affected_act_ids", [])
+        }
+        ids.update(beat.id for beat in plan.beats if beat.act_id in act_ids)
+        if not ids:
+            raise StoryGenerationError("连贯性复核错误缺少合法受影响对象")
+        await begin("continuity_repair")
+        raw = await _repair_canon_objects(
+            raw,
+            ids=ids,
+            errors=[issue["message"] for issue in issues],
+            brief=brief,
+            plan=plan,
+            call_context=call_context,
+        )
+        canon, errors = _full_canon_errors(raw, brief, plan)
+        if errors:
+            raise StoryGenerationError("连贯性修复未通过完整校验：" + "；".join(errors))
+        snapshot = {
+            "version": GENERATION_VERSION,
+            "input_hash": input_hash,
+            "canon": raw,
+            "repair_count": total_repairs + 1,
+            "continuity_repaired": True,
+        }
+        # 整个候选先校验，再以单个快照原子保存，避免部分 Act 已更新而标记未提交。
+        await persist("continuity_repair", "assembled_canon", snapshot, 1)
 
     metrics = canon_quality_metrics(
         canon, repair_count=total_repairs, continuity_passed=True
     )
+    metrics.quality_notes.append(
+        "已检查声明的机械路径；检定结果、自由行动与叙事条件经过模型复核，仍需实际试玩验证"
+    )
+    if any(issue["severity"] == "warning" for issue in review["issues"]):
+        metrics.quality_notes.append("剧本通过验收，另有非阻断的创作建议")
     return raw, canon, metrics
+
+
+def _fingerprint(value: Any) -> str:
+    """为确定性 JSON 产物生成依赖指纹，不包含日志正文。"""
+    return hashlib.sha256(
+        json.dumps(
+            value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+async def _generate_compact_story_plan(
+    brief: StoryDesignBrief,
+    reserved: list[str],
+    *,
+    artifacts: dict[str, dict[str, Any]],
+    on_artifact: ArtifactCallback,
+    on_stage_start: StageStartCallback | None,
+    call_context: StoryCallContext | None,
+) -> tuple[StoryPlan, int]:
+    """先生成全局创作事实，再一次编译紧凑的完整计划。"""
+    core, _ = await _run_plan_stage(
+        artifact_key="plan:core",
+        label="故事核心与章节",
+        schema=StoryPlanCore,
+        brief=brief,
+        state=StoryPlanWorkState(),
+        target={
+            "target_id": "core",
+            "act_count": brief.scale_profile.acts,
+            "playable_beat_count": brief.scale_profile.playable_beats,
+        },
+        instructions="一次确定全局真相、角色动机、因果链、结局意图和 Act 骨架。每 Act 1–3 个可玩 Beat，数量严格匹配确认稿。不要生成正文或战斗卡面。",
+        artifacts=artifacts,
+        validate=lambda value: _validate_plan_frame(
+            value, brief, reserved, check_reserved=True
+        ),
+        resumed_validate=lambda value: _validate_plan_frame(
+            value, brief, reserved, check_reserved=False
+        ),
+        on_artifact=on_artifact,
+        on_stage_start=on_stage_start,
+        reserved_campaign_ids=reserved,
+        call_context=call_context,
+    )
+    if on_stage_start:
+        await on_stage_start("plan")
+    plan, repairs = await _generate_story_plan(
+        brief,
+        [value for value in reserved if value != core.campaign_id_candidate],
+        story_core=core.model_dump(),
+        call_context=call_context,
+    )
+    if [act.id for act in plan.acts] != [act.id for act in core.acts]:
+        raise StoryGenerationError("执行计划不得改变已经确认的 Act 骨架")
+    return plan, repairs
 
 
 BeatOutlineBatch = PlanComplexBatch[PlanBeatOutline]
@@ -1107,9 +1294,11 @@ async def _generate_story_plan_progressively(
         return beat_id, list(batch.items), used
 
     # 各 Beat 的出口文案彼此独立，并发生成以显著缩短端到端延迟。
-    route_results = await asyncio.gather(
-        *(build_route(beat_id) for beat_id in placement_ids)
-    )
+    async with asyncio.TaskGroup() as group:
+        route_tasks = [
+            group.create_task(build_route(beat_id)) for beat_id in placement_ids
+        ]
+    route_results = [task.result() for task in route_tasks]
     for beat_id, items, used in route_results:
         state.routes[beat_id] = items
         repairs += used
@@ -1289,6 +1478,7 @@ async def _run_plan_stage(
             prompt,
             stage=f"计划 {label}",
             role=role,
+            schema=schema,
             call_context=call_context,
         )
     except StoryGenerationError as exc:
@@ -1337,6 +1527,7 @@ async def _run_plan_stage(
             repair_prompt,
             stage=f"计划 {label} 定向修复",
             role=ModelRole.STORY_REPAIR,
+            schema=schema,
             call_context=call_context,
         )
         initial_errors = None
@@ -1938,10 +2129,13 @@ async def _generate_story_plan(
     reserved_campaign_ids: list[str],
     *,
     call_context: StoryCallContext | None = None,
+    story_core: dict[str, Any] | None = None,
 ) -> tuple[StoryPlan, int]:
     """生成并归一化 StoryPlan，按问题类别执行有界修复。"""
     raw = await _complete_json(
-        build_story_plan_prompt(brief, reserved_campaign_ids=reserved_campaign_ids)
+        build_story_plan_prompt(
+            brief, reserved_campaign_ids=reserved_campaign_ids, story_core=story_core
+        )
         + "\n生成前额外自检：branch_points.choices 必须是源 Beat 的不同出口 Beat ID，"
         "不是选择文案；剧情分支须在高潮前汇流，最终胜负结局不作为 meaningful branch；"
         "effect_owner_ledger 的 owner_kind 与 owner_id 必须遵守 schema 中的 ID 类别配对。",
@@ -1955,7 +2149,31 @@ async def _generate_story_plan(
     replans = 0
 
     while True:
+        if story_core is not None:
+            raw["campaign_id_candidate"] = story_core["campaign_id_candidate"]
+            raw["plan_version"] = GENERATION_VERSION
         plan, issues, raw = _validate_story_plan_candidate(raw, brief)
+        if plan is not None and story_core is not None:
+            expected = {
+                act["id"]: act["playable_beat_count"] for act in story_core["acts"]
+            }
+            actual = {
+                act.id: sum(
+                    beat.act_id == act.id and beat.kind != "ending"
+                    for beat in plan.beats
+                )
+                for act in plan.acts
+            }
+            if actual != expected:
+                issues.append(
+                    PlanValidationIssue(
+                        code="core_acts",
+                        path=("acts",),
+                        category="structural",
+                        affected_sections=frozenset({"acts", "beats"}),
+                        message=f"Act ID 和可玩 Beat 数必须保持故事核心骨架：{expected}",
+                    )
+                )
         if plan is not None and not issues:
             return plan, local_repairs + replans
 
@@ -1979,6 +2197,8 @@ async def _generate_story_plan(
                 issues=issues,
                 reserved_campaign_ids=reserved_campaign_ids,
             )
+            if story_core is not None:
+                repair_prompt += build_compact_plan_constraints(brief, story_core)
             _log_repair_attempt(
                 stage="StoryPlan 结构重规划",
                 repair_round=replans + 1,
@@ -2007,6 +2227,8 @@ async def _generate_story_plan(
             issues=issues,
             affected_sections=sections,
         )
+        if story_core is not None:
+            repair_prompt += build_compact_plan_constraints(brief, story_core)
         _log_repair_attempt(
             stage="StoryPlan 局部修复",
             repair_round=local_repairs + 1,
@@ -2068,6 +2290,7 @@ def _enforce_fragment_constants(
     fragment_kind: str,
     fragment: dict[str, Any],
     plan: StoryPlan,
+    brief: StoryDesignBrief | None = None,
 ) -> dict[str, Any]:
     """把可由 StoryPlan 确定性推导的机械字段回填进分片，再交给确定性校验。
 
@@ -2075,12 +2298,27 @@ def _enforce_fragment_constants(
     而 id、act_id、kind、estimated_minutes、location_ids、exits 与 Trigger ID 这些
     「必须逐字符与计划一致」的字段由代码强制生成，从源头消除最脆弱的一类校验失败。
     """
+    fragment = deepcopy(fragment)
     if fragment_kind == "top_level":
         fragment = dict(fragment)
         fragment["campaign_id"] = plan.campaign_id_candidate
         fragment["start_beat_id"] = plan.start_beat_id
         fragment["runtime_location_scoping"] = True
         fragment["declared_flags"] = sorted(item.id for item in plan.entities.flags)
+        if brief is not None:
+            fragment.update(
+                duration_minutes=brief.duration_minutes,
+                length_mode=brief.length_mode,
+                act_count=len(plan.acts),
+                recommended_player_count=brief.player_count,
+                tone=brief.tone,
+                gameplay_focus=list(brief.gameplay_focus),
+                content_warnings=list(brief.content_warnings),
+            )
+        for name in ("win_condition", "lose_condition"):
+            condition = getattr(plan, name)
+            if condition is not None:
+                fragment[name] = condition.model_dump(exclude_none=True)
         return fragment
 
     if not (fragment_kind.startswith("act:") or fragment_kind == "endings"):
@@ -2088,7 +2326,9 @@ def _enforce_fragment_constants(
 
     plan_beats = {beat.id: beat for beat in plan.beats}
     normalized_beats: list[dict[str, Any]] = []
-    for raw_beat in fragment.get("beats", []):
+    if not isinstance(fragment.get("beats"), list):
+        return fragment
+    for raw_beat in fragment["beats"]:
         if not isinstance(raw_beat, dict):
             normalized_beats.append(raw_beat)
             continue
@@ -2102,6 +2342,18 @@ def _enforce_fragment_constants(
         beat["kind"] = planned.kind
         beat["estimated_minutes"] = planned.estimated_minutes
         beat["location_ids"] = list(planned.location_ids)
+        beat["payoff_flag_ids"] = list(planned.payoff_flag_ids)
+        if planned.kind == "ending":
+            outcome = next(
+                route.outcome
+                for route in plan.ending_routes
+                if route.ending_id == planned.id
+            )
+            beat["ending_outcome"] = outcome
+            if outcome == "lose" and isinstance(beat.get("entry_state"), dict):
+                beat["entry_state"].update(
+                    location_id=None, preserve_current_scene=True
+                )
         # 出口与推进条件 Trigger ID 完全由计划推导，不信任模型逐字符复写。
         beat["exits"] = [
             {
@@ -2111,6 +2363,15 @@ def _enforce_fragment_constants(
             for index, exit_ in enumerate(planned.exits)
         ]
         conditions = beat.get("advance_conditions")
+        if plan.plan_version >= 2:
+            conditions = [
+                exit_.trigger.model_dump(exclude_none=True)
+                for exit_ in planned.exits
+                if exit_.trigger is not None
+            ]
+            beat["advance_conditions"] = conditions
+            if planned.fail_forward and isinstance(beat.get("stuck_fallback"), dict):
+                beat["stuck_fallback"]["hint"] = planned.fail_forward
         if isinstance(conditions, list):
             for index, trigger in enumerate(conditions):
                 if isinstance(trigger, dict):
@@ -2157,19 +2418,26 @@ async def _generate_fragment(
             effect_owner_ledger=ledger,
             reference_fragments=reference_fragments,
             adjacent_fragments=adjacent_fragments,
+            compiled_fragments=compiled_fragments,
         ),
         stage=f"分片 {fragment_kind}",
         role=ModelRole.STORY_AUTHORING,
+        schema=canon_fragment_schema(
+            "act" if fragment_kind.startswith("act:") else fragment_kind
+        ),
         call_context=call_context,
     )
     previous_fingerprint: tuple[str, ...] | None = None
     for attempt in range(MAX_FRAGMENT_REPAIRS + 1):
-        raw = _enforce_fragment_constants(fragment_kind, raw, plan)
+        raw = _enforce_fragment_constants(fragment_kind, raw, plan, brief)
         errors = _fragment_errors(
             fragment_kind, raw, plan, registry, compiled_fragments
         )
         if not errors:
-            return raw, attempt
+            schema = canon_fragment_schema(
+                "act" if fragment_kind.startswith("act:") else fragment_kind
+            )
+            return schema.model_validate(raw).model_dump(exclude_none=True), attempt
         fingerprint = tuple(sorted(errors))
         if fingerprint == previous_fingerprint:
             raise StoryGenerationError(
@@ -2180,6 +2448,33 @@ async def _generate_fragment(
             raise StoryGenerationError(
                 f"分片 {fragment_kind} 在两次修复后仍不合法：" + "；".join(errors)
             )
+        targets = set(re.findall(r"«([^»]+)»", "；".join(errors)))
+        for error in errors:
+            match = re.match(
+                r"(cast|locations|action_definitions|beats)\.(\d+)\.", error
+            )
+            if match:
+                collection, index = match.group(1), int(match.group(2))
+                rows = raw.get(collection, [])
+                if (
+                    index < len(rows)
+                    and isinstance(rows[index], dict)
+                    and rows[index].get("id")
+                ):
+                    targets.add(rows[index]["id"])
+        objects = _canon_objects(raw)
+        if targets and any(
+            key in targets or key.partition(":")[2] in targets for key in objects
+        ):
+            raw = await _repair_canon_objects(
+                raw,
+                ids=targets,
+                errors=errors,
+                brief=brief,
+                plan=plan,
+                call_context=call_context,
+            )
+            continue
         repair_prompt = build_fragment_repair_prompt(
             fragment_kind=fragment_kind,
             fragment=raw,
@@ -2200,6 +2495,9 @@ async def _generate_fragment(
             repair_prompt,
             stage=f"分片 {fragment_kind} 修复（第 {attempt + 1} 次）",
             role=ModelRole.STORY_REPAIR,
+            schema=canon_fragment_schema(
+                "act" if fragment_kind.startswith("act:") else fragment_kind
+            ),
             call_context=call_context,
         )
     raise AssertionError("分片修复循环未按预期结束")
@@ -2212,6 +2510,15 @@ def _fragment_errors(
     registry: dict[str, list[str]],
     compiled_fragments: dict[str, dict[str, Any]] | None = None,
 ) -> list[str]:
+    try:
+        schema = canon_fragment_schema(
+            "act" if fragment_kind.startswith("act:") else fragment_kind
+        )
+        fragment = schema.model_validate(fragment).model_dump(exclude_none=True)
+    except ValidationError as exc:
+        return _story_interview_validation_errors(exc)
+    except KeyError:
+        return [f"未知 fragment_kind：{fragment_kind}"]
     errors = [
         *validate_fragment_ids(fragment_kind, fragment, registry),
         *validate_fragment_runtime(fragment_kind, fragment, plan, compiled_fragments),
@@ -2291,6 +2598,12 @@ def _fragment_errors(
             errors.append(
                 "top_level 必须使用固定 win_condition/lose_condition Trigger ID"
             )
+        for name in ("win_condition", "lose_condition"):
+            condition = getattr(plan, name)
+            if condition is not None and fragment[name] != condition.model_dump(
+                exclude_none=True
+            ):
+                errors.append(f"top_level.{name} 必须与 StoryPlan 一致")
         return errors
     else:
         return [f"未知 fragment_kind：{fragment_kind}"]
@@ -2315,6 +2628,7 @@ def _fragment_errors(
                 "kind": planned.kind,
                 "estimated_minutes": planned.estimated_minutes,
                 "location_ids": planned.location_ids,
+                "payoff_flag_ids": planned.payoff_flag_ids,
             }
             for field, planned_value in comparisons.items():
                 if raw_beat.get(field) != planned_value:
@@ -2323,6 +2637,16 @@ def _fragment_errors(
                     )
             if not raw_beat.get("objective") or not raw_beat.get("pressure"):
                 errors.append(f"Beat «{planned.id}» 缺少 objective 或 pressure")
+            if planned.kind == "ending":
+                outcome = next(
+                    route.outcome
+                    for route in plan.ending_routes
+                    if route.ending_id == planned.id
+                )
+                if raw_beat.get("ending_outcome") != outcome:
+                    errors.append(
+                        f"Beat «{planned.id}» 的胜负类型必须与 StoryPlan 一致"
+                    )
             actual_clues = {
                 str(item.get("id")) for item in raw_beat.get("key_info", [])
             }
@@ -2355,6 +2679,16 @@ def _fragment_errors(
                 errors.append(
                     f"Beat «{planned.id}» 必须使用代码派生的不可变 Trigger ID"
                 )
+            if plan.plan_version >= 2:
+                expected_conditions = [
+                    exit_.trigger.model_dump(exclude_none=True)
+                    for exit_ in planned.exits
+                    if exit_.trigger is not None
+                ]
+                if raw_beat["advance_conditions"] != expected_conditions:
+                    errors.append(
+                        f"Beat «{planned.id}» 的触发条件必须与 StoryPlan 一致"
+                    )
             actual_exit_triggers = [
                 str(item.get("trigger_id")) for item in raw_beat.get("exits", [])
             ]
@@ -2387,6 +2721,170 @@ def _assemble_canon(
     return raw
 
 
+def _canon_fragments(raw: dict[str, Any], plan: StoryPlan) -> dict[str, dict[str, Any]]:
+    """按同一计划还原分片，供初次生成、修复、恢复统一验收。"""
+    collections = {"cast", "locations", "action_definitions", "beats"}
+    return {
+        "top_level": {
+            key: value for key, value in raw.items() if key not in collections
+        },
+        "cast": {"cast": raw.get("cast", [])},
+        "locations": {"locations": raw.get("locations", [])},
+        "actions": {"action_definitions": raw.get("action_definitions", [])},
+        **{
+            f"act:{act.id}": {
+                "beats": [
+                    beat
+                    for beat in raw.get("beats", [])
+                    if beat.get("act_id") == act.id and beat.get("kind") != "ending"
+                ]
+            }
+            for act in plan.acts
+        },
+        "endings": {
+            "beats": [
+                beat for beat in raw.get("beats", []) if beat.get("kind") == "ending"
+            ]
+        },
+    }
+
+
+def _full_canon_errors(
+    raw: dict[str, Any], brief: StoryDesignBrief, plan: StoryPlan
+) -> tuple[Canon | None, list[str]]:
+    """所有发布候选都经过相同的结构、计划、规则与玩法检查。"""
+    try:
+        normalized = CanonDraft.model_validate(raw).model_dump(exclude_none=True)
+    except ValidationError as exc:
+        return None, _story_interview_validation_errors(exc)
+    canon, errors = _canon_errors(normalized)
+    if canon is None:
+        return canon, errors
+    fragments = _canon_fragments(normalized, plan)
+    registry = story_plan_id_registry(plan)
+    for kind, fragment in fragments.items():
+        errors.extend(_fragment_errors(kind, fragment, plan, registry, fragments))
+    errors.extend(validate_generated_canon(canon, brief))
+    errors.extend(validate_effect_owner_ledger(canon, plan))
+    errors.extend(validate_canon_playability(canon))
+    if plan.plan_version >= 2:
+        expected = {
+            "duration_minutes": brief.duration_minutes,
+            "length_mode": brief.length_mode,
+            "act_count": len(plan.acts),
+            "recommended_player_count": brief.player_count,
+            "tone": brief.tone,
+            "gameplay_focus": list(brief.gameplay_focus),
+            "content_warnings": list(brief.content_warnings),
+        }
+        errors.extend(
+            f"top_level.{field} 必须与确认稿一致"
+            for field, value in expected.items()
+            if normalized.get(field) != value
+        )
+    return canon, list(dict.fromkeys(errors))
+
+
+def _canon_objects(raw: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    collections = ("cast", "locations", "action_definitions", "beats")
+    return {
+        "top_level": {
+            key: value for key, value in raw.items() if key not in collections
+        },
+        **{
+            f"{kind}:{item['id']}": item
+            for kind in collections
+            for item in (raw.get(kind) or [])
+            if isinstance(item, dict) and item.get("id")
+        },
+    }
+
+
+async def _repair_canon_objects(
+    raw: dict[str, Any],
+    *,
+    ids: set[str],
+    errors: list[str],
+    brief: StoryDesignBrief,
+    plan: StoryPlan,
+    call_context: StoryCallContext | None,
+) -> dict[str, Any]:
+    """只替换明确定位的对象；任何白名单之外的修改均不接纳。"""
+    objects = _canon_objects(raw)
+    ids = set(ids)
+    ids.update(
+        owner.owner_id for owner in plan.effect_owner_ledger if owner.effect_id in ids
+    )
+    for beat in raw.get("beats", []):
+        if not isinstance(beat, dict):
+            continue
+        children = [
+            *(beat.get("key_info") or []),
+            *(beat.get("advance_conditions") or []),
+            beat.get("encounter") or {},
+        ]
+        if any(
+            isinstance(child, dict) and child.get("id") in ids for child in children
+        ):
+            ids.add(beat["id"])
+    targets = sorted(
+        key for key in objects if key in ids or key.partition(":")[2] in ids
+    )
+    if not targets:
+        raise StoryGenerationError("校验问题无法定位到可修复对象：" + "；".join(errors))
+    schema = canon_object_repair_schema(targets)
+    prompt = (
+        "修复以下对象的明确错误，返回 JSON，根对象必须只有 objects 字段，"
+        "objects 内的键必须精确匹配待修复对象。"
+        "每项返回完整对象，保留 ID、Beat 拓扑、所属关系、时间、已锁定触发条件与效果 owner。"
+        "不得改写未列出的对象，不得加入模板或离线故事。\n"
+        f"返回层级示意：{json.dumps({'objects': dict.fromkeys(targets, {})}, ensure_ascii=False)}\n"
+        f"<schema>{json.dumps(schema.model_json_schema(), ensure_ascii=False, separators=(',', ':'))}</schema>\n"
+        f"<errors>{json.dumps(errors, ensure_ascii=False)}</errors>\n"
+        f"<brief>{json.dumps(brief.model_dump(), ensure_ascii=False, separators=(',', ':'))}</brief>\n"
+        f"<plan>{json.dumps(plan.model_dump(exclude_none=True), ensure_ascii=False, separators=(',', ':'))}</plan>\n"
+        f"<objects>{json.dumps({key: objects[key] for key in targets}, ensure_ascii=False, separators=(',', ':'))}</objects>"
+    )
+    for attempt in range(2):
+        replacement = await _complete_json(
+            prompt,
+            stage="对象定向修复",
+            role=ModelRole.STORY_REPAIR,
+            schema=schema,
+            call_context=call_context,
+        )
+        try:
+            replacement = schema.model_validate(replacement).model_dump(
+                by_alias=True, exclude_none=True
+            )["objects"]
+            break
+        except ValidationError as exc:
+            detail = "；".join(_story_interview_validation_errors(exc))
+            if attempt:
+                raise StoryGenerationError("对象定向修复结构不合法：" + detail) from exc
+            prompt += (
+                "\n上次返回的结构不合法，请按 schema 重新输出完整修复对象：" + detail
+            )
+    result = deepcopy(raw)
+    for key in targets:
+        kind, _, object_id = key.partition(":")
+        value = replacement[key]
+        if kind == "top_level":
+            result.update(value)
+        else:
+            if value["id"] != object_id:
+                raise StoryGenerationError(f"对象修复不得更改 ID «{object_id}»")
+            result[kind] = [
+                (
+                    value
+                    if isinstance(item, dict) and item.get("id") == object_id
+                    else item
+                )
+                for item in result[kind]
+            ]
+    return result
+
+
 async def _repair_assembled_canon(
     raw: dict[str, Any],
     *,
@@ -2394,25 +2892,32 @@ async def _repair_assembled_canon(
     plan: StoryPlan,
     stage_label: str,
     call_context: StoryCallContext | None = None,
-) -> tuple[dict[str, Any], Canon]:
-    """对汇总 Canon 执行完整校验，并在失败时做有界修复。
-
-    分片各自通过校验后仍可能因跨分片一致性问题（owner 重复、遭遇/结局计数等）
-    在汇总时失败；这里再给一次完整修复机会，避免前面几十次调用前功尽弃。
-    """
+) -> tuple[dict[str, Any], Canon, int]:
+    """汇总阶段只修复错误对象，所有轮次重新执行完整验收。"""
+    previous_errors = None
     for attempt in range(MAX_ASSEMBLY_REPAIRS + 1):
-        canon, errors = _canon_errors(raw)
-        if canon is not None:
-            errors.extend(validate_generated_canon(canon, brief))
-            errors.extend(validate_effect_owner_ledger(canon, plan))
+        canon, errors = _full_canon_errors(raw, brief, plan)
         if canon is not None and not errors:
-            return raw, canon
-        if attempt == MAX_ASSEMBLY_REPAIRS:
+            return raw, canon, attempt
+        fingerprint = tuple(sorted(errors))
+        if attempt == MAX_ASSEMBLY_REPAIRS or fingerprint == previous_errors:
             raise StoryGenerationError(f"{stage_label}：" + "；".join(errors))
-        raw = await _complete_json(
-            build_canon_repair_prompt(raw, errors),
-            stage=f"汇总修复（第 {attempt + 1} 次）",
-            role=ModelRole.STORY_REPAIR,
+        previous_errors = fingerprint
+        ids = {value for error in errors for value in re.findall(r"«([^»]+)»", error)}
+        if any(
+            "top_level" in error
+            or "Canon." in error
+            or "win_condition" in error
+            or "lose_condition" in error
+            for error in errors
+        ):
+            ids.add("top_level")
+        raw = await _repair_canon_objects(
+            raw,
+            ids=ids,
+            errors=errors,
+            brief=brief,
+            plan=plan,
             call_context=call_context,
         )
     raise AssertionError("汇总修复循环未按预期结束")

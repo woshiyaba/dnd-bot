@@ -150,6 +150,14 @@ class StoryGenerationStore:
                     "ALTER TABLE generation_tasks "
                     "ADD COLUMN llm_call_count INTEGER NOT NULL DEFAULT 0"
                 )
+            if "deadline_at" not in columns:
+                self._connection.execute(
+                    "ALTER TABLE generation_tasks ADD COLUMN deadline_at TEXT"
+                )
+            if "retry_count" not in columns:
+                self._connection.execute(
+                    "ALTER TABLE generation_tasks ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0"
+                )
             self._connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_generation_tasks_requester "
                 "ON generation_tasks(requester_key, created_at)"
@@ -363,6 +371,44 @@ class StoryGenerationStore:
             ).fetchone()
         return self._task_dict(row) if row is not None else None
 
+    def task_deadline(self, task_id: str, timeout_seconds: float) -> datetime:
+        """首次执行时确定期限；服务重启不会重新获得整段执行时间。"""
+        with self._lock, self._connection:
+            self._connection.execute(
+                "UPDATE generation_tasks SET deadline_at=COALESCE(deadline_at, ?) WHERE task_id=?",
+                (_iso(utc_now() + timedelta(seconds=timeout_seconds)), task_id),
+            )
+            return self.get_task(task_id)["deadline_at"]
+
+    def retry_task(
+        self, task_id: str, requester_key: str | None, *, active_limit: int
+    ) -> dict[str, Any]:
+        """一次显式续跑保留产物和已用预算，并重新申请队列容量。"""
+        with self._lock, self._connection:
+            task = self.get_task(task_id)
+            if task is None or task["requester_key"] != requester_key:
+                raise ValueError("故事生成任务不存在或不属于当前来源")
+            if task["status"] != "failed" or task["retry_count"] >= 1:
+                raise ValueError("仅失败任务可续跑一次")
+            rows = self._connection.execute(
+                "SELECT requester_key FROM generation_tasks WHERE status IN ('queued','running','cancel_requested')"
+            ).fetchall()
+            if len(rows) >= active_limit:
+                raise StoryQueueFull("故事生成队列已满，请稍后重试")
+            if requester_key and any(
+                row["requester_key"] == requester_key for row in rows
+            ):
+                raise StoryRateLimitExceeded(
+                    "当前来源已有未结束的故事任务", retry_after=60
+                )
+            self._connection.execute(
+                """UPDATE generation_tasks SET status='queued',stage='等待续跑',
+                retry_count=retry_count+1,deadline_at=NULL,error_public=NULL,completed_at=NULL,updated_at=?
+                WHERE task_id=?""",
+                (_iso(utc_now()), task_id),
+            )
+            return self.get_task(task_id)
+
     def update_task(
         self,
         task_id: str,
@@ -371,7 +417,7 @@ class StoryGenerationStore:
         progress: int,
         repair_count: int | None = None,
     ) -> None:
-        fields = ["stage=?", "progress=?", "updated_at=?"]
+        fields = ["stage=?", "progress=MAX(progress,?)", "updated_at=?"]
         values: list[Any] = [stage, max(0, min(100, progress)), _iso(utc_now())]
         if repair_count is not None:
             fields.append("repair_count=?")
@@ -379,7 +425,7 @@ class StoryGenerationStore:
         values.append(task_id)
         with self._lock, self._connection:
             self._connection.execute(
-                f"UPDATE generation_tasks SET {', '.join(fields)} WHERE task_id=?",
+                f"UPDATE generation_tasks SET {', '.join(fields)} WHERE task_id=? AND status IN ('queued','running')",
                 values,
             )
 
@@ -394,6 +440,9 @@ class StoryGenerationStore:
     ) -> None:
         """只保存已经通过本阶段校验的完整产物。"""
         with self._lock, self._connection:
+            task = self.get_task(task_id)
+            if task is None or task["status"] not in {"queued", "running"}:
+                raise RuntimeError("任务已停止，不能保存生成产物")
             self._connection.execute(
                 """
                 INSERT INTO generation_artifacts(
@@ -418,6 +467,10 @@ class StoryGenerationStore:
             self._connection.execute(
                 "DELETE FROM generation_stage_attempts WHERE task_id=? AND stage_key=?",
                 (task_id, artifact_key),
+            )
+            self._connection.execute(
+                "UPDATE generation_tasks SET repair_count=repair_count+? WHERE task_id=?",
+                (max(0, attempt), task_id),
             )
 
     def artifacts(self, task_id: str) -> dict[str, dict[str, Any]]:
@@ -478,7 +531,7 @@ class StoryGenerationStore:
                 """
                 UPDATE generation_tasks
                 SET cancel_requested=1,status='cancel_requested',stage='正在取消',updated_at=?
-                WHERE task_id=?
+                WHERE task_id=? AND status IN ('queued','running','cancel_requested')
                 """,
                 (_iso(utc_now()), task_id),
             )
@@ -494,8 +547,8 @@ class StoryGenerationStore:
             self._connection.execute(
                 """
                 UPDATE generation_tasks
-                SET status='cancelled',stage='已取消',updated_at=?,completed_at=?
-                WHERE task_id=?
+                SET status='cancelled',cancel_requested=1,stage='已取消',updated_at=?,completed_at=?
+                WHERE task_id=? AND status IN ('queued','running','cancel_requested')
                 """,
                 (_iso(now), _iso(now), task_id),
             )
@@ -510,7 +563,7 @@ class StoryGenerationStore:
                 """
                 UPDATE generation_tasks SET
                     status='failed',stage='生成失败',error_public=?,updated_at=?,completed_at=?
-                WHERE task_id=?
+                WHERE task_id=? AND status IN ('queued','running')
                 """,
                 (error_public[:1000], _iso(now), _iso(now), task_id),
             )
@@ -532,7 +585,7 @@ class StoryGenerationStore:
         with self._lock, self._connection:
             # 防止恢复过程重复创建或覆盖已经完成的草稿。
             existing = self._connection.execute(
-                "SELECT draft_id FROM generation_tasks WHERE task_id=?",
+                "SELECT draft_id,status FROM generation_tasks WHERE task_id=?",
                 (task_id,),
             ).fetchone()
             if existing is not None and existing["draft_id"]:
@@ -542,6 +595,8 @@ class StoryGenerationStore:
                 ).fetchone()
                 if row is not None:
                     return datetime.fromisoformat(row["expires_at"])
+            if existing is None or existing["status"] not in {"queued", "running"}:
+                raise RuntimeError("任务已停止，不能创建草稿")
             self._connection.execute(
                 """
                 INSERT INTO story_drafts(
@@ -679,6 +734,12 @@ class StoryGenerationStore:
             "cancel_requested": bool(row["cancel_requested"]),
             "repair_count": int(row["repair_count"]),
             "llm_call_count": int(row["llm_call_count"]),
+            "retry_count": int(row["retry_count"]),
+            "deadline_at": (
+                datetime.fromisoformat(row["deadline_at"])
+                if row["deadline_at"]
+                else None
+            ),
             "continuity_passed": bool(row["continuity_passed"]),
             "created_at": datetime.fromisoformat(row["created_at"]),
             "updated_at": datetime.fromisoformat(row["updated_at"]),

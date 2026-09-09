@@ -15,6 +15,7 @@ from src.schemas.room import (
     RoomActionRequest,
     SendMessageRequest,
     SessionView,
+    TransferItemRequest,
 )
 from src.services.room_service import GameRoom, RoomMember, room_service
 from src.services.session_service import session_service
@@ -54,6 +55,19 @@ async def apply_level_up(
     """为当前玩家提交一轮属性提升并广播最新角色状态。"""
     room, member = identity
     payload = await session_service.apply_level_up(room, member, request.increases)
+    await session_service.broadcast_session(room, payload)
+    return session_service.session_view(room, member, payload)
+
+
+@router.post("/{room_code}/inventory/transfer", response_model=SessionView)
+async def transfer_inventory(
+    request: TransferItemRequest, identity: RoomIdentity
+) -> SessionView:
+    """在探索阶段把已有物品转交给队友，并广播双方背包。"""
+    room, member = identity
+    payload = await session_service.transfer_inventory(
+        room, member, **request.model_dump()
+    )
     await session_service.broadcast_session(room, payload)
     return session_service.session_view(room, member, payload)
 

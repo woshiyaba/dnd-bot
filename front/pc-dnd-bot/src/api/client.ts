@@ -14,7 +14,7 @@ import type {
   StorySummary,
 } from '../types/game'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:32388'
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
 
 export class ApiError extends Error {
   status: number
@@ -123,6 +123,12 @@ export const gameApi = {
       action,
       credential.accessToken,
     ),
+  transferItem: (credential: RoomCredential, itemId: string, targetId: string, quantity: number) =>
+    post<SessionView>(
+      `/api/rooms/${credential.roomCode}/inventory/transfer`,
+      { item_id: itemId, target_id: targetId, quantity },
+      credential.accessToken,
+    ),
   levelUp: (
     credential: RoomCredential,
     increases: Record<string, number>,
@@ -165,6 +171,8 @@ export const gameApi = {
     requestJson<StoryGenerationTaskResponse>(
       `/api/stories/generation-tasks/${encodeURIComponent(taskId)}`,
     ),
+  retryStoryGenerationTask: (taskId: string) =>
+    post<StoryGenerationTaskResponse>(`/api/stories/generation-tasks/${encodeURIComponent(taskId)}/retry`, {}),
   cancelStoryGenerationTask: (taskId: string) =>
     requestJson<StoryGenerationTaskResponse>(
       `/api/stories/generation-tasks/${encodeURIComponent(taskId)}`,

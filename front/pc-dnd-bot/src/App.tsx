@@ -21,10 +21,18 @@ function readCredential(): RoomCredential | null {
 
 function App() {
   const [credential, setCredential] = useState<RoomCredential | null>(readCredential)
+  const [showSharedStory, setShowSharedStory] = useState(() => new URLSearchParams(window.location.search).has('campaign'))
   const [view, setView] = useState<'square' | 'studio' | 'lobby'>('square')
   const [lobbyMode, setLobbyMode] = useState<'create' | 'join'>('create')
   const [selectedStory, setSelectedStory] = useState<StorySummary | null>(null)
   const [highlightCampaignId, setHighlightCampaignId] = useState<string>()
+
+  function resumeRoom() {
+    const url = new URL(window.location.href)
+    url.searchParams.delete('campaign')
+    window.history.replaceState(null, '', url)
+    setShowSharedStory(false)
+  }
 
   function authenticate(response: RoomAuthResponse) {
     const next: RoomCredential = {
@@ -34,6 +42,7 @@ function App() {
     }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
     setCredential(next)
+    resumeRoom()
   }
 
   function leaveRoom() {
@@ -42,7 +51,7 @@ function App() {
     setView('square')
   }
 
-  if (credential) {
+  if (credential && !showSharedStory) {
     return <AuthenticatedGame credential={credential} onLeave={leaveRoom} />
   }
   if (view === 'studio') {
@@ -69,6 +78,7 @@ function App() {
   }
   return (
     <StorySquare
+      onResumeRoom={credential ? resumeRoom : undefined}
       highlightCampaignId={highlightCampaignId}
       onCreateStory={() => setView('studio')}
       onJoinRoom={() => {
@@ -106,6 +116,7 @@ function AuthenticatedGame({
         onFreeRoll={game.prepareFreeRoll}
         onLeave={onLeave}
         onLevelUp={game.submitLevelUp}
+        onTransferItem={game.transferItem}
         onMessage={game.sendMessage}
         onStart={game.startRoom}
         session={game.session}

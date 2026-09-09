@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from src.api.invoke import router as invoke_router
 from src.api.rooms import router as rooms_router
@@ -49,6 +51,11 @@ app.include_router(rooms_router)
 app.include_router(sessions_router)
 app.include_router(stories_router)
 app.include_router(websocket_router)
+
+# 构建后可由同一个服务提供网页、API 和 WebSocket，分享链接无需另配前端服务。
+_PC_BUILD_DIR = Path(__file__).resolve().parents[1] / "front" / "pc-dnd-bot" / "dist"
+if _PC_BUILD_DIR.is_dir():
+    app.mount("/", StaticFiles(directory=_PC_BUILD_DIR, html=True), name="pc")
 
 
 async def create_app() -> FastAPI:

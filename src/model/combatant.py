@@ -126,11 +126,11 @@ class Combatant:
         return absorbed + old - self.current_hp
 
     def heal(self, amount: int) -> int:
-        """治疗：回血，不超过最大 HP；死亡（倒下）者不因治疗复活。返回实际恢复值。"""
-        if not self.is_alive:
-            return 0
+        """治疗：不超过最大 HP；本版倒下不等于死亡，恢复生命后可继续行动。"""
         old = self.current_hp
         self.current_hp = min(self.max_hp, self.current_hp + max(0, amount))
+        if self.current_hp > 0:
+            self.life_state = LifeState.ALIVE
         return self.current_hp - old
 
     def add_condition(self, effect: Condition) -> None:

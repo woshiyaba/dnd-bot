@@ -213,7 +213,11 @@ class StoryDesignBrief(BaseModel):
             self.branching_style = self.branching_style or (
                 "linear" if self.length_mode == "short" else "branch_and_reconverge"
             )
-        self.pacing = self.pacing or StoryPacing()
+        self.pacing = self.pacing or (
+            StoryPacing(exploration_social_percent=65, escalation_percent=0)
+            if self.scale_profile and self.scale_profile.playable_beats == 3
+            else StoryPacing()
+        )
         self.side_content = self.side_content or StorySideContent()
         self.failure_style = self.failure_style or "fail_forward_with_cost"
         self.replayability = self.replayability or "medium"
@@ -249,6 +253,29 @@ class StoryDesignBrief(BaseModel):
                 validation_errors.append(
                     "存在分支预算时 branching_style 必须为 branch_and_reconverge"
                 )
+            if self.branching_budget:
+                branches = self.branching_budget.meaningful_branch_points
+                if self.scale_profile.playable_beats < 3 * branches + 2:
+                    validation_errors.append(
+                        "可玩 Beat 数不足：固定二选一汇流结构要求 playable_beats >= 3B + 2"
+                    )
+                required_beats = 2 + sum(
+                    value > 15
+                    for value in (
+                        self.pacing.exploration_social_percent,
+                        self.pacing.escalation_percent,
+                    )
+                )
+                if self.scale_profile.playable_beats - branches < required_beats:
+                    validation_errors.append(
+                        "可玩 Beat 数无法满足已确认节奏，请增加场景或调整探索/冲突比例"
+                    )
+            if (
+                not self.scale_profile.acts
+                <= self.scale_profile.playable_beats
+                <= 3 * self.scale_profile.acts
+            ):
+                validation_errors.append("每个 Act 必须容纳 1–3 个可玩 Beat")
         if validation_errors:
             raise ValueError("；".join(validation_errors))
         return self
@@ -337,7 +364,39 @@ class CanonTriggerDraft(CanonDraftModel):
     id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
     kind: Literal["flag", "item", "location", "combat_outcome", "semantic", "action"]
     predicate: CanonTriggerPredicateDraft
-    description: str
+    description: str = ""
+
+    @model_validator(mode="after")
+    def validate_predicate(self) -> "CanonTriggerDraft":
+        """在模型输出边界拒绝缺参数或混用种类的触发条件。"""
+        predicate = self.predicate.model_dump(exclude_none=True)
+        fields = {
+            "flag": {"flag", "equals", "all", "any"},
+            "item": {"item_id"},
+            "location": {"location_id"},
+            "combat_outcome": {"outcome", "encounter_id"},
+            "semantic": {"prompt"},
+            "action": {"action"},
+        }
+        if set(predicate) - fields[self.kind]:
+            raise ValueError("predicate 字段与 Trigger kind 不匹配")
+        if self.kind == "flag":
+            selectors = [key for key in ("flag", "all", "any") if key in predicate]
+            if len(selectors) != 1 or not predicate[selectors[0]]:
+                raise ValueError("flag predicate 必须提供且只提供非空 flag/all/any")
+            if selectors[0] != "flag" and "equals" in predicate:
+                raise ValueError("equals 只能与单个 flag 配合使用")
+        else:
+            required = {
+                "item": "item_id",
+                "location": "location_id",
+                "combat_outcome": "outcome",
+                "semantic": "prompt",
+                "action": "action",
+            }[self.kind]
+            if not predicate.get(required):
+                raise ValueError(f"{self.kind} predicate 缺少 {required}")
+        return self
 
 
 class CanonAttackDraft(CanonDraftModel):
@@ -427,12 +486,13 @@ class CanonEntryActorDraft(CanonDraftModel):
 class CanonEntryStateDraft(CanonDraftModel):
     """进入 Beat 时用于搭建场景的冻结状态。"""
 
-    location_id: str | None
+    location_id: str | None = None
     preserve_current_scene: bool = False
     description: str = ""
     actors: list[CanonEntryActorDraft]
     exits: list[str]
     threat: str | None = None
+    flags: dict[str, bool] = Field(default_factory=dict)
 
 
 class CanonGrantedItemDraft(CanonDraftModel):
@@ -704,6 +764,53 @@ class CanonDraft(CanonDraftModel):
     beats: list[CanonBeatDraft] = Field(min_length=1)
 
 
+@lru_cache(maxsize=8)
+def canon_fragment_schema(kind: str) -> type[BaseModel]:
+    """从完整 Canon 的唯一字段定义派生分片边界。"""
+    fields = {
+        "cast": {"cast"},
+        "locations": {"locations"},
+        "actions": {"action_definitions"},
+        "act": {"beats"},
+        "endings": {"beats"},
+        "top_level": set(CanonDraft.model_fields)
+        - {"cast", "locations", "action_definitions", "beats"},
+    }[kind]
+    return create_model(
+        f"CanonFragment_{kind}",
+        __config__=ConfigDict(extra="forbid"),
+        **{
+            name: (field.annotation, field)
+            for name, field in CanonDraft.model_fields.items()
+            if name in fields
+        },
+    )
+
+
+def canon_object_repair_schema(targets: list[str]) -> type[BaseModel]:
+    """只允许返回本轮白名单内的完整对象。"""
+    types = {
+        "cast": CanonNpcDraft,
+        "locations": CanonLocationDraft,
+        "action_definitions": CanonActionDefinitionDraft,
+        "beats": CanonBeatDraft,
+        "top_level": canon_fragment_schema("top_level"),
+    }
+    objects = create_model(
+        "CanonRepairObjects",
+        __config__=ConfigDict(extra="forbid"),
+        **{
+            f"object_{index}": (types[key.partition(":")[0]], Field(alias=key))
+            for index, key in enumerate(targets)
+        },
+    )
+    return create_model(
+        "CanonObjectRepair",
+        __config__=ConfigDict(extra="forbid"),
+        objects=(objects, ...),
+    )
+
+
 # ---------------------------------------------------------------------------
 # 连贯性复核：约束 staged generator 的复核报告与定向 Act 修复输出。
 # ---------------------------------------------------------------------------
@@ -715,7 +822,8 @@ class StoryContinuityIssue(BaseModel):
     severity: Literal["error", "warning"]
     code: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
     message: str = Field(min_length=1)
-    affected_act_ids: list[str]
+    affected_act_ids: list[str] = Field(default_factory=list)
+    affected_object_ids: list[str] = Field(default_factory=list)
 
 
 class StoryContinuityReview(BaseModel):
@@ -819,6 +927,7 @@ class PlanExit(BaseModel):
     to_beat_id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
     condition_summary: str = Field(min_length=1)
     consequence: str = Field(min_length=1)
+    trigger: CanonTriggerDraft | None = None
 
 
 class PlanBeat(BaseModel):
@@ -886,7 +995,10 @@ class EffectOwner(BaseModel):
     owner_kind: Literal[
         "discovery", "encounter_win", "initial_state", "rule_action", "dm_free_write"
     ]
-    owner_id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    owner_id: str = Field(
+        pattern=r"^[a-z][a-z0-9_]*$",
+        description="必须引用已存在的同类 ID：discovery→clue ID；encounter_win→encounter ID；initial_state→beat ID；rule_action→action ID；dm_free_write→该 flag 自身 ID。物品只允许 discovery 或 rule_action。",
+    )
 
 
 class StoryPlan(BaseModel):
@@ -906,6 +1018,8 @@ class StoryPlan(BaseModel):
     foreshadowing_payoffs: list[PlanPayoff] = Field(default_factory=list)
     ending_routes: list[PlanEndingRoute] = Field(min_length=2, max_length=2)
     effect_owner_ledger: list[EffectOwner] = Field(default_factory=list)
+    win_condition: CanonTriggerDraft | None = None
+    lose_condition: CanonTriggerDraft | None = None
 
 
 class StoryScaleProfileCandidate(BaseModel):
@@ -956,6 +1070,8 @@ class StoryPlanCandidate(BaseModel):
     foreshadowing_payoffs: list[PlanPayoff] = Field(default_factory=list)
     ending_routes: list[PlanEndingRoute] = Field(min_length=2, max_length=2)
     effect_owner_ledger: list[EffectOwner] = Field(default_factory=list)
+    win_condition: CanonTriggerDraft | None = None
+    lose_condition: CanonTriggerDraft | None = None
 
 
 def story_plan_section_repair_schema(
@@ -983,6 +1099,8 @@ def _story_plan_section_repair_schema(
             Field(min_length=2, max_length=2),
         ),
         "effect_owner_ledger": (list[EffectOwner], ...),
+        "win_condition": (CanonTriggerDraft, ...),
+        "lose_condition": (CanonTriggerDraft, ...),
     }
     unknown = sorted(set(section_names) - set(section_fields))
     if unknown:
@@ -1047,6 +1165,15 @@ class StoryPlanFrame(BaseModel):
 
     campaign_id_candidate: str = Field(pattern=r"^[a-z][a-z0-9_]{2,63}$")
     acts: list[PlanFrameAct] = Field(min_length=1, max_length=5)
+
+
+class StoryPlanCore(StoryPlanFrame):
+    """紧凑全局创作事实，先锁定真相与因果，再生成执行计划。"""
+
+    truth: str = Field(min_length=1, max_length=2000)
+    character_motivations: list[str] = Field(min_length=1, max_length=12)
+    causal_chain: list[str] = Field(min_length=1, max_length=12)
+    ending_intent: str = Field(min_length=1, max_length=1000)
 
 
 class PlanBeatOutline(BaseModel):
@@ -1220,6 +1347,7 @@ class StoryGenerationTaskResponse(BaseModel):
     updated_at: datetime
     llm_calls_used: int = Field(default=0, ge=0)
     llm_calls_limit: int = Field(default=24, ge=1)
+    can_retry: bool = False
     error: str | None = None
     draft: StoryDraftResponse | None = None
 

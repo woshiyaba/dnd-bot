@@ -392,9 +392,7 @@ class FragmentConstantEnforcementTests(unittest.TestCase):
                 }
             ],
         )
-        self.assertEqual(
-            beat["advance_conditions"][0]["id"], "trigger_beat_rooftops_1"
-        )
+        self.assertEqual(beat["advance_conditions"][0]["id"], "trigger_beat_rooftops_1")
         # 模型创作的 trigger 语义保留，只有 id 被强制。
         self.assertEqual(beat["advance_conditions"][0]["kind"], "action")
 
@@ -416,7 +414,11 @@ class FragmentConstantEnforcementTests(unittest.TestCase):
             "declared_flags": [],
             "start_beat_id": "beat_wrong",
             "win_condition": {"id": "win_condition", "kind": "flag", "predicate": {}},
-            "lose_condition": {"id": "lose_condition", "kind": "semantic", "predicate": {}},
+            "lose_condition": {
+                "id": "lose_condition",
+                "kind": "semantic",
+                "predicate": {},
+            },
         }
 
         normalized = _enforce_fragment_constants("top_level", fragment, plan)
@@ -496,7 +498,7 @@ class ProgressiveGenerationTests(unittest.IsolatedAsyncioTestCase):
         planner = AsyncMock(side_effect=AssertionError("不应重新规划"))
         stage_start = AsyncMock(side_effect=StoryGenerationError("停止在 Canon 分片"))
         with (
-            patch("src.story.generator._generate_story_plan_progressively", planner),
+            patch("src.story.generator._generate_compact_story_plan", planner),
             patch("src.story.generator._load_reference_fragments", return_value=[]),
             self.assertRaisesRegex(StoryGenerationError, "停止在 Canon 分片"),
         ):
@@ -506,7 +508,7 @@ class ProgressiveGenerationTests(unittest.IsolatedAsyncioTestCase):
                 on_stage_start=stage_start,
             )
         planner.assert_not_awaited()
-        self.assertEqual(stage_start.await_args.args[0], "fragment:top_level")
+        self.assertEqual(stage_start.await_args_list[0].args[0], "fragment:top_level")
 
     async def test_final_plan_artifact_does_not_repeat_small_stage_repairs(self):
         plan = _standard_plan()
@@ -514,8 +516,8 @@ class ProgressiveGenerationTests(unittest.IsolatedAsyncioTestCase):
         stage_start = AsyncMock(side_effect=StoryGenerationError("停止在 Canon 分片"))
         with (
             patch(
-                "src.story.generator._generate_story_plan_progressively",
-                new=AsyncMock(return_value=(plan, 3)),
+                "src.story.generator._generate_compact_story_plan",
+                new=AsyncMock(return_value=(plan, 0)),
             ),
             patch("src.story.generator._load_reference_fragments", return_value=[]),
             self.assertRaisesRegex(StoryGenerationError, "停止在 Canon 分片"),
@@ -525,15 +527,19 @@ class ProgressiveGenerationTests(unittest.IsolatedAsyncioTestCase):
                 on_artifact=persisted,
                 on_stage_start=stage_start,
             )
-        self.assertEqual(persisted.await_args.args[0:2], ("planning", "plan"))
-        self.assertEqual(persisted.await_args.args[3], 0)
+        plan_save = next(
+            call for call in persisted.await_args_list if call.args[1] == "plan"
+        )
+        self.assertEqual(plan_save.args[0], "planning")
+        self.assertEqual(plan_save.args[3], 0)
 
     def test_branch_budget_is_rejected_at_submission_boundary(self):
         raw = _brief().model_dump()
         raw["branching_budget"]["meaningful_branch_points"] = 2
-        brief = StoryDesignBrief.model_validate(raw)
+        with self.assertRaises(ValidationError):
+            StoryDesignBrief.model_validate(raw)
         with self.assertRaises(HTTPException) as raised:
-            StoryService._validated_brief(brief)
+            StoryService._validated_brief(raw)
         self.assertEqual(raised.exception.status_code, 422)
         self.assertIn("3B + 2", raised.exception.detail)
 

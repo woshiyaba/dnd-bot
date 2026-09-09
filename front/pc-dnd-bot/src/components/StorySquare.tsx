@@ -7,15 +7,38 @@ export function StorySquare({
   onCreateStory,
   onJoinRoom,
   onSelectStory,
+  onResumeRoom,
 }: {
   highlightCampaignId?: string
   onCreateStory: () => void
   onJoinRoom: () => void
   onSelectStory: (story: StorySummary) => void
+  onResumeRoom?: () => void
 }) {
   const [stories, setStories] = useState<StorySummary[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
+  const [query, setQuery] = useState('')
+  const [copiedId, setCopiedId] = useState('')
+  const sharedId = new URLSearchParams(window.location.search).get('campaign')
+  const sharedStory = stories.find((story) => story.campaign_id === sharedId)
+  const visibleStories = stories.filter((story) =>
+    `${story.title} ${story.premise} ${story.gameplay_focus.join(' ')}`.toLowerCase().includes(query.trim().toLowerCase()),
+  )
+
+  async function share(story: StorySummary) {
+    const url = new URL(window.location.href)
+    url.search = ''
+    url.hash = ''
+    url.searchParams.set('campaign', story.campaign_id)
+    try {
+      await navigator.clipboard.writeText(url.toString())
+      setCopiedId(story.campaign_id)
+      setError('')
+    } catch {
+      setError('无法自动复制，请从下面的链接打开剧本，再复制浏览器地址。')
+    }
+  }
 
   useEffect(() => {
     void gameApi
@@ -40,16 +63,23 @@ export function StorySquare({
           </div>
         </div>
         <div className="square-header-actions">
+          {onResumeRoom ? <button className="text-button" onClick={onResumeRoom} type="button">继续当前冒险</button> : null}
           <button className="text-button" onClick={onJoinRoom} type="button">
             输入房间码
           </button>
           <button className="primary-cta" onClick={onCreateStory} type="button">
-            与 LLM 共创故事
+            创作并发布剧本
           </button>
         </div>
       </header>
 
       <section className="square-content">
+        {sharedStory ? (
+          <div className="shared-story-banner">
+            <div><small>同伴分享的剧本</small><h2>{sharedStory.title}</h2><p>{sharedStory.premise}</p></div>
+            <button className="primary-cta" onClick={() => onSelectStory(sharedStory)} type="button">用此剧本开团</button>
+          </div>
+        ) : sharedId && !isLoading && !error ? <p role="status">分享的剧本尚未发布或在当前服务器不存在，请从下方选择。</p> : null}
         <div className="square-section-title">
           <div>
             <small>CHOOSE YOUR FATE</small>
@@ -57,6 +87,9 @@ export function StorySquare({
           </div>
           <span>{stories.length} 卷已收录</span>
         </div>
+        <label className="story-search">寻找冒险
+          <input type="search" placeholder="搜索剧本名称、简介或玩法" value={query} onChange={(event) => setQuery(event.target.value)} />
+        </label>
 
         {isLoading ? <div className="story-empty">正在翻阅典藏……</div> : null}
         {error ? <div className="story-empty form-error">{error}</div> : null}
@@ -65,7 +98,7 @@ export function StorySquare({
         ) : null}
 
         <div className="story-card-grid">
-          {stories.map((story) => (
+          {visibleStories.map((story) => (
             <article
               className={`story-card ${
                 story.campaign_id === highlightCampaignId ? 'newly-published' : ''
@@ -99,9 +132,16 @@ export function StorySquare({
               >
                 选择此剧本
               </button>
+              <div className="story-share">
+                <button className="text-button" onClick={() => void share(story)} type="button">
+                  {copiedId === story.campaign_id ? '链接已复制' : '复制分享链接'}
+                </button>
+                <a href={`?campaign=${encodeURIComponent(story.campaign_id)}`}>剧本链接</a>
+              </div>
             </article>
           ))}
         </div>
+        {!isLoading && stories.length > 0 && visibleStories.length === 0 ? <p className="story-empty">没有匹配的剧本，试试其他关键词。</p> : null}
       </section>
     </main>
   )

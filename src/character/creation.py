@@ -313,7 +313,7 @@ def build_character_card(
             }
         ],
         "skills": [skill.to_dict() for skill in skills],
-        "inventory": [],
+        "inventory": [{"item_id": "item_healing_potion", "quantity": 2}],
     }
     return card
 

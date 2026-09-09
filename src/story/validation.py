@@ -264,9 +264,10 @@ def validate_story_plan(plan: StoryPlan, brief: StoryDesignBrief) -> list[str]:
             or payoff.payoff_beat_id not in beat_by_id
         ):
             errors.append(f"伏笔 «{payoff.flag_id}» 引用了不存在的 Beat")
-        elif order_index.get(payoff.setup_beat_id, 10**9) >= order_index.get(
-            payoff.payoff_beat_id, -1
-        ):
+        elif beat_by_id[payoff.payoff_beat_id].kind != "ending" and order_index.get(
+            payoff.setup_beat_id, 10**9
+        ) >= order_index.get(payoff.payoff_beat_id, -1):
+            # 全局失败结局不在普通出口 DAG 上，不能用拓扑排序推断它先于铺垫发生。
             errors.append(f"伏笔 «{payoff.flag_id}» 的回收必须晚于铺垫")
         elif payoff.flag_id not in beat_by_id[payoff.payoff_beat_id].payoff_flag_ids:
             errors.append(
@@ -290,6 +291,13 @@ def validate_story_plan(plan: StoryPlan, brief: StoryDesignBrief) -> list[str]:
     }
     for owner in plan.effect_owner_ledger:
         key = (owner.effect_kind, owner.effect_id)
+        if owner.effect_kind == "item" and owner.owner_kind not in {
+            "discovery",
+            "rule_action",
+        }:
+            errors.append(
+                f"物品 «{owner.effect_id}» 的 owner 只能是 discovery 或 rule_action"
+            )
         if key in owner_keys:
             errors.append(f"效果 «{owner.effect_id}» 存在多个 owner")
         owner_keys.add(key)
@@ -300,7 +308,8 @@ def validate_story_plan(plan: StoryPlan, brief: StoryDesignBrief) -> list[str]:
             errors.append(f"owner ledger 引用了不存在的效果 «{owner.effect_id}»")
         if owner.owner_id not in valid_owner_ids[owner.owner_kind]:
             errors.append(
-                f"效果 «{owner.effect_id}» 的 owner_id «{owner.owner_id}» 与 owner_kind 不匹配"
+                f"效果 «{owner.effect_id}» 的 owner_id «{owner.owner_id}» 与 owner_kind={owner.owner_kind} 不匹配；"
+                f"该类型合法 ID 为 {sorted(valid_owner_ids[owner.owner_kind])}。若列表为空，请选择有实际来源的 owner 类型，不能把 Beat ID 当作行动或遭遇 ID"
             )
     expected_owner_keys = {
         *(("flag", value) for value in flag_ids),
@@ -357,6 +366,44 @@ def validate_story_plan(plan: StoryPlan, brief: StoryDesignBrief) -> list[str]:
                         f"路径 {path_index} 的 {bucket} 节奏为 {percent}%，"
                         f"与确认目标 {target}% 偏差超过 15 个百分点"
                     )
+    if plan.plan_version >= 2:
+        if len(plan.entities.actors) > 12:
+            errors.append("紧凑计划最多允许 12 个 actor")
+        triggers = []
+        for beat in playable:
+            if not beat.fail_forward.strip():
+                errors.append(f"Beat «{beat.id}» 缺少可执行的 fail_forward")
+            for exit_ in beat.exits:
+                if exit_.trigger is None:
+                    errors.append(f"Beat «{beat.id}» 缺少结构化出口 trigger")
+                else:
+                    triggers.append(exit_.trigger.model_dump(exclude_none=True))
+        for name in ("win_condition", "lose_condition"):
+            condition = getattr(plan, name)
+            if condition is None:
+                errors.append(f"计划缺少 {name}")
+            elif condition.kind == "action":
+                errors.append(f"{name} 不能使用无法自动判定的 action")
+            else:
+                triggers.append(condition.model_dump(exclude_none=True))
+        for trigger in triggers:
+            errors.extend(
+                validate_fragment_ids("top_level", {"win_condition": trigger}, registry)
+            )
+        if (
+            plan.win_condition is not None
+            and plan.win_condition.kind == "combat_outcome"
+        ):
+            climaxes = {
+                beat.encounter_id
+                for beat in playable
+                if beat.kind == "climax" and beat.encounter_id
+            }
+            if (
+                plan.win_condition.predicate.encounter_id not in climaxes
+                or plan.win_condition.predicate.outcome != "players_win"
+            ):
+                errors.append("win_condition 必须绑定高潮遭遇的 players_win")
     return errors
 
 
@@ -897,6 +944,12 @@ def validate_generated_canon(
     ]:
         if trigger.kind == TriggerKind.COMBAT_OUTCOME:
             encounter_id = trigger.predicate.get("encounter_id")
+            if (
+                trigger is canon.lose_condition
+                and trigger.predicate.get("outcome") == "players_lose"
+                and not encounter_id
+            ):
+                continue
             if not encounter_id:
                 errors.append(
                     f"combat_outcome Trigger «{trigger.id}» 必须绑定 encounter_id"
@@ -975,7 +1028,9 @@ def validate_effect_owner_ledger(canon: Canon, plan: StoryPlan) -> list[str]:
         )
         if actual != expected:
             errors.append(
-                f"效果 «{owner.effect_id}» 的最终 owner {actual} 与计划 {expected} 不一致"
+                f"效果 «{owner.effect_id}» 的最终 owner {actual} 与计划 {expected} 不一致；"
+                "检查来源 "
+                + "、".join(f"«{owner_id}»" for _, owner_id in [*actual, *expected])
             )
     return errors
 
@@ -1011,6 +1066,265 @@ def canon_quality_metrics(
         continuity_passed=continuity_passed,
         quality_notes=[] if continuity_passed else ["连贯性复核未通过"],
     )
+
+
+def validate_canon_playability(canon: Canon) -> list[str]:
+    """逐条路线检查确定性门槛的可获取性，不把互斥分支的资源合并。
+
+    semantic/action 与未托管的 DM flag 仍需真实模型复核；这里只拒绝确定的机械死锁。
+    """
+    adjacency = {
+        beat.id: [exit_.next_beat_id for exit_ in beat.exits] for beat in canon.beats
+    }
+    if _find_cycle(adjacency):
+        return ["新 Canon 的 Beat 图必须是 DAG"]
+    paths = _beat_paths(
+        canon.start_beat_id,
+        adjacency,
+        {beat.id for beat in canon.beats if beat.is_ending},
+    )
+    locations = {location.id: location for location in canon.locations}
+    managed = managed_flag_sources(canon)
+    errors: list[str] = []
+    for path in paths:
+        flags: dict[str, Any] = {}
+        items: dict[str, int] = {}
+        discovered: set[str] = set()
+        used_actions: set[str] = set()
+        visited_locations: set[str] = set()
+        last_encounter: str | None = None
+        uncertain: set[tuple[str, str]] = set()
+        for index, beat_id in enumerate(path):
+            beat = canon.beat(beat_id)
+            if beat is None or beat.is_ending:
+                continue
+            local_graph = {
+                value: [
+                    target
+                    for target in locations[value].intra_exits
+                    if target in beat.location_ids
+                ]
+                for value in beat.location_ids
+                if value in locations
+            }
+            accessible = _reachable(
+                str(beat.entry_state.get("location_id") or ""), local_graph
+            ) & set(beat.location_ids)
+            visited_locations.update(accessible)
+            needed_locations = {clue.location_id for clue in beat.key_info}
+            if beat.encounter:
+                needed_locations.add(beat.encounter.location_id)
+            if needed_locations - accessible:
+                errors.append(
+                    f"Beat «{beat.id}» 的线索或遭遇地点无法从入场地点抵达：{sorted(str(value) for value in needed_locations - accessible)}"
+                )
+            flags.update(beat.entry_state.get("flags") or {})
+
+            def discover(clue) -> None:
+                if clue.id in discovered:
+                    return
+                discovered.add(clue.id)
+                flags.update(clue.discovery_effects.get("flags_set") or {})
+                for grant in clue.discovery_effects.get("grant_items", []):
+                    item_id = grant["item_id"]
+                    items[item_id] = items.get(item_id, 0) + int(
+                        grant.get("quantity", 1)
+                    )
+
+            for clue in beat.key_info:
+                if clue.location_id in accessible:
+                    discover(clue)
+            if beat.encounter and beat.encounter.location_id in accessible:
+                last_encounter = beat.encounter.id
+                flags.update({flag: True for flag in beat.encounter.on_win_flags})
+
+            actions = {}
+            for action in canon.action_definitions:
+                req = action.requirements
+                if "world" not in action.scopes:
+                    continue
+                if req.get("beat_ids") and beat.id not in req["beat_ids"]:
+                    continue
+                if req.get("location_ids") and not accessible.intersection(
+                    req["location_ids"]
+                ):
+                    continue
+                if (
+                    req.get("encounter_ids")
+                    and last_encounter not in req["encounter_ids"]
+                ):
+                    continue
+                actions[action.id] = action
+
+            def obtain(kind: str, value: str, expected: Any, stack: set[str]) -> bool:
+                if (kind, value) in uncertain:
+                    return True  # 条件效果的结果待语义复核，不作为静态可玩性证明。
+                if kind == "flag":
+                    if flags.get(value) == expected or value not in managed:
+                        return True
+                elif items.get(value, 0) >= expected:
+                    return True
+                for action in actions.values():
+                    effects = action.contract.get("effect_templates", [])
+                    produces = any(
+                        effect.get("kind")
+                        == ("set_flag" if kind == "flag" else "grant_item")
+                        and effect.get("flag" if kind == "flag" else "item_id") == value
+                        and (kind != "flag" or effect.get("value", True) == expected)
+                        for effect in effects
+                    )
+                    # ponytail: 最多展开 100 次资源生产；超出上限的候选需简化道具数量。
+                    for _ in range(min(int(expected), 100) if kind == "item" else 1):
+                        before_amount = items.get(value, 0)
+                        if not produces or not use_action(action, stack):
+                            break
+                        if (
+                            (kind, value) in uncertain
+                            or kind == "flag"
+                            and flags.get(value) == expected
+                            or kind == "item"
+                            and items.get(value, 0) >= expected
+                        ):
+                            return True
+                        if kind == "item" and items.get(value, 0) <= before_amount:
+                            break
+                return False
+
+            def use_action(action, stack: set[str]) -> bool:
+                if action.id in stack or action.id in used_actions:
+                    return False
+                before = (
+                    dict(flags),
+                    dict(items),
+                    set(used_actions),
+                    set(discovered),
+                    set(uncertain),
+                )
+                success = False
+                try:
+                    stack = stack | {action.id}
+                    if not all(
+                        obtain("flag", flag, True, stack)
+                        for flag in action.requirements.get("flags", [])
+                    ):
+                        return False
+                    usage = action.usage
+                    if action.source_kind == "item" and not obtain(
+                        "item", action.source_ref, 1, stack
+                    ):
+                        return False
+                    if usage.get("kind") == "consume_item":
+                        item_id = usage.get("item_id") or action.source_ref
+                        quantity = int(usage.get("quantity", 1))
+                        if not obtain("item", item_id, quantity, stack):
+                            return False
+                        items[item_id] -= quantity
+                    for effect in action.contract.get("effect_templates", []):
+                        kind = effect.get("kind")
+                        if "always" not in effect.get("when", {}).get("outcomes", []):
+                            if kind == "set_flag":
+                                uncertain.add(("flag", effect["flag"]))
+                            elif kind in {"grant_item", "remove_item"}:
+                                uncertain.add(("item", effect["item_id"]))
+                            continue
+                        if kind == "set_flag":
+                            flags[effect["flag"]] = effect.get("value", True)
+                        elif kind in {"grant_item", "remove_item"}:
+                            item_id = effect["item_id"]
+                            amount = int(effect.get("quantity", 1))
+                            items[item_id] = max(
+                                0,
+                                items.get(item_id, 0)
+                                + (amount if kind == "grant_item" else -amount),
+                            )
+                        elif kind == "discover_clue":
+                            for clue in beat.key_info:
+                                if (
+                                    clue.id == effect.get("clue_id")
+                                    and clue.location_id in accessible
+                                ):
+                                    discover(clue)
+                    if usage.get("kind") == "once_per_session":
+                        used_actions.add(action.id)
+                    success = True
+                    return True
+                finally:
+                    if not success:
+                        for current, previous in zip(
+                            (flags, items, used_actions, discovered, uncertain), before
+                        ):
+                            current.clear()
+                            current.update(previous)
+
+            def trigger_possible(trigger) -> bool:
+                pred = trigger.predicate
+                if trigger.kind == TriggerKind.FLAG:
+                    if "all" in pred:
+                        return all(
+                            obtain("flag", flag, True, set()) for flag in pred["all"]
+                        )
+                    elif "any" in pred:
+                        return any(
+                            obtain("flag", flag, True, set()) for flag in pred["any"]
+                        )
+                    return obtain(
+                        "flag", pred.get("flag"), pred.get("equals", True), set()
+                    )
+                if trigger.kind == TriggerKind.ITEM:
+                    return obtain("item", pred.get("item_id"), 1, set())
+                if trigger.kind == TriggerKind.LOCATION:
+                    return pred.get("location_id") in visited_locations
+                if trigger.kind == TriggerKind.COMBAT_OUTCOME:
+                    return (
+                        bool(last_encounter)
+                        and pred.get("outcome") == "players_win"
+                        and (
+                            not pred.get("encounter_id")
+                            or pred["encounter_id"] == last_encounter
+                        )
+                    )
+                return True  # 自然语言和显式行动不能在此证明，留给真实 LLM 复核。
+
+            next_id = path[index + 1] if index + 1 < len(path) else None
+            candidates = [
+                trigger
+                for trigger in beat.advance_conditions
+                if any(
+                    exit_.trigger_id == trigger.id and exit_.next_beat_id == next_id
+                    for exit_ in beat.exits
+                )
+            ]
+            possible = False
+            for trigger in candidates:
+                before = (
+                    dict(flags),
+                    dict(items),
+                    set(used_actions),
+                    set(discovered),
+                    set(uncertain),
+                )
+                possible = trigger_possible(trigger)
+                ending = canon.beat(next_id) if next_id else None
+                if (
+                    possible
+                    and ending
+                    and ending.is_ending
+                    and ending.ending_outcome.value == "win"
+                ):
+                    possible = trigger_possible(canon.win_condition)
+                if possible:
+                    break
+                for current, previous in zip(
+                    (flags, items, used_actions, discovered, uncertain), before
+                ):
+                    current.clear()
+                    current.update(previous)
+            if candidates and not possible:
+                errors.append(
+                    f"Beat «{beat.id}» 到 «{next_id}» 的前置条件在路线 {' → '.join(path[:index + 1])} 中无法取得"
+                )
+                break
+    return list(dict.fromkeys(errors))
 
 
 def _find_cycle(adjacency: dict[str, list[str]]) -> list[str]:

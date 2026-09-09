@@ -120,6 +120,15 @@ class StoryApiTests(unittest.TestCase):
         self.assertEqual(deleted.json()["status"], "cancelled")
         self.assertNotIn("design_brief", created.json())
         self.assertNotIn("story_plan", created.json())
+        with patch(
+            "src.api.stories.story_service.retry_generation_task",
+            new=AsyncMock(return_value=queued),
+        ):
+            retried = client.post(
+                "/api/stories/generation-tasks/task_public_contract/retry"
+            )
+        self.assertEqual(retried.status_code, 202, retried.text)
+        self.assertIn("can_retry", retried.json())
 
     def test_story_status_rate_limit_returns_retry_after(self):
         client = TestClient(app)
@@ -324,6 +333,7 @@ class StoryGeneratorTests(unittest.IsolatedAsyncioTestCase):
             StoryInterviewResponse,
             method="json_mode",
             include_raw=True,
+            extra_body={"max_tokens": 8192},
         )
         structured_model.ainvoke.assert_awaited_once()
 
@@ -508,6 +518,7 @@ class StoryGeneratorTests(unittest.IsolatedAsyncioTestCase):
             StoryInterviewResponse,
             method="json_mode",
             include_raw=True,
+            extra_body={"max_tokens": 8192},
         )
         self.assertEqual(structured_model.ainvoke.await_count, 2)
 
@@ -521,7 +532,9 @@ class StoryGeneratorTests(unittest.IsolatedAsyncioTestCase):
                 "src.story.generator.get_model_name",
                 return_value="deepseek/deepseek-v4-pro",
             ) as get_name,
-            patch("src.story.generator.get_chat_model", return_value=model) as get_model,
+            patch(
+                "src.story.generator.get_chat_model", return_value=model
+            ) as get_model,
         ):
             result = await story_generator._complete_json(
                 "只输出一个 JSON 对象",
@@ -532,7 +545,10 @@ class StoryGeneratorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, {"a": 1})
         get_name.assert_called_once_with(ModelRole.STORY_AUTHORING)
         get_model.assert_called_once_with("deepseek/deepseek-v4-pro")
-        model.bind.assert_called_once_with(response_format={"type": "json_object"})
+        model.bind.assert_called_once_with(
+            response_format={"type": "json_object"},
+            extra_body={"max_tokens": 8192, "thinking": {"type": "disabled"}},
+        )
         model.with_structured_output.assert_not_called()
         bound_model.ainvoke.assert_awaited_once()
 
@@ -584,6 +600,7 @@ class StoryGeneratorTests(unittest.IsolatedAsyncioTestCase):
             CanonDraft,
             method="json_mode",
             include_raw=True,
+            extra_body={"max_tokens": 8192, "thinking": {"type": "disabled"}},
         )
         structured_model.ainvoke.assert_awaited_once()
 
@@ -609,7 +626,7 @@ class StoryPublishingTests(unittest.IsolatedAsyncioTestCase):
             target = Path(directory) / "test_starlight_archive.json"
             self.assertTrue(target.is_file())
             self.assertEqual(summary.title, "失落星图")
-            self.assertIs(registry.get("test_starlight_archive"), canon)
+            self.assertEqual(registry.get("test_starlight_archive"), canon)
 
     async def test_publish_never_overwrites_existing_campaign(self):
         raw, canon = _generated_canon()

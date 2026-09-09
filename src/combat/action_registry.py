@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Iterable
 
 from src.character.skills import is_combat_skill, skill_definition
+from src.character.inventory import HEALING_POTION
 from src.combat.rules import in_reach
 from src.model.combatant import Character, Combatant
 from src.model.rule_action import ActionDefinition
@@ -119,7 +120,7 @@ def _skill_action_contract(
     """返回十项白名单技能的完整机械合同。"""
     ally_one = {
         "faction": "ally",
-        "life_state": "alive",
+        "life_state": "any",
         "range": "any",
         "min_targets": 1,
         "max_targets": 1,
@@ -301,6 +302,7 @@ def combat_action_entries(
                 )
             else:
                 definitions.append((definition, reason))
+    definitions.append((HEALING_POTION, None))
     definitions.extend(
         (item, None) for item in canon_action_definitions(canon_definitions)
     )
@@ -334,6 +336,7 @@ def world_action_entries(
             if definition is not None and "world" not in definition.scopes:
                 continue
             definitions.append((definition, reason))
+    definitions.append((HEALING_POTION, None))
     definitions.extend((item, None) for item in canon_definitions)
     return _action_entries(
         actor,
@@ -413,7 +416,7 @@ def _action_entries(
             location_id=location_id,
             used_action_ids=used_action_ids,
         )
-        legal_targets = _legal_targets(definition, actor, targets)
+        legal_targets = _legal_targets(definition, actor, targets, scope=scope)
         minimum = int(definition.targeting.get("min_targets", 0))
         if reason is None and len(legal_targets) < minimum:
             reason = "当前没有合法目标"
@@ -456,6 +459,8 @@ def _requirement_failure(
     location_id: str | None,
     used_action_ids: set[str],
 ) -> str | None:
+    if not actor.is_alive:
+        return "角色已倒下，无法行动"
     requirements = definition.requirements
     for flag in requirements.get("flags", []):
         if not flags.get(str(flag)):
@@ -490,14 +495,20 @@ def _requirement_failure(
     if definition.source_kind == "item" or usage_kind == "consume_item":
         item_id = str(definition.usage.get("item_id") or definition.source_ref)
         if not isinstance(actor, Character) or not any(
-            item.item_id == item_id and item.is_available for item in actor.inventory
+            item.item_id == item_id
+            and item.quantity >= int(definition.usage.get("quantity", 1))
+            for item in actor.inventory
         ):
-            return "背包中没有该物品"
+            return "背包物品数量不足"
     return None
 
 
 def _legal_targets(
-    definition: ActionDefinition, actor: Combatant, targets: dict[str, Combatant]
+    definition: ActionDefinition,
+    actor: Combatant,
+    targets: dict[str, Combatant],
+    *,
+    scope: str = "combat",
 ) -> list[Combatant]:
     target_rule = definition.targeting
     faction = str(target_rule.get("faction") or "any")
@@ -518,7 +529,11 @@ def _legal_targets(
             continue
         if life_state == "down" and target.is_alive:
             continue
-        if distance == "melee" and not in_reach(actor, target, False):
+        if (
+            scope == "combat"
+            and distance == "melee"
+            and not in_reach(actor, target, False)
+        ):
             continue
         result.append(target)
     return result

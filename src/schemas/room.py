@@ -150,6 +150,14 @@ class DiceRollRequest(BaseModel):
     dice_type: DiceType
 
 
+class TransferItemRequest(BaseModel):
+    """将自己背包中的物品交给同房间队友。"""
+
+    item_id: str = Field(min_length=1, max_length=128)
+    target_id: str = Field(min_length=1, max_length=128)
+    quantity: int = Field(default=1, ge=1, le=999, strict=True)
+
+
 class DiceRollResult(BaseModel):
     """一次服务器可信掷骰的公开结果。"""
 
@@ -196,6 +204,7 @@ class CharacterView(BaseModel):
     skills: list[dict[str, Any]] = Field(default_factory=list)
     features: list[str] = Field(default_factory=list)
     inventory: list[dict[str, Any]] = Field(default_factory=list)
+    equipment: list[str] = Field(default_factory=list)
     current_hp: int
     max_hp: int
     temporary_hp: int = 0
@@ -203,6 +212,7 @@ class CharacterView(BaseModel):
     life_state: str | None = None
     conditions: list[str] = Field(default_factory=list)
     current_zone: str | None = None
+    initiative: int | None = None
     controller_user_id: str | None = None
     display_name: str | None = None
     is_self: bool = False
@@ -226,6 +236,10 @@ class SceneView(BaseModel):
     image: str | None = None
     round: int | None = None
     phase: str | None = None
+    actors: list[dict[str, str]] = Field(default_factory=list)
+    visited_locations: list[str] = Field(default_factory=list)
+    initiative_order: list[str] = Field(default_factory=list)
+    current_actor_id: str | None = None
 
 
 class PendingInteractionView(BaseModel):
@@ -261,6 +275,7 @@ class RoomView(BaseModel):
 
     room_code: str
     campaign_id: str
+    campaign_title: str = "冒险"
     status: RoomStatus
     revision: int
     is_host: bool

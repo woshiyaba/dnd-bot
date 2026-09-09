@@ -136,6 +136,7 @@ class SessionEngine:
             room_id,
             {
                 "structured_action": dict(action),
+                "intent": "",
                 "user_input": str(action.get("declared_text") or "使用规则行动"),
                 "active_user_id": user_id,
                 "active_actor_id": actor_id,

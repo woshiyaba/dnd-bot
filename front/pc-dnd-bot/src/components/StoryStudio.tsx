@@ -11,6 +11,7 @@ import type {
 const STORAGE_KEY = 'dnd-bot-story-workbench'
 
 type StudioSnapshot = {
+  input: string
   conversation: StoryConversationMessage[]
   designBrief: Record<string, unknown>
   interview: StoryInterviewResponse | null
@@ -19,6 +20,7 @@ type StudioSnapshot = {
 }
 
 const EMPTY_SNAPSHOT: StudioSnapshot = {
+  input: '',
   conversation: [],
   designBrief: {},
   interview: null,
@@ -32,6 +34,7 @@ function readSnapshot(): StudioSnapshot {
     if (!raw) return EMPTY_SNAPSHOT
     const value = JSON.parse(raw) as Partial<StudioSnapshot>
     return {
+      input: typeof value.input === 'string' ? value.input : '',
       conversation: Array.isArray(value.conversation) ? value.conversation : [],
       designBrief: value.designBrief ?? {},
       interview: value.interview ?? null,
@@ -57,16 +60,17 @@ export function StoryStudio({
   const [draft, setDraft] = useState(restored.draft)
   const [taskId, setTaskId] = useState(restored.taskId)
   const [generationTask, setGenerationTask] = useState<StoryGenerationTaskResponse | null>(null)
-  const [input, setInput] = useState('')
+  const [retryVersion, setRetryVersion] = useState(0)
+  const [input, setInput] = useState(restored.input)
   const [isBusy, setIsBusy] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
     localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ conversation, designBrief, interview, draft, taskId }),
+      JSON.stringify({ conversation, designBrief, interview, draft, taskId, input }),
     )
-  }, [conversation, designBrief, draft, interview, taskId])
+  }, [conversation, designBrief, draft, interview, taskId, input])
 
   useEffect(() => {
     if (!taskId) return
@@ -85,32 +89,30 @@ export function StoryStudio({
         }
         if (next.status === 'failed') setError(next.error ?? '剧本生成失败')
         if (next.status === 'cancelled') setError('故事生成已取消')
-        if (['completed', 'failed', 'cancelled'].includes(next.status) && timer) {
-          window.clearInterval(timer)
-        }
+        if (['completed', 'failed', 'cancelled'].includes(next.status)) return
       } catch (reason) {
         if (stopped) return
         if (reason instanceof ApiError && reason.status === 404) {
-          if (timer) window.clearInterval(timer)
           setTaskId(null)
           setGenerationTask(null)
           setDraft(null)
           setError('故事生成任务和草稿已过期，请重新生成')
+          return
         } else {
           setError(reason instanceof Error ? reason.message : '无法恢复故事生成任务')
         }
       }
+      if (!stopped) timer = window.setTimeout(() => void refresh(), 2_000)
     }
     void refresh()
-    timer = window.setInterval(() => void refresh(), 2_000)
     return () => {
       stopped = true
-      if (timer) window.clearInterval(timer)
+      if (timer) window.clearTimeout(timer)
     }
-  }, [taskId])
+  }, [taskId, retryVersion])
 
   const isGenerating = Boolean(
-    generationTask && ['queued', 'running', 'cancel_requested'].includes(generationTask.status),
+    taskId && (!generationTask || ['queued', 'running', 'cancel_requested'].includes(generationTask.status)),
   )
 
   function acceptInterview(
@@ -150,7 +152,7 @@ export function StoryStudio({
   }
 
   async function confirmAndGenerate() {
-    if (!interview || interview.status !== 'ready_for_confirmation' || isBusy) return
+    if (!interview || interview.status !== 'ready_for_confirmation' || isBusy || isGenerating) return
     const confirmation: StoryConversationMessage = {
       role: 'user',
       content: '确认，按这份最终设计生成剧本。',
@@ -220,6 +222,20 @@ export function StoryStudio({
     }
   }
 
+  async function retryGeneration() {
+    if (!taskId || isBusy) return
+    setIsBusy(true)
+    setError('')
+    try {
+      setGenerationTask(await gameApi.retryStoryGenerationTask(taskId))
+      setRetryVersion((value) => value + 1)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '继续生成失败')
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
   function reset() {
     localStorage.removeItem(STORAGE_KEY)
     setConversation([])
@@ -244,9 +260,9 @@ export function StoryStudio({
         <div>
           <small>STORY FORGE</small>
           <h1>故事熔炉</h1>
-          <p>告诉策划你想经历怎样的冒险。方向确认后，编剧会把它铸成可运行的剧本。</p>
+          <p>写下自己的构思或故事大纲，确认后生成可玩的冒险。发布到广场，其他玩家就能选择剧本开团。</p>
         </div>
-        <button className="text-button" onClick={reset} type="button">新故事</button>
+        <button className="text-button" disabled={isBusy || isGenerating} onClick={reset} type="button">新故事</button>
       </header>
 
       <section className="studio-layout">
@@ -276,6 +292,11 @@ export function StoryStudio({
                   </span>
                 </div>
                 <progress max={100} value={generationTask.progress} />
+                {generationTask.can_retry ? (
+                  <button className="text-button" disabled={isBusy} onClick={() => void retryGeneration()} type="button">
+                    继续生成（保留已完成内容）
+                  </button>
+                ) : null}
                 {isGenerating ? (
                   <button className="text-button" onClick={() => void cancelGeneration()} type="button">
                     取消生成
@@ -302,6 +323,8 @@ export function StoryStudio({
               ))}
               <div className="studio-input-row">
                 <textarea
+                  aria-label="你的剧本构思"
+                  maxLength={8000}
                   disabled={isBusy || isGenerating}
                   onChange={(event) => setInput(event.target.value)}
                   placeholder={
@@ -312,7 +335,7 @@ export function StoryStudio({
                   rows={3}
                   value={input}
                 />
-                <button className="primary-cta" disabled={isBusy || !input.trim()} type="submit">
+                <button className="primary-cta" disabled={isBusy || isGenerating || !input.trim()} type="submit">
                   发送
                 </button>
               </div>
@@ -329,7 +352,7 @@ export function StoryStudio({
               {interview?.status === 'confirmed' ? (
                 <button
                   className="primary-cta confirm-story"
-                  disabled={isBusy}
+                  disabled={isBusy || isGenerating}
                   onClick={() => void regenerateDraft()}
                   type="button"
                 >

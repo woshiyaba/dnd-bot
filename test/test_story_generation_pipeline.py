@@ -439,7 +439,14 @@ class StoryPlanValidationTests(unittest.TestCase):
         registry = story_plan_id_registry(plan)
         fragment = {
             "cast": [
-                {"id": actor.id, "name": actor.name, "role": actor.summary}
+                {
+                    "id": actor.id,
+                    "name": actor.name,
+                    "role": actor.summary,
+                    "goal": "调查星盘",
+                    "secret": "知道仪式",
+                    "disposition": "neutral",
+                }
                 for actor in plan.entities.actors
             ]
         }
@@ -547,7 +554,7 @@ class StoryContinuityStructuredOutputTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_fragments_run_in_two_waves_with_concurrency_two(self):
         plan = _standard_plan()
-        wave_a = {"top_level", "cast", "locations", "actions"}
+        wave_a = {"top_level", "cast", "locations"}
         wave_b = {*(f"act:{act.id}" for act in plan.acts), "endings"}
         completed: set[str] = set()
         active = 0
@@ -567,7 +574,7 @@ class StoryContinuityStructuredOutputTests(unittest.IsolatedAsyncioTestCase):
             return {}, 0
 
         canon = object()
-        metrics = object()
+        metrics = type("Metrics", (), {"quality_notes": []})()
         with (
             patch("src.story.generator._generate_fragment", new=generate_fragment),
             patch("src.story.generator._fragment_errors", return_value=[]),
@@ -575,7 +582,7 @@ class StoryContinuityStructuredOutputTests(unittest.IsolatedAsyncioTestCase):
                 "src.story.generator._assemble_canon",
                 return_value={"campaign_id": "moon_astrolabe"},
             ),
-            patch("src.story.generator._canon_errors", return_value=(canon, [])),
+            patch("src.story.generator._full_canon_errors", return_value=(canon, [])),
             patch("src.story.generator.validate_generated_canon", return_value=[]),
             patch("src.story.generator.validate_effect_owner_ledger", return_value=[]),
             patch("src.story.generator.canon_quality_metrics", return_value=metrics),
@@ -595,12 +602,18 @@ class StoryContinuityStructuredOutputTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(wave_order_errors, [])
 
     async def test_staged_continuity_calls_use_structured_output_schemas(self):
-        plan = _standard_plan()
+        from test.test_story_reliability import generated_story
+        from src.story.generator import _canon_fragments
+
+        brief, _, plan, raw = generated_story()
         artifacts = {"plan": plan.model_dump()}
-        fragment_kinds = ["top_level", "cast", "locations"]
-        fragment_kinds.extend(f"act:{act.id}" for act in plan.acts)
-        fragment_kinds.extend(["actions", "endings"])
-        artifacts.update({f"fragment:{kind}": {} for kind in fragment_kinds})
+        artifacts.update(
+            {
+                f"fragment:{kind}": fragment
+                for kind, fragment in _canon_fragments(raw, plan).items()
+            }
+        )
+        changed = {**raw["cast"][0], "secret": "星盘由司仪夺走"}
         completion = AsyncMock(
             side_effect=[
                 {
@@ -608,47 +621,32 @@ class StoryContinuityStructuredOutputTests(unittest.IsolatedAsyncioTestCase):
                     "issues": [
                         {
                             "severity": "error",
-                            "code": "missing_payoff",
-                            "message": "开场动机没有在后续回应",
-                            "affected_act_ids": ["act_arrival"],
+                            "code": "motivation_conflict",
+                            "message": "角色秘密与星盘去向矛盾",
+                            "affected_object_ids": [changed["id"]],
                         }
                     ],
                 },
-                {"act_fragments": {"act_arrival": {"beats": []}}},
+                {"objects": {f"cast:{changed['id']}": changed}},
                 {"passed": True, "issues": []},
             ]
         )
-        canon = object()
-        metrics = object()
-
-        with (
-            patch("src.story.generator._complete_json", completion),
-            patch("src.story.generator._fragment_errors", return_value=[]),
-            patch(
-                "src.story.generator._assemble_canon",
-                return_value={"campaign_id": "moon_astrolabe"},
-            ),
-            patch("src.story.generator._canon_errors", return_value=(canon, [])),
-            patch("src.story.generator.validate_generated_canon", return_value=[]),
-            patch("src.story.generator.validate_effect_owner_ledger", return_value=[]),
-            patch("src.story.generator.canon_quality_metrics", return_value=metrics),
-        ):
-            _, generated_canon, generated_metrics = await generate_staged_canon(
-                confirmed_brief=_brief(),
-                resume_artifacts=artifacts,
+        with patch("src.story.generator._complete_json", completion):
+            result, _, metrics = await generate_staged_canon(
+                confirmed_brief=brief, resume_artifacts=artifacts
             )
-
-        self.assertIs(generated_canon, canon)
-        self.assertIs(generated_metrics, metrics)
+        self.assertEqual(result["cast"][0]["secret"], changed["secret"])
+        self.assertTrue(metrics.continuity_passed)
+        self.assertEqual(metrics.repair_count, 1)
         self.assertEqual(completion.await_count, 3)
         self.assertIs(
             completion.await_args_list[0].kwargs["schema"], StoryContinuityReview
         )
         repair_schema = completion.await_args_list[1].kwargs["schema"]
-        act_fragments_model = repair_schema.model_fields["act_fragments"].annotation
+        objects_model = repair_schema.model_fields["objects"].annotation
         self.assertEqual(
-            {field.alias for field in act_fragments_model.model_fields.values()},
-            {"act_arrival"},
+            {field.alias for field in objects_model.model_fields.values()},
+            {"cast:actor_scholar"},
         )
         self.assertIs(
             completion.await_args_list[2].kwargs["schema"], StoryContinuityReview
@@ -945,7 +943,7 @@ class StoryGenerationServiceFailureTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(response.llm_calls_used, 24)
             self.assertEqual(response.llm_calls_limit, 24)
             self.assertEqual(provider_attempts, 24)
-            self.assertIn("24", response.error)
+            self.assertIn("预算", response.error)
             service._store.close()
 
     async def test_story_plan_repair_logs_only_metadata(self):

@@ -190,6 +190,14 @@ def build_combat_view(state: dict, *, actor_id: str | None = None) -> dict[str, 
                 "life_state": str(combatant.life_state.value),
                 "current_zone": combatant.current_zone,
                 "initiative": combatant.initiative,
+                **(
+                    {
+                        "inventory": [item.to_dict() for item in combatant.inventory],
+                        "skills": [skill.to_dict() for skill in combatant.skills],
+                    }
+                    if isinstance(combatant, Character)
+                    else {}
+                ),
                 "conditions": [
                     str(condition.kind.value) for condition in combatant.conditions
                 ],

@@ -219,7 +219,7 @@ class StoryPlanRepairStateMachineTests(unittest.IsolatedAsyncioTestCase):
                 on_artifact=on_artifact,
             )
 
-        on_artifact.assert_not_awaited()
+        self.assertNotIn("plan", [call.args[1] for call in on_artifact.await_args_list])
 
 
 if __name__ == "__main__":

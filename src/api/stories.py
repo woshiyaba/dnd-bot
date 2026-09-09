@@ -179,6 +179,24 @@ async def get_story_generation_task(
     return story_service.get_generation_task(task_id)
 
 
+@router.post(
+    "/generation-tasks/{task_id}/retry",
+    response_model=StoryGenerationTaskResponse,
+    status_code=202,
+)
+async def retry_story_generation_task(
+    request: Request, task_id: str
+) -> StoryGenerationTaskResponse:
+    """在累计预算限制内续跑一次失败任务。"""
+    _consume_limit(request, "task_retry", limit=5, window_seconds=3600)
+    try:
+        return await story_service.retry_generation_task(
+            task_id, requester_key=_requester_key(request)
+        )
+    except (StoryRateLimitExceeded, StoryQueueFull) as exc:
+        _raise_admission_error(exc)
+
+
 @router.delete(
     "/generation-tasks/{task_id}",
     response_model=StoryGenerationTaskResponse,

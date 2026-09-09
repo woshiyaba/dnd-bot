@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import secrets
+from copy import deepcopy
 from datetime import UTC, datetime
 from typing import Any
 
@@ -14,6 +15,7 @@ from fastapi.encoders import jsonable_encoder
 from src.common.ws.ws_manager import manager as ws_manager
 from src.combat.dice import parse_dice, roll_virtual_dice
 from src.character.progression import apply_ability_increases, next_level_experience
+from src.character.inventory import ITEM_NAMES, transfer_item
 from src.model.combatant import Character, ability_modifier
 from src.model.enums import InterruptType
 from src.schemas.room import (
@@ -76,9 +78,7 @@ class SessionService:
         self._require_playing(room)
         async with self._room_lock(room.room_code):
             current = await self._require_payload(room.room_code)
-            self._require_progression_complete(current)
-            if current.get("status") != "awaiting_input":
-                raise HTTPException(status_code=409, detail="当前会话不接受自由输入")
+            self._require_world_turn(current, member)
             payload = await self._get_engine().message_stream(
                 room.room_code,
                 content,
@@ -116,6 +116,7 @@ class SessionService:
             else:
                 from src.session.action_nodes import available_world_actions
 
+                self._require_world_turn(current, member)
                 state = current.get("state") or {}
                 entries, _ = available_world_actions(
                     state, actor_id=member.character_id
@@ -206,6 +207,47 @@ class SessionService:
             return None
         return await self._get_engine().current_payload(room.room_code)
 
+    async def transfer_inventory(
+        self,
+        room: GameRoom,
+        member: RoomMember,
+        *,
+        item_id: str,
+        target_id: str,
+        quantity: int,
+    ) -> dict[str, Any]:
+        """探索空闲时转交物品；沿用房间命令锁与检查点，不推进剧情。"""
+        async with self._room_lock(room.room_code):
+            self._require_playing(room)
+            current = await self._require_payload(room.room_code)
+            self._require_world_turn(current, member)
+            state = current.get("state") or {}
+            party = deepcopy(state.get("party") or {})
+            sender = party.get(member.character_id)
+            recipient = party.get(target_id)
+            member_ids = {item.character_id for item in room.members.values()}
+            if (
+                not isinstance(sender, Character)
+                or not isinstance(recipient, Character)
+                or target_id not in member_ids
+            ):
+                raise HTTPException(status_code=422, detail="只能把物品交给同房间队友")
+            try:
+                transfer_item(sender, recipient, item_id, quantity)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            message = {
+                "role": "system",
+                "content": f"{sender.name} 将 {ITEM_NAMES.get(item_id, item_id)} ×{quantity} 交给了 {recipient.name}。",
+            }
+            await self._get_engine().update_state(
+                room.room_code,
+                {"party": party, "messages": [*(state.get("messages") or []), message]},
+            )
+            room_service.sync_character_cards(room, party)
+            await room_service.bump_revision(room)
+            return await self._require_payload(room.room_code)
+
     async def apply_level_up(
         self, room: GameRoom, member: RoomMember, increases: dict[str, int]
     ) -> dict[str, Any]:
@@ -261,6 +303,8 @@ class SessionService:
             else self._scene_enemies(safe_state.get("scene") or {})
         )
         scene_data = safe_state.get("scene") or {}
+        canon = get_registry().get(room.campaign_id)
+        story = safe_state.get("story") or {}
         from src.session.action_nodes import available_world_actions
 
         world_actions, _ = available_world_actions(state, actor_id=member.character_id)
@@ -273,6 +317,7 @@ class SessionService:
             room=RoomView(
                 room_code=room.room_code,
                 campaign_id=room.campaign_id,
+                campaign_title=canon.title if canon else room.campaign_id,
                 status=room.status,
                 revision=room.revision,
                 is_host=member.is_host,
@@ -285,9 +330,23 @@ class SessionService:
                 description=scene_data.get("description") or "",
                 exits=list(scene_data.get("exits") or []),
                 threat=scene_data.get("threat"),
-                image="/scene-dungeon.jpg",
                 round=combat_view.get("round"),
                 phase="战斗阶段" if combat_view else "冒险阶段",
+                actors=[
+                    {
+                        "id": str(actor.get("actor_id") or ""),
+                        "name": str(actor.get("name") or "未知人物"),
+                        "disposition": str(actor.get("disposition") or "neutral"),
+                    }
+                    for actor in scene_data.get("actors", [])
+                ],
+                visited_locations=[
+                    location.name
+                    for location_id in story.get("visited_locations", [])
+                    if canon and (location := canon.location(location_id)) is not None
+                ],
+                initiative_order=list(combat_view.get("initiative_order") or []),
+                current_actor_id=combat_view.get("current_actor_id"),
             ),
             party=[
                 self._character_view(
@@ -300,7 +359,9 @@ class SessionService:
             enemies=[
                 self._character_view(actor, member, None) for actor in enemies_source
             ],
-            available_actions=world_actions if not combat_view else [],
+            available_actions=(
+                world_actions if session_status == "awaiting_input" else []
+            ),
             clues=self._clue_views(room, safe_state.get("story") or {}),
             timeline=self._timeline(
                 [
@@ -532,6 +593,18 @@ class SessionService:
             raise HTTPException(status_code=409, detail="房间尚未开局或已经结束")
 
     @staticmethod
+    def _require_world_turn(payload: dict[str, Any], member: RoomMember) -> None:
+        """统一约束探索消息、规则行动和背包操作，防止绕过回合边界。"""
+        SessionService._require_progression_complete(payload)
+        if payload.get("status") != "awaiting_input":
+            raise HTTPException(status_code=409, detail="请先完成当前交互")
+        actor = ((payload.get("state") or {}).get("party") or {}).get(
+            member.character_id
+        )
+        if actor is None or not actor.is_alive:
+            raise HTTPException(status_code=409, detail="角色已倒下，等待队友救助")
+
+    @staticmethod
     def _require_progression_complete(payload: dict[str, Any]) -> None:
         """属性提升未完成时阻止剧情继续推进。"""
         state = payload.get("state") or {}
@@ -688,7 +761,12 @@ class SessionService:
             },
             skills=skills,
             features=list(actor.get("features") or []),
-            inventory=list(actor.get("inventory") or []),
+            inventory=[
+                {**item, "name": ITEM_NAMES.get(item["item_id"], item["item_id"])}
+                for item in actor.get("inventory") or []
+                if item.get("quantity", 0) > 0
+            ],
+            equipment=list(actor.get("equipment") or []),
             current_hp=int(actor.get("current_hp") or 0),
             max_hp=max(int(actor.get("max_hp") or 1), 1),
             temporary_hp=int(actor.get("temporary_hp") or 0),
@@ -696,6 +774,7 @@ class SessionService:
             life_state=str(life_state) if life_state else None,
             conditions=conditions,
             current_zone=actor.get("current_zone"),
+            initiative=actor.get("initiative"),
             controller_user_id=owner.user_id if owner else None,
             display_name=owner.display_name if owner else None,
             is_self=bool(owner and owner.user_id == current_member.user_id),

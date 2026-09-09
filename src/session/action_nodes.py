@@ -16,7 +16,7 @@ from src.combat.action_registry import world_action_entries
 from src.model.combatant import Combatant
 from src.model.dm_state import DMState
 from src.session import story_nodes
-from src.session.dm_subgraph import log_event
+from src.session.dm_subgraph import log_event, perceive
 
 logger = logging.getLogger(__name__)
 
@@ -29,11 +29,13 @@ def available_world_actions(
     party = state.get("party") or {}
     selected_actor_id = actor_id or state.get("active_actor_id")
     actor = party.get(selected_actor_id)
-    if canon is None or actor is None:
+    if actor is None:
         return [], {}
     story = state.get("story") or {}
     definitions = [
-        action for action in canon.action_definitions if "world" in action.scopes
+        action
+        for action in (canon.action_definitions if canon else [])
+        if "world" in action.scopes
     ]
     return world_action_entries(
         actor,
@@ -49,6 +51,7 @@ def available_world_actions(
 async def prepare_world_action(state: DMState) -> dict:
     """把按钮声明或 DM 映射结果编译为已校验的 v2 世界计划。"""
     declaration = state.get("structured_action") or {}
+    turn_update = perceive(state) if state.get("intent") != "use_action" else {}
     actor = _action_actor(state)
     entries, definitions = available_world_actions(state, actor_id=actor.id)
     action_id = str(declaration.get("action_id") or "")
@@ -83,7 +86,7 @@ async def prepare_world_action(state: DMState) -> dict:
     preflight_world_effects(
         list(plan.get("effects", [])), actor, state.get("party") or {}
     )
-    return {"pending_action_plan": plan}
+    return {**turn_update, "pending_action_plan": plan}
 
 
 def commit_world_action(state: DMState) -> dict:

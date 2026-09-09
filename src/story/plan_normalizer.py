@@ -20,6 +20,13 @@ def normalize_story_plan_candidate(
     normalized["scale_profile"] = brief.scale_profile.model_dump()
 
     beats = normalized["beats"]
+    for beat in beats:
+        for index, exit_ in enumerate(beat["exits"], start=1):
+            if exit_.get("trigger") is not None:
+                exit_["trigger"]["id"] = f"trigger_{beat['id']}_{index}"
+    for name in ("win_condition", "lose_condition"):
+        if normalized.get(name) is not None:
+            normalized[name]["id"] = name
     beats_by_act: dict[str, list[dict[str, Any]]] = {}
     for beat in beats:
         beats_by_act.setdefault(beat["act_id"], []).append(beat)

@@ -22,6 +22,7 @@ from src.schemas.story import (
     StoryGenerationTaskResponse,
     StoryInterviewResponse,
     StoryQualityMetrics,
+    StoryPlan,
     StorySummary,
 )
 from src.story.generator import (
@@ -31,13 +32,15 @@ from src.story.generator import (
     continue_interview,
     generate_canon,
     generate_staged_canon,
+    _full_canon_errors,
+    _fingerprint,
 )
 from src.story.loader import DEFAULT_CANON_DIR, get_registry
 from src.story.prompt import (
     normalize_confirmed_design_brief,
     validate_confirmed_design_brief,
 )
-from src.story.store import StoryGenerationStore
+from src.story.store import StoryGenerationStore, utc_now
 from src.story.validation import canon_quality_metrics, validate_generated_canon
 
 logger = logging.getLogger(__name__)
@@ -58,7 +61,7 @@ _STAGE_PROGRESS = {
     "compiling": ("分片编译 Canon", 25),
     "validating": ("执行完整确定性校验", 80),
     "continuity": ("复核故事连贯性", 90),
-    "continuity_repair": ("定向修复受影响 Act", 92),
+    "continuity_repair": ("修复故事矛盾", 92),
 }
 STORY_TASK_CALL_LIMIT = int(os.getenv("STORY_TASK_CALL_LIMIT", "24"))
 STORY_TASK_WORKERS = int(os.getenv("STORY_TASK_WORKERS", "2"))
@@ -72,6 +75,7 @@ STORY_REQUESTER_DAILY_LIMIT = 5
 STORY_INTERVIEW_CALL_LIMIT = 3
 
 _PLAN_PROGRESS = (
+    ("plan:core", "确定故事真相与章节", 12),
     ("plan:frame", "规划章节骨架", 10),
     ("plan:beat_outline:", "规划 Beat 大纲", 12),
     ("plan:branches", "规划分支蓝图", 14),
@@ -216,6 +220,25 @@ class StoryService:
             task = self._store.get_task(task_id) or task
         return self._task_response(task)
 
+    async def retry_generation_task(
+        self, task_id: str, *, requester_key: str | None = None
+    ) -> StoryGenerationTaskResponse:
+        """显式续跑一次失败任务，追加一轮有限预算并复用成功产物。"""
+        self._store.purge_expired()
+        task = self._store.get_task(task_id)
+        if task is None or not self._can_retry(task):
+            raise HTTPException(
+                status_code=409, detail="当前任务不能继续生成，请重新提交设计稿"
+            )
+        try:
+            task = self._store.retry_task(
+                task_id, requester_key, active_limit=STORY_GLOBAL_TASK_LIMIT
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        await self._ensure_workers()
+        return self._task_response(task)
+
     async def create_draft(
         self, design_brief: dict[str, Any] | StoryDesignBrief
     ) -> StoryDraftResponse:
@@ -275,7 +298,7 @@ class StoryService:
             if draft is None:
                 raise HTTPException(status_code=404, detail="故事草稿不存在或已经过期")
             try:
-                canon = self._canon_cache.get(draft_id) or Canon.from_dict(draft["raw"])
+                canon = Canon.from_dict(draft["raw"])
             except (AttributeError, KeyError, TypeError, ValueError) as exc:
                 raise HTTPException(
                     status_code=422, detail="Canon 草稿无法解析"
@@ -289,6 +312,26 @@ class StoryService:
                     else None
                 )
                 errors.extend(validate_generated_canon(canon, brief))
+                artifacts = self._store.artifacts(draft["task_id"])
+                if artifacts.get("plan") and brief:
+                    errors.extend(
+                        _full_canon_errors(
+                            draft["raw"],
+                            brief,
+                            StoryPlan.model_validate(artifacts["plan"]),
+                        )[1]
+                    )
+                    if artifacts.get("generation_context", {}).get("version") == 2:
+                        reviews = [
+                            artifacts.get(key, {})
+                            for key in ("continuity_review", "continuity_review_final")
+                        ]
+                        if not any(
+                            review.get("canon_hash") == _fingerprint(draft["raw"])
+                            and review.get("report", {}).get("passed")
+                            for review in reviews
+                        ):
+                            errors.append("草稿缺少与当前正文一致的连贯性复核")
             if errors:
                 raise HTTPException(
                     status_code=422,
@@ -353,15 +396,14 @@ class StoryService:
     async def _run_task(self, task: dict[str, Any]) -> None:
         task_id = task["task_id"]
         repairs = int(task.get("repair_count", 0))
+        call_limit = STORY_TASK_CALL_LIMIT * (1 + task.get("retry_count", 0))
 
         async def persist(
             stage: str, artifact_key: str, payload: dict[str, Any], attempt: int
         ) -> None:
-            nonlocal repairs
             if self._store.is_cancel_requested(task_id):
                 raise StoryGenerationCancelled()
-            repairs += max(0, attempt)
-            if artifact_key in {"plan:frame", "plan"}:
+            if artifact_key in {"plan:frame", "plan:core", "plan"}:
                 campaign_id = str(payload.get("campaign_id_candidate") or "")
                 self._validate_campaign_id(campaign_id)
                 if (
@@ -393,19 +435,38 @@ class StoryService:
                         if key.startswith("fragment:")
                     ]
                 )
-                base_progress = min(78, 20 + count * 5)
+                act_count = task["design_brief"]["scale_profile"]["acts"]
+                base_progress = 25 + int(53 * count / (act_count + 5))
             self._store.update_task(
                 task_id,
                 stage=label,
                 progress=base_progress,
-                repair_count=repairs,
             )
 
         async def begin_stage(stage_key: str) -> None:
             if self._store.is_cancel_requested(task_id):
                 raise StoryGenerationCancelled()
             try:
-                self._store.begin_stage_attempt(task_id, stage_key)
+                self._store.begin_stage_attempt(
+                    task_id, stage_key, max_attempts=2 + task.get("retry_count", 0)
+                )
+                if stage_key.startswith("fragment:"):
+                    kind = stage_key.removeprefix("fragment:")
+                    label = {
+                        "top_level": "编写故事概览",
+                        "cast": "编写角色",
+                        "locations": "编写场景",
+                        "actions": "编写规则行动",
+                        "endings": "编写结局",
+                    }.get(kind, "编写章节 " + kind.removeprefix("act:"))
+                else:
+                    label = {
+                        "plan:core": "确定故事真相与章节",
+                        "plan": "编写紧凑故事计划",
+                        "continuity_review": "复核故事连贯性",
+                        "continuity_review_final": "复核修复后的故事",
+                    }.get(stage_key, "校验故事")
+                self._store.update_task(task_id, stage=label, progress=task["progress"])
             except RuntimeError as exc:
                 raise StoryGenerationError(str(exc)) from exc
 
@@ -414,28 +475,37 @@ class StoryService:
                 raise StoryGenerationCancelled()
             count = self._store.reserve_llm_call(
                 task_id,
-                limit=STORY_TASK_CALL_LIMIT,
+                limit=call_limit,
             )
             if count is None:
                 if self._store.is_cancel_requested(task_id):
                     raise StoryGenerationCancelled()
                 raise StoryGenerationError(
-                    f"模型调用预算已用尽（{STORY_TASK_CALL_LIMIT}/{STORY_TASK_CALL_LIMIT}）"
+                    f"模型调用预算已用尽（{call_limit}/{call_limit}）"
                 )
             logger.info(
                 "[story_worker] 模型调用 | task_id=%s | stage=%s | call=%d/%d",
                 task_id,
                 stage,
                 count,
-                STORY_TASK_CALL_LIMIT,
+                call_limit,
             )
             return count
+
+        def ensure_budget(required: int) -> None:
+            current = self._store.get_task(task_id)
+            if current is None or call_limit - current["llm_call_count"] < required:
+                raise StoryGenerationError("模型调用预算不足以完成剩余阶段")
 
         try:
             if self._store.is_cancel_requested(task_id):
                 raise StoryGenerationCancelled()
             artifacts = self._store.artifacts(task_id)
-            reservation_source = artifacts.get("plan") or artifacts.get("plan:frame")
+            reservation_source = (
+                artifacts.get("plan")
+                or artifacts.get("plan:core")
+                or artifacts.get("plan:frame")
+            )
             if reservation_source:
                 campaign_id = str(reservation_source.get("campaign_id_candidate") or "")
                 self._validate_campaign_id(campaign_id)
@@ -443,7 +513,13 @@ class StoryService:
                     raise StoryGenerationError(
                         "恢复任务的 campaign_id 已被其它任务占用"
                     )
-            async with asyncio.timeout(STORY_TASK_TIMEOUT_SECONDS):
+            remaining = (
+                self._store.task_deadline(task_id, STORY_TASK_TIMEOUT_SECONDS)
+                - utc_now()
+            ).total_seconds()
+            if remaining <= 0:
+                raise TimeoutError()
+            async with asyncio.timeout(remaining):
                 raw, canon, quality = await generate_staged_canon(
                     confirmed_brief=task["design_brief"],
                     reserved_campaign_ids=self._store.reserved_campaign_ids(),
@@ -455,6 +531,7 @@ class StoryService:
                         reserve_call=reserve_call,
                         semaphore=self._story_llm_semaphore(),
                         timeout_seconds=STORY_CALL_TIMEOUT_SECONDS,
+                        ensure_budget=ensure_budget,
                     ),
                     fragment_concurrency=STORY_FRAGMENT_CONCURRENCY,
                 )
@@ -500,10 +577,22 @@ class StoryService:
             created_at=task["created_at"],
             updated_at=task["updated_at"],
             llm_calls_used=task.get("llm_call_count", 0),
-            llm_calls_limit=STORY_TASK_CALL_LIMIT,
+            llm_calls_limit=STORY_TASK_CALL_LIMIT * (1 + task.get("retry_count", 0)),
+            can_retry=self._can_retry(task),
             error=task.get("error"),
             draft=draft_response,
         )
+
+    def _can_retry(self, task: dict[str, Any]) -> bool:
+        """只有产物仍可复用且尚未续跑的失败才显示继续入口。"""
+        if task["status"] != "failed" or task.get("retry_count", 0) >= 1:
+            return False
+        if "不兼容" in (task.get("error") or ""):
+            return False
+        final = self._store.artifacts(task["task_id"]).get(
+            "continuity_review_final", {}
+        )
+        return final.get("report", {}).get("passed") is not False
 
     def _story_llm_semaphore(self) -> asyncio.Semaphore:
         """按当前事件循环懒建全局故事模型信号量。"""
@@ -564,15 +653,10 @@ class StoryService:
         if errors:
             raise HTTPException(status_code=422, detail="；".join(errors))
         brief = normalize_confirmed_design_brief(design_brief)
-        if (
-            brief.scale_profile is not None
-            and brief.branching_budget is not None
-            and brief.scale_profile.playable_beats
-            < 3 * brief.branching_budget.meaningful_branch_points + 2
-        ):
+        if brief.scale_profile.acts + 10 > STORY_TASK_CALL_LIMIT:
             raise HTTPException(
                 status_code=422,
-                detail="可玩 Beat 数不足：固定二选一汇流结构要求 playable_beats >= 3B + 2",
+                detail="当前模型调用预算不足以生成该规模剧本，请减少章节或调整服务预算",
             )
         return brief
 
@@ -590,11 +674,13 @@ class StoryService:
         if isinstance(exc, HTTPException):
             text = str(exc.detail)
         elif isinstance(exc, TimeoutError):
-            text = "故事生成超过 20 分钟，任务已停止"
+            text = f"故事生成超过 {STORY_TASK_TIMEOUT_SECONDS / 60:g} 分钟，任务已停止"
         elif isinstance(exc, StoryGenerationError):
             raw = str(exc)
-            if "模型调用预算已用尽" in raw:
-                text = f"故事生成已达到 {STORY_TASK_CALL_LIMIT} 次模型调用上限"
+            if "模型调用预算" in raw:
+                text = "故事生成的剩余模型调用预算不足，任务已停止"
+            elif "版本" in raw or "依赖" in raw:
+                text = "生成产物与当前版本或输入不兼容，请重新提交任务"
             elif "campaign_id" in raw or "ID" in raw and "占用" in raw:
                 text = "故事 ID 已被占用，请重新提交生成"
             elif "LLM 调用失败" in raw:

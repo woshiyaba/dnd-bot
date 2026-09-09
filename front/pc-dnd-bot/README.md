@@ -1,32 +1,35 @@
-# React + TypeScript + Vite
+# PC 跑团客户端
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React + TypeScript + Vite。玩法、后端配置和规则范围见项目根目录的 README.md。
 
-Currently, two official plugins are available:
+## 开发
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+先在项目根目录运行 `uv run python main.py`，再在本目录运行：
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```sh
+npm ci
+npm run dev
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+网页通过 Vite 代理访问后端 `/api` 和 `/ws`，默认目标为 `127.0.0.1:32388`。
+
+## 构建和分享
+
+```sh
+npm run build
+npm run lint
+```
+
+构建后启动或重启后端，直接通过后端地址访问网页即可。剧本广场的分享链接形如
+`/?campaign=whispers_bell_tower`；同伴打开后可创建自己的房间，再用房间码邀请队友。
+使用同伴能访问的服务器地址或域名，不能把本机 `localhost` 地址作为跨设备访问地址。
+前后端分开部署时，在构建前设置 `VITE_API_BASE_URL`。
+
+## 游玩
+
+- 创作：输入构思或大纲 → 与 AI 确认设计 → 生成并校验 → 发布到广场。
+- 探索：观察、调查、交谈或提出前往出口；也可以自由描述行动。
+- 背包：查看装备与物品、使用药水、在探索空闲时转交给队友。
+- 战斗：按先攻行动，选择攻击、移动、技能、道具或自由行动，再按提示掷骰。
+
+界面不会代替规则引擎决定检定、扣除物品或修改生命值。当前服务器重启会丢失房间和正在进行的游戏，已发布剧本仍然保留。

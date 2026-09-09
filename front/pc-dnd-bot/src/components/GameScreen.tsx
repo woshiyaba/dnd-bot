@@ -10,8 +10,9 @@ import type {
   SessionView,
 } from '../types/game'
 import { CharacterAvatar, CharacterCard } from './CharacterCard'
+import { ExplorationPanel, InventoryPanel } from './AdventurePanels'
 
-type DockTab = 'chat' | 'dice' | 'action' | 'party' | 'clues'
+type DockTab = 'chat' | 'dice' | 'action' | 'party' | 'clues' | 'inventory' | 'explore'
 
 type GameScreenProps = {
   credential: RoomCredential
@@ -26,6 +27,7 @@ type GameScreenProps = {
   onMessage: (content: string) => Promise<void>
   onAction: (action: Record<string, unknown>) => Promise<void>
   onLevelUp: (increases: Record<string, number>) => Promise<void>
+  onTransferItem: (itemId: string, targetId: string, quantity: number) => Promise<void>
   onFreeRoll: (diceType: DiceType) => void
   onLeave: () => void
 }
@@ -143,6 +145,7 @@ function AdventureRoom({
   onAction,
   onFreeRoll,
   onLevelUp,
+  onTransferItem,
   onLeave,
 }: GameScreenProps & { session: SessionView }) {
   const [activeTab, setActiveTab] = useState<DockTab>('chat')
@@ -174,6 +177,8 @@ function AdventureRoom({
     pending.options?.natural_language === true
   const composerDisabled =
     isBusy ||
+    !me?.current_hp ||
+    party.some((actor) => actor.pending_ability_points > 0) ||
     session.session_status === 'finished' ||
     (Boolean(pending) && !canSubmitCombatText)
   const needsLevelUp = Boolean(me && me.pending_ability_points >= 2)
@@ -225,9 +230,9 @@ function AdventureRoom({
         <div className="campaign-title">
           <span className="sword-mark">⚔</span>
           <div>
-            <strong>暗影峡谷</strong>
+            <strong>{session.room.campaign_title}</strong>
             <small>
-              {session.scene.round ? `第 ${session.scene.round} 回合` : '钟楼下的低语'} ·{' '}
+              {session.scene.round ? `第 ${session.scene.round} 回合` : '自由探索'} ·{' '}
               {session.scene.phase}
             </small>
           </div>
@@ -272,6 +277,17 @@ function AdventureRoom({
                   </span>
                 ))}
               </div>
+            ) : null}
+            {session.scene.initiative_order.length > 0 ? (
+              <ol className="initiative-track" aria-label="先攻顺序">
+                {session.scene.initiative_order.map((id) => {
+                  const actor = [...party, ...session.enemies].find((entry) => entry.id === id)
+                  return <li key={id} aria-current={id === session.scene.current_actor_id ? 'step' : undefined}>
+                    {actor?.name ?? '参战者'}{actor?.initiative != null ? ` · ${actor.initiative}` : ''}
+                    {actor && actor.current_hp <= 0 ? '（倒下）' : ''}
+                  </li>
+                })}
+              </ol>
             ) : null}
           </div>
 
@@ -323,6 +339,8 @@ function AdventureRoom({
             <form className="chat-composer" onSubmit={send}>
               <span>✦</span>
               <input
+                aria-label="描述你的行动"
+                maxLength={2000}
                 disabled={composerDisabled}
                 onChange={(event) => setInput(event.target.value)}
                 placeholder={
@@ -347,10 +365,11 @@ function AdventureRoom({
         <PlayerRail players={rightPlayers} />
       </div>
 
-      {activeTab !== 'chat' ? (
+      {activeTab !== 'chat' && me ? (
         <CommandDrawer
           activeTab={activeTab}
-          isBusy={isBusy}
+          isBusy={isBusy || !me.current_hp || party.some((actor) => actor.pending_ability_points > 0) || session.session_status === 'finished'}
+          session={session}
           clues={session.clues}
           me={me}
           party={party}
@@ -359,6 +378,8 @@ function AdventureRoom({
           onAction={onAction}
           onClose={() => setActiveTab('chat')}
           onFreeRoll={onFreeRoll}
+          onMessage={onMessage}
+          onTransferItem={onTransferItem}
         />
       ) : null}
 
@@ -444,11 +465,13 @@ function BottomDock({
       </div>
       <div className="self-stats">
         <span><i>◇</i> 护甲 <strong>{me.ac}</strong></span>
-        <span><i>⚡</i> 先攻 <strong>{me.current_zone ?? '+0'}</strong></span>
-        <span><i>➤</i> 状态 <strong>{me.life_state ?? '正常'}</strong></span>
+        <span><i>⚡</i> 先攻 <strong>{me.initiative ?? '未掷骰'}</strong></span>
+        <span><i>➤</i> 状态 <strong>{me.current_hp > 0 ? '可行动' : '倒下'}</strong></span>
       </div>
       <nav className="dock-menu" aria-label="角色指令台">
         <DockButton active={activeTab === 'chat'} icon="✦" label="聊天" onClick={() => onSelect('chat')} />
+        <DockButton active={activeTab === 'explore'} icon="⌕" label="探索" onClick={() => onSelect('explore')} />
+        <DockButton active={activeTab === 'inventory'} icon="▣" label="背包" onClick={() => onSelect('inventory')} />
         <DockButton
           active={activeTab === 'dice'}
           badge={pending?.is_yours && pending.interrupt_type !== 'declare_action'}
@@ -573,6 +596,9 @@ function CommandDrawer({
   onClose,
   onAction,
   onFreeRoll,
+  session,
+  onMessage,
+  onTransferItem,
 }: {
   activeTab: DockTab
   clues: SessionView['clues']
@@ -584,6 +610,9 @@ function CommandDrawer({
   onClose: () => void
   onAction: (action: Record<string, unknown>) => Promise<void>
   onFreeRoll: (diceType: DiceType) => void
+  session: SessionView
+  onMessage: (content: string) => Promise<void>
+  onTransferItem: GameScreenProps['onTransferItem']
 }) {
   const heading =
     activeTab === 'dice'
@@ -592,9 +621,13 @@ function CommandDrawer({
         ? ['行动选择', pending?.prompt ?? '现在没有需要声明的行动']
         : activeTab === 'clues'
           ? ['线索手记', clues.length ? `已记录 ${clues.length} 条已知线索` : '尚未记录已知线索']
-          : ['冒险队伍', `${party.length} 名冒险者正在同行`]
+          : activeTab === 'inventory'
+            ? ['随身背包', '使用消耗品或把物品交给队友']
+            : activeTab === 'explore'
+              ? ['探索现场', session.scene.location]
+              : ['冒险队伍', `${party.length} 名冒险者正在同行`]
   return (
-    <section className="command-drawer">
+    <section className="command-drawer" aria-label={heading[0]} onKeyDown={(event) => { if (event.key === 'Escape') onClose() }}>
       <div className="drawer-heading">
         <div>
           <span>{heading[0]}</span>
@@ -616,6 +649,13 @@ function CommandDrawer({
         />
       ) : activeTab === 'clues' ? (
         <CluePanel clues={clues} />
+      ) : activeTab === 'inventory' ? (
+        <>
+          <InventoryPanel me={me} party={party} disabled={isBusy || session.session_status !== 'awaiting_input'} onTransferItem={onTransferItem} />
+          <ActionPanel disabled={isBusy} pending={pending} worldActions={worldActions} onAction={onAction} itemsOnly />
+        </>
+      ) : activeTab === 'explore' ? (
+        <ExplorationPanel session={session} disabled={isBusy || session.session_status !== 'awaiting_input'} onMessage={onMessage} />
       ) : (
         <div className="drawer-party">
           {party.map((character) => (
@@ -678,11 +718,13 @@ function ActionPanel({
   worldActions,
   disabled,
   onAction,
+  itemsOnly = false,
 }: {
   pending?: PendingInteraction
   worldActions: RuleActionEntry[]
   disabled: boolean
   onAction: (action: Record<string, unknown>) => Promise<void>
+  itemsOnly?: boolean
 }) {
   const [selectedActionId, setSelectedActionId] = useState<string | null>(null)
   const [selectedTargetIds, setSelectedTargetIds] = useState<string[]>([])
@@ -693,11 +735,11 @@ function ActionPanel({
   const options = isCombatTurn
     ? pending.options
     : { rule_actions: worldActions }
-  const enabledRuleActions = (options?.rule_actions ?? []).filter(
-    (action) => action.enabled,
+  const ruleActions = (options?.rule_actions ?? []).filter(
+    (action) => (!itemsOnly || action.source_kind === 'item') && (action.enabled || action.source_kind === 'skill'),
   )
-  const selectedAction = enabledRuleActions.find(
-    (action) => action.action_id === selectedActionId,
+  const selectedAction = ruleActions.find(
+    (action) => action.enabled && action.action_id === selectedActionId,
   )
   if (selectedAction) {
     return (
@@ -707,12 +749,11 @@ function ActionPanel({
           <span>✦</span>
           <div>
             <strong>{selectedAction.name}</strong>
-            <small>{selectedAction.source_kind} · {selectedAction.usage.kind}</small>
+            <small>{selectedAction.source_kind === 'item' ? '消耗物品' : selectedAction.source_kind === 'skill' ? '角色技能' : '场景行动'}</small>
           </div>
         </div>
         <p>
           {selectedAction.description || '选择目标后提交规则行动。'}
-          LLM 会在定义边界内编译规则，引擎负责骰子、资源与效果结算。
         </p>
         <div className="skill-target-grid">
           {(selectedAction.targets ?? []).map((target) => (
@@ -720,7 +761,8 @@ function ActionPanel({
               className={selectedTargetIds.includes(target.id) ? 'selected' : ''}
               disabled={disabled}
               key={target.id}
-              onClick={() => setSelectedTargetIds((current) => {
+              onClick={() => setSelectedTargetIds((previous) => {
+                const current = previous.filter((id) => selectedAction.targets.some((entry) => entry.id === id))
                 if (current.includes(target.id)) {
                   return current.filter((id) => id !== target.id)
                 }
@@ -732,7 +774,7 @@ function ActionPanel({
             >
               <strong>{target.name}</strong>
               <small>
-                {target.faction === 'player' ? '友方' : '敌方'} · {target.zone}
+                {target.faction === 'player' ? '友方' : '敌方'}{target.zone ? ` · ${target.zone}` : ''}
                 {target.life_state !== 'alive' ? ' · 已倒地' : ''}
               </small>
             </button>
@@ -745,6 +787,7 @@ function ActionPanel({
             !selectedAction.enabled ||
             selectedTargetIds.length < (selectedAction.min_targets ?? 0) ||
             selectedTargetIds.length > (selectedAction.max_targets ?? 20)
+            || selectedTargetIds.some((id) => !selectedAction.targets.some((target) => target.id === id))
           }
           onClick={() => void onAction({
             action_type: 'rule_action',
@@ -761,11 +804,10 @@ function ActionPanel({
   return (
     <div>
       <p className="action-budget">
-        {options?.attack_only ? '额外攻击阶段' : '本回合剩余行动'} ·{' '}
-        {options?.actions_remaining ?? 1}
+        {isCombatTurn ? `${options?.attack_only ? '额外攻击阶段' : '本回合剩余行动'} · ${options?.actions_remaining ?? 1}` : itemsOnly ? '可用物品' : '探索阶段 · 可用规则行动'}
       </p>
       <div className="action-grid">
-      {(options?.attack ?? []).flatMap((attack) =>
+      {(!itemsOnly ? options?.attack ?? [] : []).flatMap((attack) =>
         (attack.targets ?? []).map((target) => (
           <button
             disabled={disabled}
@@ -785,7 +827,7 @@ function ActionPanel({
           </button>
         )),
       )}
-      {(options?.move ?? []).map((move) => (
+      {(!itemsOnly ? options?.move ?? [] : []).map((move) => (
         <button
           disabled={disabled}
           key={move.target_zone}
@@ -799,19 +841,19 @@ function ActionPanel({
           <small>前往 {move.target_zone}</small>
         </button>
       ))}
-      {enabledRuleActions.map((action) => (
+      {ruleActions.map((action) => (
         <button
-          disabled={disabled}
+          disabled={disabled || !action.enabled}
           key={action.action_id}
           onClick={() => { setSelectedActionId(action.action_id); setSelectedTargetIds([]) }}
           type="button"
         >
           <span>{action.source_kind === 'item' ? '✚' : action.source_kind === 'skill' ? '✦' : '✧'}</span>
           <strong>{action.name}</strong>
-          <small>{action.description}</small>
+          <small>{action.enabled ? action.description : action.unavailable_reason}</small>
         </button>
       ))}
-      {options?.pass ? (
+      {!itemsOnly && options?.pass ? (
         <button
           className="pass-action"
           disabled={disabled}
