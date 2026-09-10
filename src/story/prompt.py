@@ -197,7 +197,9 @@ AC、先攻和至少一个合法攻击；运行时 LLM 无权改数值。关键 
 只能使用合法 disposition、damage_type 和 melee|ranged。""",
     "locations": """【本阶段：Locations】
 只返回 {"locations":[]}。每个计划 location 恰好一项，提供玩家可见名称、环境事实和 intra_exits。
-intra_exits 只能引用 immutable registry 中的地点；需要往返时明确双向连接。不得写 NPC 秘密或谜底。""",
+intra_exits 只能引用 immutable registry 中的地点；需要往返时明确双向连接。
+按 beat_location_scopes 检查每拍使用的地点之间有可用通路；不能借道本拍 location_ids 之外的地点。
+真实拍内移动使用 Location.intra_exits，entry_state.exits 只是文字提示，不能代替连接。不得写 NPC 秘密或谜底。""",
     "act": """【本阶段：一个 Act 的可玩 Beats】
 只返回 {"beats":[]}，且只包含本 Act 计划中的非结局 Beat。每拍必须原样采用计划的 id、act_id、kind、
 estimated_minutes、location_ids、actor_ids 对应 entry_state、clue_ids、encounter_id、出口顺序与目标。
@@ -928,6 +930,12 @@ def build_fragment_prompt(
         ],
         "beats": selected_beats,
     }
+    if contract_key == "locations":
+        context["beat_location_scopes"] = [
+            {"beat_id": beat["id"], "location_ids": beat["location_ids"]}
+            for beat in story_plan["beats"]
+            if beat["kind"] != "ending"
+        ]
     categories = {
         "cast": ["actors"],
         "locations": ["locations"],

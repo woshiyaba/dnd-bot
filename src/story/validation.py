@@ -1159,8 +1159,15 @@ def validate_canon_playability(canon: Canon) -> list[str]:
             if beat.encounter:
                 needed_locations.add(beat.encounter.location_id)
             if needed_locations - accessible:
+                # 尖括号内的 ID 会成为定向修复目标；断路应修改地图，不应搬动剧情对象。
+                route_locations = "、".join(
+                    f"地点 «{location_id}»" for location_id in beat.location_ids
+                )
                 errors.append(
-                    f"Beat «{beat.id}» 的线索或遭遇地点无法从入场地点抵达：{sorted(str(value) for value in needed_locations - accessible)}"
+                    f"Beat {beat.id} 的线索或遭遇地点无法从入场地点 {beat.entry_state.get('location_id')} 抵达："
+                    f"{sorted(str(value) for value in needed_locations - accessible)}。"
+                    f"请修复本拍 {route_locations} 的 intra_exits；通路只能经过本拍 location_ids，"
+                    "entry_state.exits 中的文字不构成地图连接。保留已有合法连接，不要移动入场地点、线索或遭遇来绕过断路。"
                 )
             flags.update(beat.entry_state.get("flags") or {})
 

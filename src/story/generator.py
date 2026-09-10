@@ -3050,6 +3050,30 @@ async def _repair_canon_objects(
         raise StoryGenerationError("校验问题无法定位到可修复对象：" + "；".join(errors))
     schema = canon_object_repair_schema(targets, authoring=plan.plan_version >= 3)
     output_schema = canon_object_repair_schema(targets)
+    location_context = {}
+    if any(key.startswith("locations:") for key in targets):
+        location_context = {
+            "locations": raw.get("locations", []),
+            "beat_routes": [
+                {
+                    "id": beat["id"],
+                    "location_ids": beat.get("location_ids", []),
+                    "entry_location_id": (beat.get("entry_state") or {}).get(
+                        "location_id"
+                    ),
+                    "required_location_ids": [
+                        clue.get("location_id") for clue in beat.get("key_info", [])
+                    ]
+                    + (
+                        [beat["encounter"].get("location_id")]
+                        if beat.get("encounter")
+                        else []
+                    ),
+                }
+                for beat in raw.get("beats", [])
+                if isinstance(beat, dict)
+            ],
+        }
     prompt = (
         "修复以下对象的明确错误，返回 JSON，根对象必须只有 objects 字段，"
         "objects 内的键必须精确匹配待修复对象。"
@@ -3061,6 +3085,7 @@ async def _repair_canon_objects(
         f"<errors>{json.dumps(errors, ensure_ascii=False)}</errors>\n"
         f"<brief>{json.dumps(brief.model_dump(), ensure_ascii=False, separators=(',', ':'))}</brief>\n"
         f"<plan>{json.dumps(plan.model_dump(exclude_none=True), ensure_ascii=False, separators=(',', ':'))}</plan>\n"
+        f"<readonly_location_context>{json.dumps(location_context, ensure_ascii=False, separators=(',', ':'))}</readonly_location_context>\n"
         f"<objects>{json.dumps({key: objects[key] for key in targets}, ensure_ascii=False, separators=(',', ':'))}</objects>"
         "\n只按 errors 修复指定对象。若修复 ending_lose，必须适用于任意遭遇战败：不得写固定战场、固定观众、某个特定对手或最终决战；保留当前现场，任务失败的共同后果可作为战败后的叙述。不得改写全局胜负条件。"
     )

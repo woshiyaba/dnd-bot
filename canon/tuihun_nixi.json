@@ -1,0 +1,613 @@
+{
+  "campaign_id": "tuihun_nixi",
+  "title": "退婚逆袭",
+  "premise": "被退婚的废柴少年在家族内斗的羞辱中觉醒，与神秘少女相遇，一路战斗到底，逆袭打脸。",
+  "theme": "从退婚羞辱到逆袭打脸，夺回尊严与家族地位",
+  "tone": "热血爽文，浪漫张力",
+  "duration_minutes": 25,
+  "length_mode": "short",
+  "act_count": 3,
+  "runtime_location_scoping": true,
+  "recommended_player_count": 1,
+  "gameplay_focus": [
+    "combat",
+    "social"
+  ],
+  "content_warnings": [
+    "擦边暧昧与亲密暗示",
+    "轻度暴力战斗"
+  ],
+  "declared_flags": [
+    "flag_found_evidence",
+    "flag_met_girl"
+  ],
+  "win_condition": {
+    "id": "win_condition",
+    "kind": "combat_outcome",
+    "predicate": {
+      "outcome": "players_win",
+      "encounter_id": "enc_final_duel"
+    },
+    "description": "主角在决战中击败退婚方代表。"
+  },
+  "lose_condition": {
+    "id": "lose_condition",
+    "kind": "combat_outcome",
+    "predicate": {
+      "outcome": "players_lose"
+    },
+    "description": "主角在任意遭遇中战败。"
+  },
+  "start_beat_id": "beat_opening_humiliation",
+  "cast": [
+    {
+      "id": "monster_thug",
+      "name": "退婚方护卫",
+      "role": "打手",
+      "goal": "听从退婚方代表的命令，阻挡主角前进",
+      "secret": "他们只是拿钱办事，对退婚方家族的阴谋知之甚少",
+      "disposition": "hostile",
+      "story_critical": false,
+      "card": {
+        "id": "monster_thug",
+        "name": "退婚方护卫",
+        "strength": 12,
+        "dexterity": 10,
+        "constitution": 12,
+        "intelligence": 8,
+        "wisdom": 8,
+        "charisma": 8,
+        "current_hp": 8,
+        "max_hp": 8,
+        "ac": 12,
+        "initiative_bonus": 0,
+        "attacks": [
+          {
+            "name": "木棍",
+            "attack_bonus": 2,
+            "damage_dice": "1d6",
+            "damage_type": "bludgeoning",
+            "range": "melee"
+          }
+        ]
+      }
+    },
+    {
+      "id": "npc_mysterious_girl",
+      "name": "神秘少女",
+      "role": "关键盟友",
+      "goal": "观察并帮助主角，寻找自己使命的答案",
+      "secret": "她来自更高层次的势力，奉命观察主角，并逐渐对主角产生真挚感情",
+      "disposition": "friendly",
+      "story_critical": true,
+      "death_fallback": {
+        "guidance": "若神秘少女在战斗中倒下，她会在关键时刻爆发出神秘力量，保护主角并暂时恢复意识。",
+        "consequence": "主角受到震撼，决心变强，同时少女的伤势成为推动剧情的重要动力。",
+        "stuck_hint": "提示玩家继续寻找线索，提升实力。"
+      },
+      "card": {
+        "id": "npc_mysterious_girl",
+        "name": "神秘少女",
+        "strength": 10,
+        "dexterity": 14,
+        "constitution": 10,
+        "intelligence": 14,
+        "wisdom": 12,
+        "charisma": 16,
+        "current_hp": 9,
+        "max_hp": 9,
+        "ac": 13,
+        "initiative_bonus": 2,
+        "attacks": [
+          {
+            "name": "灵力冲击",
+            "attack_bonus": 4,
+            "damage_dice": "1d8",
+            "damage_type": "force",
+            "range": "ranged"
+          }
+        ]
+      }
+    },
+    {
+      "id": "npc_retreat_rep",
+      "name": "退婚方代表",
+      "role": "初期反派",
+      "goal": "羞辱主角，完成退婚，巩固家族利益",
+      "secret": "他与主角家族内的反对派长老勾结，试图借此机会彻底打压主角一脉",
+      "disposition": "hostile",
+      "story_critical": true,
+      "death_fallback": {
+        "guidance": "若退婚方代表在决战前死亡，他的死会成为主角家族内反对派攻击主角的借口，使局势更加复杂。",
+        "consequence": "主角将面临更大的压力，但同时也获得了一丝转机，因为阴谋可能提前暴露。",
+        "stuck_hint": "提示玩家寻找其他线索，凝聚支持力量。"
+      },
+      "card": {
+        "id": "npc_retreat_rep",
+        "name": "退婚方代表",
+        "strength": 14,
+        "dexterity": 12,
+        "constitution": 12,
+        "intelligence": 12,
+        "wisdom": 10,
+        "charisma": 14,
+        "current_hp": 14,
+        "max_hp": 14,
+        "ac": 15,
+        "initiative_bonus": 1,
+        "attacks": [
+          {
+            "name": "家传长剑",
+            "attack_bonus": 4,
+            "damage_dice": "1d8+2",
+            "damage_type": "slashing",
+            "range": "melee"
+          }
+        ]
+      }
+    },
+    {
+      "id": "npc_family_opposition",
+      "name": "家族反对派长老",
+      "role": "幕后黑手",
+      "goal": "夺取家族大权，排除主角一脉",
+      "secret": "他是多年前毒害主角的元凶之一，与退婚方家族暗中勾结",
+      "disposition": "hostile",
+      "story_critical": true,
+      "death_fallback": {
+        "guidance": "若家族反对派长老死亡，其党羽会疯狂报复，同时会留下关键证据揭露阴谋。",
+        "consequence": "主角将获得家族大多数人的支持，但也会面临更危险的敌人。",
+        "stuck_hint": "提示玩家利用长老的地位和遗留的证据。"
+      },
+      "card": {
+        "id": "npc_family_opposition",
+        "name": "家族反对派长老",
+        "strength": 10,
+        "dexterity": 10,
+        "constitution": 10,
+        "intelligence": 14,
+        "wisdom": 12,
+        "charisma": 14,
+        "current_hp": 10,
+        "max_hp": 10,
+        "ac": 11,
+        "initiative_bonus": 0,
+        "attacks": [
+          {
+            "name": "权杖",
+            "attack_bonus": 2,
+            "damage_dice": "1d6",
+            "damage_type": "bludgeoning",
+            "range": "melee"
+          }
+        ]
+      }
+    }
+  ],
+  "locations": [
+    {
+      "id": "loc_family_hall",
+      "name": "家族大厅",
+      "description": "家族议事和举行重要仪式的场所，空间宽阔，悬挂历代先祖画像。退婚仪式在此举行，气氛压抑，众家族成员与宾客齐聚。",
+      "intra_exits": [
+        "loc_main_gate",
+        "loc_back_mountain"
+      ]
+    },
+    {
+      "id": "loc_back_mountain",
+      "name": "后山小径",
+      "description": "家族领地内偏僻的山间小路，草木丛生，少有人迹。主角被羞辱后在此遇到神秘少女，获得帮助与启示。",
+      "intra_exits": [
+        "loc_family_hall",
+        "loc_secret_room"
+      ]
+    },
+    {
+      "id": "loc_secret_room",
+      "name": "家族密室",
+      "description": "存放家族机密和修炼资源的房间，仅核心成员知晓。摆设陈旧，书架上有古籍，角落有锁柜。主角在此发现被下毒的证据。",
+      "intra_exits": [
+        "loc_back_mountain"
+      ]
+    },
+    {
+      "id": "loc_main_gate",
+      "name": "家族大门",
+      "description": "家族领地的主入口，门楼高大，两侧有石狮。退婚方代表由此进入并引发冲突，是家族内外的分界。",
+      "intra_exits": [
+        "loc_family_hall"
+      ]
+    }
+  ],
+  "action_definitions": [],
+  "beats": [
+    {
+      "id": "beat_opening_humiliation",
+      "title": "退婚羞辱与神秘相遇",
+      "kind": "opening",
+      "act_id": "act1",
+      "estimated_minutes": 5,
+      "objective": "经历退婚仪式的公开羞辱，与神秘少女相遇并获得帮助，决心奋起。",
+      "pressure": "退婚方代表盛气凌人，家族众人目光冷漠，主角内心屈辱与愤怒交织。",
+      "relevant_clue_ids": [
+        "clue_girl_identity"
+      ],
+      "payoff_flag_ids": [],
+      "location_ids": [
+        "loc_family_hall",
+        "loc_back_mountain"
+      ],
+      "entry_state": {
+        "location_id": "loc_family_hall",
+        "preserve_current_scene": false,
+        "description": "",
+        "actors": [
+          {
+            "actor_id": "npc_retreat_rep",
+            "name": "退婚方代表",
+            "disposition": "hostile",
+            "location_id": "loc_family_hall",
+            "type": "npc"
+          },
+          {
+            "actor_id": "npc_mysterious_girl",
+            "name": "神秘少女",
+            "disposition": "friendly",
+            "location_id": "loc_back_mountain",
+            "type": "npc"
+          }
+        ],
+        "exits": [
+          "后山小径"
+        ],
+        "threat": "退婚方代表当众撕毁婚书，极尽羞辱之能事，家族众人冷眼旁观，主角如坠深渊。",
+        "flags": {}
+      },
+      "key_info": [
+        {
+          "id": "clue_girl_identity",
+          "text": "神秘少女低语：‘我来自更高的地方，奉命观察你。你中的毒，我能解。’",
+          "location_id": "loc_back_mountain",
+          "discovery_hints": [
+            "与神秘少女对话",
+            "观察她佩戴的奇异徽记"
+          ],
+          "discovery_effects": {
+            "flags_set": {
+              "flag_met_girl": true
+            },
+            "grant_items": []
+          }
+        }
+      ],
+      "advance_conditions": [
+        {
+          "id": "trigger_beat_opening_humiliation_1",
+          "kind": "semantic",
+          "predicate": {
+            "prompt": "主角决定不再沉沦，开始主动行动。"
+          },
+          "description": "主角接受神秘少女的鼓励，迈出逆袭的第一步。"
+        }
+      ],
+      "exits": [
+        {
+          "trigger_id": "trigger_beat_opening_humiliation_1",
+          "next_beat_id": "beat_resolve_and_plan"
+        }
+      ],
+      "stuck_fallback": {
+        "hint": "神秘少女轻声提醒：‘你的体内并非天生废柴，去家族的密室看看吧，那里藏着真相。’",
+        "reveal_clue": false,
+        "point_to_exit": "后山小径"
+      }
+    },
+    {
+      "id": "beat_resolve_and_plan",
+      "title": "密室真相与决心",
+      "kind": "exploration",
+      "act_id": "act1",
+      "estimated_minutes": 5,
+      "objective": "前往家族密室寻找自己修为停滞的线索。",
+      "pressure": "家族内暗流涌动，主角需要小心避开耳目。",
+      "relevant_clue_ids": [
+        "clue_poison_evidence"
+      ],
+      "payoff_flag_ids": [],
+      "location_ids": [
+        "loc_secret_room"
+      ],
+      "entry_state": {
+        "location_id": "loc_secret_room",
+        "preserve_current_scene": false,
+        "description": "",
+        "actors": [
+          {
+            "actor_id": "npc_mysterious_girl",
+            "name": "神秘少女",
+            "disposition": "friendly",
+            "location_id": "loc_secret_room",
+            "type": "npc"
+          }
+        ],
+        "exits": [
+          "后山小径"
+        ],
+        "threat": "密室陈旧，空气中弥漫着霉味，但似乎没有敌人潜伏，只有黑暗中的秘密等待揭示。",
+        "flags": {}
+      },
+      "key_info": [
+        {
+          "id": "clue_poison_evidence",
+          "text": "你在密室角落发现一个暗格，里面藏着一瓶剧毒和几封书信，明确指出你当年被人下毒，导致修为停滞。",
+          "location_id": "loc_secret_room",
+          "discovery_hints": [
+            "检查密室中的暗格",
+            "搜索书架上的古旧书籍"
+          ],
+          "discovery_effects": {
+            "flags_set": {
+              "flag_found_evidence": true
+            },
+            "grant_items": []
+          }
+        }
+      ],
+      "advance_conditions": [
+        {
+          "id": "trigger_beat_resolve_and_plan_1",
+          "kind": "semantic",
+          "predicate": {
+            "prompt": "主角理解了证据的意义，决定采取行动。"
+          },
+          "description": "主角明白前因后果，离开密室准备行动。"
+        }
+      ],
+      "exits": [
+        {
+          "trigger_id": "trigger_beat_resolve_and_plan_1",
+          "next_beat_id": "beat_gate_encounter"
+        }
+      ],
+      "stuck_fallback": {
+        "hint": "神秘少女指着密室边缘：‘再仔细找找，下毒的人总会留下痕迹。’",
+        "reveal_clue": false
+      }
+    },
+    {
+      "id": "beat_gate_encounter",
+      "title": "家族大门遭遇",
+      "kind": "conflict",
+      "act_id": "act2",
+      "estimated_minutes": 5,
+      "objective": "击退退婚方护卫，扫清前往决战的障碍。",
+      "pressure": "家族大门被护卫封锁，战斗一触即发。",
+      "relevant_clue_ids": [],
+      "payoff_flag_ids": [],
+      "location_ids": [
+        "loc_main_gate"
+      ],
+      "entry_state": {
+        "location_id": "loc_main_gate",
+        "preserve_current_scene": false,
+        "description": "",
+        "actors": [
+          {
+            "actor_id": "monster_thug",
+            "name": "退婚方护卫",
+            "disposition": "hostile",
+            "location_id": "loc_main_gate",
+            "type": "monster"
+          },
+          {
+            "actor_id": "npc_mysterious_girl",
+            "name": "神秘少女",
+            "disposition": "friendly",
+            "location_id": "loc_main_gate",
+            "type": "npc"
+          }
+        ],
+        "exits": [
+          "loc_family_hall"
+        ],
+        "flags": {}
+      },
+      "key_info": [],
+      "advance_conditions": [
+        {
+          "id": "trigger_beat_gate_encounter_1",
+          "kind": "combat_outcome",
+          "predicate": {
+            "outcome": "players_win",
+            "encounter_id": "enc_retreat_thugs"
+          },
+          "description": "护卫被击败，失去阻挡能力。"
+        }
+      ],
+      "exits": [
+        {
+          "trigger_id": "trigger_beat_gate_encounter_1",
+          "next_beat_id": "beat_final_duel"
+        }
+      ],
+      "stuck_fallback": {
+        "hint": "神秘少女提醒你：这些护卫只是打手，击败他们才能继续前进。",
+        "reveal_clue": false
+      },
+      "encounter": {
+        "id": "enc_retreat_thugs",
+        "location_id": "loc_main_gate",
+        "monster_ids": [
+          "monster_thug"
+        ],
+        "surprised": [],
+        "loot_table": [],
+        "xp_reward": 0,
+        "on_win_flags": [],
+        "on_win_discoveries": []
+      }
+    },
+    {
+      "id": "beat_final_duel",
+      "title": "家族大厅·终局对决",
+      "kind": "climax",
+      "act_id": "act3",
+      "estimated_minutes": 7,
+      "objective": "在家族大厅当众击败退婚方代表，揭露阴谋，夺回尊严。",
+      "pressure": "家族众人围观，退婚方代表气势汹汹，主角需一招定胜负。",
+      "relevant_clue_ids": [
+        "clue_opposition_letter"
+      ],
+      "payoff_flag_ids": [
+        "flag_met_girl",
+        "flag_found_evidence"
+      ],
+      "location_ids": [
+        "loc_family_hall"
+      ],
+      "entry_state": {
+        "location_id": "loc_family_hall",
+        "preserve_current_scene": false,
+        "description": "主角踏入家族大厅，与退婚方代表正面对峙。",
+        "actors": [
+          {
+            "actor_id": "npc_retreat_rep",
+            "name": "退婚方代表",
+            "disposition": "hostile",
+            "location_id": "loc_family_hall",
+            "type": "npc"
+          },
+          {
+            "actor_id": "npc_family_opposition",
+            "name": "家族反对派长老",
+            "disposition": "hostile",
+            "location_id": "loc_family_hall",
+            "type": "npc"
+          },
+          {
+            "actor_id": "npc_mysterious_girl",
+            "name": "神秘少女",
+            "disposition": "friendly",
+            "location_id": "loc_family_hall",
+            "type": "npc"
+          }
+        ],
+        "exits": [
+          "家族大厅正门"
+        ],
+        "threat": "退婚方代表冷笑，家族反对派长老在一旁助阵，气氛剑拔弩张。",
+        "flags": {}
+      },
+      "key_info": [
+        {
+          "id": "clue_opposition_letter",
+          "text": "退婚方代表在与主角对峙时，不慎掉落了与家族反对派长老勾结的密信，被神秘少女拾得并公开宣读。",
+          "location_id": "loc_family_hall",
+          "discovery_hints": [
+            "在战斗中迫使退婚方代表分心",
+            "由神秘少女在关键时刻出示密信"
+          ],
+          "discovery_effects": {
+            "flags_set": {},
+            "grant_items": []
+          }
+        }
+      ],
+      "advance_conditions": [
+        {
+          "id": "trigger_beat_final_duel_1",
+          "kind": "combat_outcome",
+          "predicate": {
+            "outcome": "players_win",
+            "encounter_id": "enc_final_duel"
+          },
+          "description": "主角在决战中击败退婚方代表。"
+        }
+      ],
+      "exits": [
+        {
+          "trigger_id": "trigger_beat_final_duel_1",
+          "next_beat_id": "ending_win"
+        }
+      ],
+      "stuck_fallback": {
+        "hint": "神秘少女低声提醒：'他的剑法有破绽，攻他下盘！'",
+        "reveal_clue": false
+      },
+      "encounter": {
+        "id": "enc_final_duel",
+        "location_id": "loc_family_hall",
+        "monster_ids": [
+          "npc_retreat_rep"
+        ],
+        "surprised": [],
+        "loot_table": [],
+        "xp_reward": 0,
+        "on_win_flags": [],
+        "on_win_discoveries": [
+          "clue_opposition_letter"
+        ]
+      }
+    },
+    {
+      "id": "ending_win",
+      "title": "胜利：逆袭打脸",
+      "kind": "ending",
+      "act_id": "act3",
+      "estimated_minutes": 3,
+      "objective": "在家族大厅当众击败退婚方代表，揭露阴谋，夺回尊严。",
+      "pressure": "决战的余波未散，家族众人震惊，主角的胜利宣告逆袭完成。",
+      "relevant_clue_ids": [],
+      "payoff_flag_ids": [],
+      "location_ids": [
+        "loc_family_hall"
+      ],
+      "entry_state": {
+        "location_id": "loc_family_hall",
+        "preserve_current_scene": false,
+        "description": "主角站在家族大厅中央，四周是震惊的家族成员和宾客。退婚方代表倒在地上，主角的宣言回荡在空气中。",
+        "actors": [],
+        "exits": [],
+        "flags": {}
+      },
+      "key_info": [],
+      "advance_conditions": [],
+      "exits": [],
+      "stuck_fallback": {
+        "hint": "",
+        "reveal_clue": false
+      },
+      "ending_outcome": "win"
+    },
+    {
+      "id": "ending_lose",
+      "title": "失败：被逐出家族",
+      "kind": "ending",
+      "act_id": "act3",
+      "estimated_minutes": 3,
+      "objective": "主角在遭遇中战败，虽被逐出家族，但仍保留燃起斗志、寻找挽回机会的可能。",
+      "pressure": "战败的代价与家族驱逐的羞辱交织，主角必须正视自己的不足并寻找翻盘契机。",
+      "relevant_clue_ids": [],
+      "payoff_flag_ids": [],
+      "location_ids": [
+        "loc_family_hall"
+      ],
+      "entry_state": {
+        "preserve_current_scene": true,
+        "description": "主角在战斗中落败，被家族当众宣布逐出。周围的目光冷淡或复杂，但主角心中仍有一丝未灭的执念。",
+        "actors": [],
+        "exits": [],
+        "flags": {}
+      },
+      "key_info": [],
+      "advance_conditions": [],
+      "exits": [],
+      "stuck_fallback": {
+        "hint": "",
+        "reveal_clue": false
+      },
+      "ending_outcome": "lose"
+    }
+  ]
+}

@@ -886,6 +886,84 @@ class StoryReliabilityTests(unittest.IsolatedAsyncioTestCase):
             errors,
         )
 
+    async def test_unreachable_clue_repairs_map_without_moving_story_objects(self):
+        from src.story.generator import _repair_assembled_canon
+        from src.story.prompt import build_fragment_prompt
+
+        brief, _, plan, raw = generated_story()
+        start, destination, outside = [
+            location["id"] for location in raw["locations"][:3]
+        ]
+        first = raw["beats"][0]
+        plan.beats[0].location_ids = [start, destination]
+        first["location_ids"] = [start, destination]
+        first["key_info"][0]["location_id"] = destination
+        first["entry_state"]["exits"] = [destination]
+        locations = {location["id"]: location for location in raw["locations"]}
+        locations[start]["intra_exits"] = [outside]
+        locations[outside]["intra_exits"] = [destination]
+        locations[destination]["intra_exits"] = [start]
+        original = deepcopy(raw)
+        _, errors = _full_canon_errors(raw, brief, plan)
+        self.assertTrue(any("无法从入场地点" in error for error in errors), errors)
+
+        async def repair(prompt, *, schema, **kwargs):
+            targets = schema.model_fields["objects"].annotation.model_fields
+            self.assertEqual(
+                {field.alias for field in targets.values()},
+                {f"locations:{start}", f"locations:{destination}"},
+            )
+            context = json.loads(
+                prompt.split("<readonly_location_context>")[1].split(
+                    "</readonly_location_context>"
+                )[0]
+            )
+            self.assertEqual(context["locations"], raw["locations"])
+            self.assertEqual(context["beat_routes"][0]["entry_location_id"], start)
+            return {
+                "objects": {
+                    f"locations:{start}": {
+                        **locations[start],
+                        "intra_exits": [outside, destination],
+                    },
+                    f"locations:{destination}": locations[destination],
+                }
+            }
+
+        with patch(
+            "src.story.generator._complete_json", side_effect=repair
+        ) as completion:
+            result, canon, repairs = await _repair_assembled_canon(
+                raw, brief=brief, plan=plan, stage_label="测试地图修复"
+            )
+        completion.assert_awaited_once()
+        self.assertEqual(repairs, 1)
+        self.assertEqual(result["beats"], original["beats"])
+        self.assertEqual(result["locations"][2:], original["locations"][2:])
+        self.assertEqual(_full_canon_errors(result, brief, plan)[1], [])
+        self.assertIn(destination, canon.location(start).intra_exits)
+        one_way = deepcopy(result)
+        one_way["locations"][1]["intra_exits"] = []
+        self.assertEqual(_full_canon_errors(one_way, brief, plan)[1], [])
+
+        prompt = build_fragment_prompt(
+            fragment_kind="locations",
+            confirmed_brief=brief,
+            story_plan=plan.model_dump(),
+            id_registry=story_plan_id_registry(plan),
+            effect_owner_ledger=[],
+            reference_fragments=[],
+        )
+        context = json.loads(
+            prompt.split("<validated_story_plan>")[1].split("</validated_story_plan>")[
+                0
+            ]
+        )
+        self.assertEqual(
+            context["beat_location_scopes"][0],
+            {"beat_id": first["id"], "location_ids": [start, destination]},
+        )
+
     async def test_assembly_repair_includes_both_duplicate_flag_writers(self):
         from src.story.generator import _repair_assembled_canon
 
