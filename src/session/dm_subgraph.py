@@ -75,6 +75,8 @@ def perceive(state: DMState) -> dict:
         "pending_check": None,
         "pending_effects": None,
         "last_check": None,
+        "completed_trigger_ids": None,
+        "movement_requested": False,
         "combat_request": None,
         "world_writes": None,
         "next": "wait",
@@ -120,10 +122,15 @@ async def dm_decide(state: DMState) -> dict:
         return {
             "intent": "guidance",
             "decision_issue": exc.reason,
+            "completed_trigger_ids": [],
             "world_writes": None,
             "next": "wait",
         }
     intent = decision["intent"]
+    progress = {
+        "completed_trigger_ids": decision.get("completed_trigger_ids"),
+        "movement_requested": decision.get("movement_requested", False),
+    }
     writes = (
         decision.get("world_writes") or {}
     )  # DM 声明的世界写入，留给 evaluate_advancement 消费
@@ -132,6 +139,7 @@ async def dm_decide(state: DMState) -> dict:
 
     if intent == "player_check":
         return {
+            **progress,
             "intent": intent,
             "narrative_intent": narrative_intent,
             "pending_check": decision["check"],
@@ -141,6 +149,7 @@ async def dm_decide(state: DMState) -> dict:
         }
     if intent == "start_combat":
         return {
+            **progress,
             "intent": intent,
             "narrative_intent": narrative_intent,
             "combat_request": decision["encounter"],
@@ -149,6 +158,7 @@ async def dm_decide(state: DMState) -> dict:
         }
     if intent == "use_action":
         return {
+            **progress,
             "intent": intent,
             "narrative_intent": narrative_intent,
             "structured_action": decision["action"],
@@ -157,6 +167,7 @@ async def dm_decide(state: DMState) -> dict:
         }
     # reply
     return {
+        **progress,
         "intent": intent,
         "reply_brief": decision.get("reply_brief", ""),
         "narrative_intent": narrative_intent,
@@ -299,6 +310,15 @@ def resolve_check(state: DMState) -> dict:
     combat_request = branch.get("combat_request")
     return {
         "last_check": result,
+        "messages": [
+            *state.get("messages", []),
+            {
+                "role": "system",
+                "content": f"{actor.name} · {check.get('reason') or '属性检定'}：D20 {d20} {bonus:+d} = {total} / DC {check['dc']} · {'成功' if success else '失败'}",
+            },
+        ],
+        "reply_brief": branch.get("reply_brief") or state.get("reply_brief", ""),
+        "completed_trigger_ids": branch.get("completed_trigger_ids"),
         "world_writes": world_writes,
         "combat_request": combat_request,
         "next": "combat" if combat_request else "wait",
@@ -321,7 +341,7 @@ def _merge_world_writes(base: dict, extra: dict) -> dict:
                 values.append(value)
         if values:
             merged[key] = values
-    for key in ("moved_to", "transition_to_beat_id"):
+    for key in ("moved_to", "transition_to_beat_id", "resolved_encounter"):
         if extra.get(key):
             merged[key] = extra[key]
     return merged

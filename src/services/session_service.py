@@ -327,9 +327,10 @@ class SessionService:
             session_status=session_status,
             scene=SceneView(
                 location=scene_data.get("location") or "未知地点",
-                description=scene_data.get("description") or "",
+                # Canon 场景说明属于 DM 私有资料，公开环境由冒险记录中的叙述呈现。
+                description="" if canon else scene_data.get("description") or "",
                 exits=list(scene_data.get("exits") or []),
-                threat=scene_data.get("threat"),
+                threat=None if canon else scene_data.get("threat"),
                 round=combat_view.get("round"),
                 phase="战斗阶段" if combat_view else "冒险阶段",
                 actors=[

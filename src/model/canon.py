@@ -658,6 +658,17 @@ def beat_brief(canon: Canon, story: dict) -> dict | None:
         "advance_hints": [
             t.description for t in beat.advance_conditions if t.description
         ],
+        "semantic_conditions": [
+            {"id": t.id, "predicate": t.predicate, "description": t.description}
+            for t in [
+                *beat.advance_conditions,
+                canon.win_condition,
+                canon.lose_condition,
+            ]
+            if t is not None and t.kind == TriggerKind.SEMANTIC
+        ],
+        "resolved_encounters": dict(story.get("resolved_encounters", {})),
+        "ready_next_beat_id": story.get("ready_next_beat_id"),
         "allowed_flags": list(canon.declared_flags),
         "allowed_delivery_clue_ids": [
             clue.id
@@ -674,22 +685,21 @@ def beat_brief(canon: Canon, story: dict) -> dict | None:
             {
                 "trigger_id": ex.trigger_id,
                 "trigger_kind": (
-                    trigger.kind.value
-                    if (
-                        trigger := next(
-                            (
-                                item
-                                for item in beat.advance_conditions
-                                if item.id == ex.trigger_id
-                            ),
-                            None,
-                        )
-                    )
-                    else None
+                    "action"
+                    if ex.next_beat_id == story.get("ready_next_beat_id")
+                    else trigger.kind.value
                 ),
                 "to_beat_id": ex.next_beat_id,
+                "description": trigger.description,
+                "to_location_id": (
+                    canon.beat(ex.next_beat_id).entry_state.get("location_id")
+                    if canon.beat(ex.next_beat_id)
+                    else None
+                ),
             }
             for ex in beat.exits
+            for trigger in beat.advance_conditions
+            if trigger.id == ex.trigger_id
         ],
         # 新 Canon 只披露当前地点；旧 Canon 保留原先的相邻拍遭遇提示。
         "reachable_encounters": (
@@ -711,6 +721,15 @@ def beat_brief(canon: Canon, story: dict) -> dict | None:
                 "encounter_id": beat.encounter.id,
                 "beat_id": beat.id,
                 "monster_ids": list(beat.encounter.monster_ids),
+                "noncombat_exit_ids": [
+                    t.id
+                    for t in beat.advance_conditions
+                    if t.kind == TriggerKind.COMBAT_OUTCOME
+                    and t.predicate.get("outcome") == "players_win"
+                    and t.predicate.get("encounter_id", beat.encounter.id)
+                    == beat.encounter.id
+                    and beat.exit_for(t.id) is not None
+                ],
             }
             if beat.encounter is not None
             and (

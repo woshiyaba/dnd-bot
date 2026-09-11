@@ -1633,11 +1633,14 @@
     min-height: auto;
   }
   .bottom-dock > div { display: none; }
+  .bottom-dock > .self-hp { display: flex; flex-direction: row; align-items: center; gap: 12px; padding: 8px 16px; }
+  .self-hp > strong { font-size: 20px; }
+  .self-hp .hp-track { flex: 1; }
   .bottom-dock .dock-menu { gap: 2px; justify-content: space-between; padding: 9px; }
   .dock-menu button { min-width: 0; flex: 1; }
   .dock-menu button > span { width: 42px; height: 42px; }
   .dock-menu button small { font-size: 10px; }
-  .command-drawer { bottom: 82px; }
+  .command-drawer { bottom: 126px; }
 }
 
 /* Character creation */

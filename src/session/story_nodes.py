@@ -171,11 +171,26 @@ async def evaluate_advancement(state: DMState) -> dict:
         ending = canon.ending_beat(EndingOutcome.WIN)
         target_beat_id = ending.id if ending else None
 
-    # 4) 本拍推进条件（确定性优先，semantic 问 DM）
+    # 已解除的障碍不会因玩家继续交谈而重新出现。
+    if target_beat_id is None and story.get("ready_next_beat_id"):
+        target_beat_id = story["ready_next_beat_id"]
+        transition_reason = "出口已开放，等待玩家前往"
+
+    # 4) 本拍推进条件（确定性优先，semantic 复用本回合 DM 裁定）
     beat = canon.beat(story.get("current_beat_id", ""))
     if target_beat_id is None and beat is not None:
         for trig in beat.advance_conditions:
-            if await _condition_met(
+            resolution = (story.get("resolved_encounters") or {}).get(
+                beat.encounter.id if beat.encounter else ""
+            )
+            encounter_resolved = (
+                resolution is not None
+                and trig.kind.value == "combat_outcome"
+                and trig.predicate.get("outcome") == "players_win"
+                and trig.predicate.get("encounter_id", beat.encounter.id)
+                == beat.encounter.id
+            )
+            if encounter_resolved or await _condition_met(
                 trig, story, scene, party, last_combat, messages, state
             ):
                 ex = beat.exit_for(trig.id)
@@ -194,6 +209,38 @@ async def evaluate_advancement(state: DMState) -> dict:
         campaign_log = log_event({"campaign_log": campaign_log}, ev)
 
     if target_beat_id is not None:
+        target = canon.beat(target_beat_id)
+        if target is None:
+            raise ValueError(f"[story] 推进目标 «{target_beat_id}» 不存在")
+        destination = target.entry_state.get("location_id")
+        if (
+            not target.is_ending
+            and not target.entry_state.get("preserve_current_scene")
+            and destination
+            and destination != scene.get("location_id")
+            and not explicit_target
+            and (story.get("ready_next_beat_id") or not state.get("movement_requested"))
+        ):
+            story["ready_next_beat_id"] = target_beat_id
+            story["idle_turns"] = 0
+            location = canon.location(destination)
+            exit_name = location.name if location else destination
+            scene["exits"] = list(dict.fromkeys([*scene.get("exits", []), exit_name]))
+            return {
+                "story": story,
+                "scene": scene,
+                "party": party,
+                "last_combat": last_combat,
+                "next_story": "stay",
+                "world_writes": None,
+                "story_transition": {
+                    "type": "ready",
+                    "to_beat_id": target_beat_id,
+                    "to_location": exit_name,
+                    "reason": transition_reason,
+                },
+                "campaign_log": campaign_log,
+            }
         story["pending_next_beat_id"] = target_beat_id
         return {
             "story": story,
@@ -251,6 +298,9 @@ async def _condition_met(
     verdict = evaluate_trigger(trigger, story, scene, party, last_combat)
     if verdict is not None:
         return verdict
+    completed = state.get("completed_trigger_ids")
+    if completed is not None:
+        return trigger.id in completed
     # semantic：引擎判不了 → 问 DM（窄判定），把玩家这步原话一并喂给 DM
     prompt = (trigger.predicate or {}).get("prompt") or trigger.description
     return await world_bridge.judge_trigger(
@@ -302,6 +352,17 @@ def _apply_world_writes(
         events.append({"event": "flag_set", "flag": key, "value": value, "by": "dm"})
 
     beat = canon.beat(story.get("current_beat_id", ""))
+    resolution = writes.get("resolved_encounter")
+    if resolution is not None:
+        # 使用同一白名单校验边界，避免绕过 DM 入口的世界写入跳过验证。
+        checked = world_bridge._world_writes(
+            {"resolved_encounter": resolution}, beat_brief(canon, story)
+        )["resolved_encounter"]
+        resolved = dict(story.get("resolved_encounters") or {})
+        if checked["encounter_id"] not in resolved:
+            resolved[checked["encounter_id"]] = checked
+            events.append({"event": "encounter_resolved", **checked})
+        story["resolved_encounters"] = resolved
     visited_locations = list(story.get("visited_locations", []))
     current_location_id = story.get("current_location_id")
     moved_to = writes.get("moved_to")
@@ -399,7 +460,10 @@ def _apply_world_writes(
                 )
             )
             is not None
-            and trigger.kind.value == "action"
+            and (
+                trigger.kind.value == "action"
+                or ex.next_beat_id == story.get("ready_next_beat_id")
+            )
         }
         if transition_to not in allowed:
             raise ValueError(
@@ -516,7 +580,14 @@ def _apply_discovery_effects(
                 "clue_id": clue.id,
             }
         )
-    events.append({"event": "clue_discovered", "clue_id": clue.id, "by": source})
+    events.append(
+        {
+            "event": "clue_discovered",
+            "clue_id": clue.id,
+            "text": clue.text,
+            "by": source,
+        }
+    )
 
 
 def _combat_result_with_discoveries(
@@ -738,6 +809,7 @@ def transition_to_beat(
             "idle_turns": 0,
             "beat_entered_turn": story.get("turn_index", 0),
             "pending_next_beat_id": None,
+            "ready_next_beat_id": None,
         }
     )
     if act_recap is not None:
@@ -769,7 +841,14 @@ async def final_narrate_turn(state: DMState) -> dict:
     last_combat = (
         state.get("last_combat") if _current_turn_has_event(state, "combat") else None
     )
+    resolved_events = []
+    for event in reversed(state.get("campaign_log", [])):
+        if event.get("event") == "narration":
+            break
+        resolved_events.append(event)
     text = await world_bridge.narrate_turn_final(
+        resolved_events=list(reversed(resolved_events)),
+        party=state.get("party") or {},
         user_input=state.get("user_input"),
         reply_brief=state.get("reply_brief"),
         narrative_intent=state.get("narrative_intent"),

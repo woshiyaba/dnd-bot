@@ -136,6 +136,7 @@ def execute_world_action(state: DMState) -> dict:
     return {
         "party": state.get("party") or {},
         "world_writes": writes,
+        "completed_trigger_ids": None,
         "action_events": events,
         "pending_action_plan": None,
         "structured_action": None,

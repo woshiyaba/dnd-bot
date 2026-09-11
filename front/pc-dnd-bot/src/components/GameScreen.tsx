@@ -24,8 +24,8 @@ type GameScreenProps = {
   isConnected: boolean
   error: string
   onStart: () => Promise<void>
-  onMessage: (content: string) => Promise<void>
-  onAction: (action: Record<string, unknown>) => Promise<void>
+  onMessage: (content: string) => Promise<boolean>
+  onAction: (action: Record<string, unknown>) => Promise<boolean>
   onLevelUp: (increases: Record<string, number>) => Promise<void>
   onTransferItem: (itemId: string, targetId: string, quantity: number) => Promise<void>
   onFreeRoll: (diceType: DiceType) => void
@@ -150,6 +150,7 @@ function AdventureRoom({
 }: GameScreenProps & { session: SessionView }) {
   const [activeTab, setActiveTab] = useState<DockTab>('chat')
   const [input, setInput] = useState('')
+  const [submitted, setSubmitted] = useState<{ content: string; timelineLength: number } | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const timelineRef = useRef<HTMLDivElement>(null)
   const onlineUsers = useMemo(
@@ -213,11 +214,14 @@ function AdventureRoom({
     event.preventDefault()
     const content = input.trim()
     if (!content || composerDisabled) return
+    setSubmitted({ content, timelineLength: session.timeline.length })
     setInput('')
-    if (canSubmitCombatText) {
-      await onAction({ action_type: 'natural_language', description: content })
-    } else {
-      await onMessage(content)
+    const success = canSubmitCombatText
+      ? await onAction({ action_type: 'natural_language', description: content })
+      : await onMessage(content)
+    if (!success) {
+      setInput(content)
+      setSubmitted(null)
     }
   }
 
@@ -263,7 +267,7 @@ function AdventureRoom({
             <div className="scene-copy">
               <span>⚔ 地下城主</span>
               <h1>{session.scene.location}</h1>
-              <p>{session.scene.description}</p>
+              {session.scene.description ? <p>{session.scene.description}</p> : null}
             </div>
             <div className="scene-meta">
               {session.scene.threat ? <span>威胁 · {session.scene.threat}</span> : null}
@@ -314,6 +318,12 @@ function AdventureRoom({
                   <p>{entry.content}</p>
                 </article>
               ))}
+              {submitted && !session.timeline.slice(submitted.timelineLength).some((entry) => entry.content === submitted.content && entry.role === 'player') ? (
+                <article className="story-message role-player" aria-live="polite">
+                  <span>{me?.name ?? '你'} · {isBusy ? '正在提交' : '已提交'}</span>
+                  <p>{submitted.content}</p>
+                </article>
+              ) : null}
               {streamText ? (
                 <article className="story-message role-dm streaming">
                   <span>地下城主</span>
@@ -329,13 +339,16 @@ function AdventureRoom({
                       <b />
                       <b />
                     </i>
-                    地下城主正在思考…
+                    <ThinkingTime />
                   </p>
                 </article>
               ) : null}
             </div>
 
             {pending ? <WaitingNotice pending={pending} /> : null}
+            {session.session_status === 'finished' ? (
+              <div className="pending-notice" role="status"><p>本次冒险已结束。可以回看冒险记录，或离开房间开始新的冒险。</p></div>
+            ) : null}
             <form className="chat-composer" onSubmit={send}>
               <span>✦</span>
               <input
@@ -495,6 +508,16 @@ function BottomDock({
   )
 }
 
+function ThinkingTime() {
+  const [seconds, setSeconds] = useState(0)
+  useEffect(() => {
+    const started = Date.now()
+    const timer = window.setInterval(() => setSeconds(Math.floor((Date.now() - started) / 1000)), 1000)
+    return () => window.clearInterval(timer)
+  }, [])
+  return <span role="status">正在裁定行动 · 已等待 {seconds} 秒{seconds >= 30 ? '，请稍候…' : '…'}</span>
+}
+
 function DockButton({
   active,
   badge,
@@ -608,10 +631,10 @@ function CommandDrawer({
   worldActions: RuleActionEntry[]
   isBusy: boolean
   onClose: () => void
-  onAction: (action: Record<string, unknown>) => Promise<void>
+  onAction: (action: Record<string, unknown>) => Promise<boolean>
   onFreeRoll: (diceType: DiceType) => void
   session: SessionView
-  onMessage: (content: string) => Promise<void>
+  onMessage: (content: string) => Promise<boolean>
   onTransferItem: GameScreenProps['onTransferItem']
 }) {
   const heading =
@@ -723,7 +746,7 @@ function ActionPanel({
   pending?: PendingInteraction
   worldActions: RuleActionEntry[]
   disabled: boolean
-  onAction: (action: Record<string, unknown>) => Promise<void>
+  onAction: (action: Record<string, unknown>) => Promise<boolean>
   itemsOnly?: boolean
 }) {
   const [selectedActionId, setSelectedActionId] = useState<string | null>(null)

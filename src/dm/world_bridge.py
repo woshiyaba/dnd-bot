@@ -40,6 +40,7 @@ _WORLD_WRITE_FIELDS = {
     "clues_delivered",
     "discoveries",
     "transition_to_beat_id",
+    "resolved_encounter",
 }
 
 
@@ -208,13 +209,26 @@ async def decide_turn(
             )
             continue
         try:
-            return _normalize_decision(
+            decision = _normalize_decision(
                 data,
                 scene,
                 party_ids,
                 active_actor_id=active_actor_id,
                 decision_context=beat_brief,
             )
+            completed = _completed_trigger_ids(data, beat_brief)
+            if decision["intent"] == "player_check" and completed:
+                raise WorldStateDecisionError(
+                    "检定后的推进条件必须放在 effects 的结果分支中"
+                )
+            movement = data.get("movement_requested", False)
+            if type(movement) is not bool:
+                raise WorldStateDecisionError("movement_requested 必须是布尔值")
+            return {
+                **decision,
+                "completed_trigger_ids": completed,
+                "movement_requested": movement,
+            }
         except ValueError as exc:
             last_error = str(exc)
             if isinstance(exc, WorldStateDecisionError):
@@ -274,6 +288,19 @@ async def _decide_llm(
         f"当前发言玩家：{active_display_name or '未知'}；其角色 actor_id：{active_actor_id or '未知'}。"
         "如果这一步需要玩家检定，actor_id 必须使用当前发言玩家的角色。\n"
         f"玩家这一步说/做：{user_input}\n\n"
+        "【通用推进裁定】始终输出 completed_trigger_ids（数组）与 movement_requested（布尔值）。"
+        "completed_trigger_ids 只能从 semantic_conditions 中选：同时核对 predicate、description、"
+        "本拍 objective 及已发现线索；表达决心不等于完成调查或见过尚未接触的人。"
+        "本回合已经达成才填入；仍需检定的条件只放进 effects.on_success/on_failure 的对应分支。"
+        "不要把尚未执行的计划当成结果。movement_requested 仅在玩家明确要前往/离开/通过时为 true，"
+        "质问、表态、检定成功、击败敌人都不自动表示同意移动。"
+        "ready_next_beat_id 表示引擎已确认出口可用：玩家要求前往时使用对应 action 出口，"
+        "不得重复设障或撤销之前已经成功解决的障碍。\n"
+        "【非战斗解决】若交涉、潜行、投降等实际解决当前遭遇，可以输出 "
+        'resolved_encounter:{"encounter_id":"当前遭遇id","method":"persuasion|stealth|surrender|other",'
+        '"reason":"已完成的具体结果"}。仅限 current_encounter 含 noncombat_exit_ids 的关卡；'
+        "必须实现本拍目标且不违背明确的击杀等硬性要求。需要检定时放在对应 effects 分支，"
+        "不能因为玩家提出请求就算成功。它只解除障碍，不会杀死敌人或发放战斗专属物品。\n"
         "叙述要自然朝当前拍目标推进但不硬拽玩家；你无权跳拍或改写骨架，推进由引擎判定。\n"
         "剧情拍骨架中的 known_clues 是玩家跨剧情拍持续掌握的既有事实；回应时必须保持一致，"
         "可在相关时自然引用其受控正文，但不得把 available_discoveries 等尚未发现内容当作已知事实。\n"
@@ -307,6 +334,8 @@ async def _decide_llm(
         "不得直接写入。\n"
         "若 player_check 成功后才发生世界变化，必须把上述字段放进 "
         '"effects":{"on_success":{...},"on_failure":{...}}，不可提前写入。\n'
+        "每个结果分支还应提供 reply_brief，准确说明该分支中已经发生的回应与后果；"
+        "发现线索应完整取得正文，只有可疑痕迹时不要提交 discoveries。\n"
         "如果一次行动在检定成功后立即开战，可在 on_success 里同时给出 "
         '"start_combat":{"encounter_id":"...","target_actor_ids":[...],"reason":"..."}。\n'
         "每种意图都可附带可选 narrative_intent：用一句话规划一处伏笔、意象、潜台词或细微反应；"
@@ -469,6 +498,24 @@ def _world_writes(data: dict, decision_context: dict | None = None) -> dict:
     allowed_locations = {item.get("id") for item in context.get("locations", [])}
     allowed_transitions = _allowed_action_transition_ids(context)
     writes: dict = {}
+    resolution = data.get("resolved_encounter")
+    if resolution is not None:
+        encounter = context.get("current_encounter") or {}
+        if (
+            not isinstance(resolution, dict)
+            or not encounter.get("noncombat_exit_ids")
+            or resolution.get("encounter_id") != encounter.get("encounter_id")
+            or resolution.get("method")
+            not in {"persuasion", "stealth", "surrender", "other"}
+            or not isinstance(resolution.get("reason"), str)
+            or not resolution["reason"].strip()
+        ):
+            raise WorldStateDecisionError(
+                "非战斗结果必须引用当前可解除的遭遇并说明真实后果"
+            )
+        writes["resolved_encounter"] = {
+            key: resolution[key] for key in ("encounter_id", "method", "reason")
+        }
     flags_set = data.get("flags_set")
     if isinstance(flags_set, dict) and flags_set:
         normalized_flags = {str(k): v for k, v in flags_set.items()}
@@ -604,13 +651,15 @@ def _normalize_decision(
 
     if intent == "player_check":
         premature = set(writes) & {
+            "resolved_encounter",
+            "flags_set",
             "moved_to",
             "transition_to_beat_id",
             "discoveries",
         }
         if premature:
             raise WorldStateDecisionError(
-                "[dm] player_check 的移动、跨拍和发现效果必须放入 "
+                "[dm] player_check 的状态、移动、跨拍和发现效果必须放入 "
                 f"effects.on_success/on_failure：{sorted(premature)}"
             )
         check = data.get("check") or {}
@@ -680,6 +729,8 @@ def _normalize_check_effects(
             continue
         item: dict = {
             "world_writes": _world_writes(branch, decision_context),
+            "reply_brief": str(branch.get("reply_brief") or "").strip(),
+            "completed_trigger_ids": _completed_trigger_ids(branch, decision_context),
         }
         start_combat = branch.get("start_combat")
         if isinstance(start_combat, dict):
@@ -693,6 +744,17 @@ def _normalize_check_effects(
             )
         normalized[branch_name] = item
     return normalized
+
+
+def _completed_trigger_ids(data: dict, context: dict | None) -> list[str]:
+    """语义判断来自真实 DM；只接受当前拍的预声明条件 ID。"""
+    values = data.get("completed_trigger_ids", [])
+    allowed = {item["id"] for item in (context or {}).get("semantic_conditions", [])}
+    if not isinstance(values, list) or any(
+        not isinstance(value, str) or value not in allowed for value in values
+    ):
+        raise WorldStateDecisionError("completed_trigger_ids 必须引用当前拍的语义条件")
+    return list(dict.fromkeys(values))
 
 
 def _normalize_encounter(
@@ -874,6 +936,8 @@ async def narrate_turn_final(
     messages: list[dict] | None,
     use_llm: bool,
     node_name: str = "dm",
+    resolved_events: list[dict] | None = None,
+    party: dict[str, Combatant] | None = None,
 ) -> str:
     """统一叙述一个玩家回合的最终结果，确保本回合只产生一条玩家可见 DM 消息。
 
@@ -916,6 +980,8 @@ async def narrate_turn_final(
         f"{intent_line}"
         f"{check_line}"
         f"{combat_line}"
+        f"本回合已提交的世界事件（优先于回应计划）：{_dump(resolved_events or [])}\n"
+        f"玩家当前实际背包与能力：{_dump(_party_brief(party or {}))}\n"
         f"{previous_line}"
         f"当前场景：{_dump(_scene_brief(scene))}\n"
         f"{beat_line}"
@@ -925,6 +991,11 @@ async def narrate_turn_final(
         "要求：用 2-4 句自然中文，少铺陈，不替玩家行动；只描述既定事实，不新增规则数字，"
         "不改写检定、战斗或剧情推进结果。可以加入最多一处不改变世界状态的伏笔、意象、潜台词或"
         "细微反应；不得泄露 NPC 秘密，也不得凭空创造关键人物、可交互道具或关键线索。"
+        "clue_discovered 表示已经完整取得该线索，必须明确讲出其正文，不能退回到模糊的可疑痕迹；"
+        "item_granted 和成长事件必须明确告知获得物品、经验或新能力。未出现的物品不得称已持有。"
+        "同伴在场不代表加入战斗，不能虚构其参战、治疗或替玩家使用物品。"
+        "transition.type=ready 表示障碍已解决、出口开放，但玩家仍在原地；说明可以前往哪里，等待玩家选择。"
+        "仅 advance 或已提交 moved 事件允许叙述实际换场，不得替玩家行走；不得推翻已经落地的通行结果。"
         "若最近战斗结果包含 automatic_discoveries，它们已由引擎完成发现、传达与物品发放："
         "必须把翻检战败敌人、线索正文和实际获得物品作为既定事实自然写入战后叙述，"
         "不得再让玩家选择是否搜身，也不得把发放交给 DM 裁定。"

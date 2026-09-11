@@ -222,6 +222,7 @@ export function useGameRoom(credential: RoomCredential) {
     async (content: string) => {
       const next = await runDmRequest(() => gameApi.message(credential, content))
       if (next) acceptSession(next)
+      return next !== null
     },
     [acceptSession, credential, runDmRequest],
   )
@@ -230,6 +231,7 @@ export function useGameRoom(credential: RoomCredential) {
     async (action: Record<string, unknown>) => {
       const next = await runDmRequest(() => gameApi.action(credential, action))
       if (next) acceptSession(next)
+      return next !== null
     },
     [acceptSession, credential, runDmRequest],
   )

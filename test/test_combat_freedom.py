@@ -391,11 +391,13 @@ class TransitionWriteValidationTests(unittest.IsolatedAsyncioTestCase):
                     "reply_brief": "确认玩家接受委托并准备出发。",
                     "flags_set": {"accepted_quest": True},
                     "transition_to_beat_id": "ruined_village",
+                    "movement_requested": True,
                 },
                 {
                     "intent": "reply",
                     "reply_brief": "确认玩家接受委托并准备出发。",
                     "flags_set": {"accepted_quest": True},
+                    "movement_requested": True,
                 },
             ]
         )
@@ -431,6 +433,7 @@ class TransitionWriteValidationTests(unittest.IsolatedAsyncioTestCase):
             "user_input": "我接受委托，现在就出发去废村。",
             "messages": [],
             "world_writes": result["world_writes"],
+            "movement_requested": result["movement_requested"],
         }
         with patch(
             "src.dm.world_bridge.judge_trigger",

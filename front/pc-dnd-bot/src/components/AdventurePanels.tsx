@@ -4,7 +4,7 @@ import type { CharacterView, SessionView } from '../types/game'
 export function ExplorationPanel({ session, disabled, onMessage }: {
   session: SessionView
   disabled: boolean
-  onMessage: (content: string) => Promise<void>
+  onMessage: (content: string) => Promise<boolean>
 }) {
   return (
     <div className="exploration-panel">

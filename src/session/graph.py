@@ -306,6 +306,7 @@ async def run_combat(state: DMState) -> dict:
         "story": story,
         "messages": messages,
         "last_combat": last_combat,
+        "completed_trigger_ids": None,
         "used_rule_actions": used_rule_actions,
         "combat_request": None,
         "next": "wait",

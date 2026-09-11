@@ -41,6 +41,11 @@ def _brief(c: Combatant) -> dict:
         "ac": c.ac,
         "zone": c.current_zone,
         "alive": c.is_alive,
+        "life_state": c.life_state.value,
+        "inventory": [
+            {"item_id": item.item_id, "quantity": item.quantity}
+            for item in getattr(c, "inventory", [])
+        ],
         "attacks": [
             {
                 "name": a.name,
@@ -317,6 +322,7 @@ async def narrate_combat_opening_llm(
         f"参战者：{_dump([_brief(c) for c in combatants.values()])}\n"
         "请用 2-4 句中文叙述冲突如何正式进入战斗，并让读者清楚谁在对峙。"
         "这只是开场镜头：不要描述任何攻击已经命中、伤害、HP 变化、死亡或胜负。"
+        "不得编造名单以外的参战者、物品或关键证据，不得替玩家使用物品或执行行动。"
     )
     return await dm_narrate(
         task,
@@ -349,6 +355,7 @@ async def narrate_llm(
     task = (
         f"这是战斗第 {round_no} 轮刚刚结算出的事件（已由引擎判定，数字是既定事实）：\n"
         f"{_dump(readable)}\n"
+        f"结算后的真实状态：{_dump([_brief(c) for c in combatants.values()])}\n"
         "请把它讲成一段简洁、有画面感的中文叙述（2-4 句）。只描述这些已发生的事实，"
         "不要新增伤害数字、命中结果或谁的死活，也不要罗列字段。"
     )

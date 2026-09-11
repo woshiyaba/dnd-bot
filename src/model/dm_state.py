@@ -54,6 +54,8 @@ class DMState(TypedDict, total=False):
     last_check: (
         dict | None
     )  # 检定结算结果：{actor_id, ability, dc, d20, bonus, total, success}
+    completed_trigger_ids: list[str] | None  # 真实 DM 对本回合语义条件的裁定
+    movement_requested: bool  # 玩家明确提出移动，才能自动进入另一个地点
     combat_request: (
         dict | None
     )  # start_combat 产出的严格引用：{encounter_id, target_actor_ids, before_combat, ...}
@@ -218,7 +220,10 @@ def build_beat_scene(
 
     loc = canon.location(active_location_id) if active_location_id else None
     if active_location_id == entry_location_id:
-        exits = list(entry.get("exits", []))
+        exits = [
+            target.name if (target := canon.location(exit_id)) else exit_id
+            for exit_id in entry.get("exits", [])
+        ]
     else:
         exits = [
             (
