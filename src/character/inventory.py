@@ -59,7 +59,9 @@ def transfer_item(
         (item for item in recipient.inventory if item.item_id == item_id), None
     )
     if received is None:
-        recipient.inventory.append(InventoryItem(item_id=item_id, quantity=quantity))
+        recipient.inventory.append(
+            InventoryItem(item_id=item_id, quantity=quantity, name=owned.name)
+        )
     else:
         received.quantity += quantity
     owned.quantity -= quantity

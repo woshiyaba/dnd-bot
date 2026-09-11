@@ -25,7 +25,7 @@ type GameScreenProps = {
   error: string
   onStart: () => Promise<void>
   onMessage: (content: string) => Promise<boolean>
-  onAction: (action: Record<string, unknown>) => Promise<boolean>
+  onAction: (action: Record<string, unknown>, content?: string) => Promise<boolean>
   onLevelUp: (increases: Record<string, number>) => Promise<void>
   onTransferItem: (itemId: string, targetId: string, quantity: number) => Promise<void>
   onFreeRoll: (diceType: DiceType) => void
@@ -189,7 +189,7 @@ function AdventureRoom({
       top: timelineRef.current.scrollHeight,
       behavior: 'smooth',
     })
-  }, [isDmThinking, session.timeline, streamText])
+  }, [isDmThinking, session.timeline, streamText, submitted])
 
   useEffect(() => {
     if (pending?.is_yours && pending.interrupt_type === 'declare_action') {
@@ -210,15 +210,28 @@ function AdventureRoom({
     }
   }
 
+  async function submitMessage(content: string) {
+    setSubmitted({ content, timelineLength: session.timeline.length })
+    const success = await onMessage(content)
+    if (!success) setSubmitted(null)
+    return success
+  }
+
+  async function submitAction(action: Record<string, unknown>, content?: string) {
+    if (content) setSubmitted({ content, timelineLength: session.timeline.length })
+    const success = await onAction(action)
+    if (content) setSubmitted(null)
+    return success
+  }
+
   async function send(event: React.FormEvent) {
     event.preventDefault()
     const content = input.trim()
     if (!content || composerDisabled) return
-    setSubmitted({ content, timelineLength: session.timeline.length })
     setInput('')
     const success = canSubmitCombatText
-      ? await onAction({ action_type: 'natural_language', description: content })
-      : await onMessage(content)
+      ? await submitAction({ action_type: 'natural_language', description: content }, content)
+      : await submitMessage(content)
     if (!success) {
       setInput(content)
       setSubmitted(null)
@@ -388,10 +401,10 @@ function AdventureRoom({
           party={party}
           pending={pending}
           worldActions={session.available_actions}
-          onAction={onAction}
+          onAction={submitAction}
           onClose={() => setActiveTab('chat')}
           onFreeRoll={onFreeRoll}
-          onMessage={onMessage}
+          onMessage={submitMessage}
           onTransferItem={onTransferItem}
         />
       ) : null}
@@ -631,7 +644,7 @@ function CommandDrawer({
   worldActions: RuleActionEntry[]
   isBusy: boolean
   onClose: () => void
-  onAction: (action: Record<string, unknown>) => Promise<boolean>
+  onAction: (action: Record<string, unknown>, content?: string) => Promise<boolean>
   onFreeRoll: (diceType: DiceType) => void
   session: SessionView
   onMessage: (content: string) => Promise<boolean>
@@ -746,7 +759,7 @@ function ActionPanel({
   pending?: PendingInteraction
   worldActions: RuleActionEntry[]
   disabled: boolean
-  onAction: (action: Record<string, unknown>) => Promise<boolean>
+  onAction: (action: Record<string, unknown>, content?: string) => Promise<boolean>
   itemsOnly?: boolean
 }) {
   const [selectedActionId, setSelectedActionId] = useState<string | null>(null)
@@ -812,11 +825,17 @@ function ActionPanel({
             selectedTargetIds.length > (selectedAction.max_targets ?? 20)
             || selectedTargetIds.some((id) => !selectedAction.targets.some((target) => target.id === id))
           }
-          onClick={() => void onAction({
-            action_type: 'rule_action',
-            action_id: selectedAction.action_id,
-            target_ids: selectedTargetIds,
-          })}
+          onClick={async () => {
+            const success = await onAction({
+              action_type: 'rule_action',
+              action_id: selectedAction.action_id,
+              target_ids: selectedTargetIds,
+            }, `${selectedAction.name} → ${selectedAction.targets.filter((target) => selectedTargetIds.includes(target.id)).map((target) => target.name).join('、')}`)
+            if (success) {
+              setSelectedActionId(null)
+              setSelectedTargetIds([])
+            }
+          }}
           type="button"
         >
           确认使用 · {selectedTargetIds.length} 个目标
@@ -840,7 +859,7 @@ function ActionPanel({
                 action_type: 'attack',
                 attack_name: attack.attack_name,
                 target_id: target.id,
-              })
+              }, `使用${attack.attack_name}攻击${target.name}`)
             }
             type="button"
           >
@@ -855,7 +874,7 @@ function ActionPanel({
           disabled={disabled}
           key={move.target_zone}
           onClick={() =>
-            void onAction({ action_type: 'move', target_zone: move.target_zone })
+            void onAction({ action_type: 'move', target_zone: move.target_zone }, `移动至${move.target_zone}`)
           }
           type="button"
         >
@@ -880,7 +899,7 @@ function ActionPanel({
         <button
           className="pass-action"
           disabled={disabled}
-          onClick={() => void onAction({ action_type: 'pass' })}
+          onClick={() => void onAction({ action_type: 'pass' }, '结束回合')}
           type="button"
         >
           <span>—</span>

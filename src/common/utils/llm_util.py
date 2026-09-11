@@ -66,7 +66,6 @@ _ROLE_ENV_NAMES: dict[ModelRole, str] = {
     ModelRole.LEGACY_AGENT: "LEGACY_AGENT_MODEL",
 }
 _REASONING_ROLES = {
-    ModelRole.DM_DECISION,
     ModelRole.STORY_AUTHORING,
     ModelRole.STORY_REPAIR,
     ModelRole.STORY_PLANNING,

@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from time import perf_counter
 from typing import Any
 
 from langchain.agents import create_agent
@@ -25,7 +26,7 @@ from src.common.debug import register_system_prompt
 from src.common.utils.json_parser import extract_json_object
 from src.common.utils.llm_util import get_chat_model
 from src.common.utils.writer import StreamCollector
-from src.dm.prompt import build_dm_system_prompt
+from src.dm.prompt import DM_BOUNDARY, DM_PERSONA, build_dm_system_prompt
 from src.dm.tools import ALL_DM_TOOLS
 
 logger = logging.getLogger(__name__)
@@ -153,7 +154,15 @@ async def dm_complete_json(task: str, *, model_name: str) -> dict | None:
     解析失败返回 None；调用方必须显式失败，不允许回落到模拟 DM。
     """
     agent = await get_dm_agent(model_name)
-    result = await agent.ainvoke({"messages": [{"role": "user", "content": task}]})
+    started = perf_counter()
+    try:
+        result = await agent.ainvoke({"messages": [{"role": "user", "content": task}]})
+    finally:
+        logger.info(
+            "[dm_agent] 裁定耗时 | model=%s | elapsed=%.2fs",
+            model_name,
+            perf_counter() - started,
+        )
     _log_knowledge_hits(result, source="complete_json")
     return extract_json_object(_last_text(result))
 
@@ -171,10 +180,13 @@ async def dm_narrate(
         model_name: 已登记的 ``供应商/模型 ID`` 复合名。
         node_name: custom 事件里的节点名，前端据此归类；默认 ``"narrate"``。
     """
-    system_prompt = build_dm_system_prompt()
+    # 叙述只表达已结算事实，无需再次加载裁定指南、工具说明和整份知识目录。
+    system_prompt = f"{DM_PERSONA}\n\n{DM_BOUNDARY}\n只叙述任务中已确定的事实，不再裁定、不调用工具。"
     _register_dm_prompt(system_prompt)
     model = get_chat_model(model_name)
     collector = StreamCollector(node_name)
+    started = perf_counter()
+    first_token_seconds = None
     collector.start()
     try:
         async for token in model.astream(
@@ -185,7 +197,16 @@ async def dm_narrate(
         ):
             content = getattr(token, "content", "")
             if isinstance(content, str) and content:
+                if first_token_seconds is None:
+                    first_token_seconds = round(perf_counter() - started, 2)
                 collector.push(content)
     finally:
         collector.finish()
+        logger.info(
+            "[dm_agent] 叙述耗时 | model=%s | node=%s | first_token=%s | elapsed=%.2fs",
+            model_name,
+            node_name,
+            first_token_seconds,
+            perf_counter() - started,
+        )
     return collector.result

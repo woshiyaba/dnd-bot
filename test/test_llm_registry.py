@@ -57,7 +57,7 @@ class ModelRegistryTests(unittest.TestCase):
         )
         self.assertEqual(
             registry.model_name_for(ModelRole.DM_DECISION),
-            "deepseek/deepseek-v4-pro",
+            "deepseek/deepseek-v4-flash",
         )
         self.assertEqual(
             registry.model_name_for(ModelRole.COMBAT_DECISION),

@@ -3,7 +3,7 @@
 包含三类，均对应 docs/原始数据.md：
 - Condition（1.8 当前状态）：每回合结算的增益/减益。
 - LearnedSkill（1.6）：引用封闭的技能定义，记录其消耗状态。
-- InventoryItem（1.7）：引用封闭的道具定义，记录数量。
+- InventoryItem（1.7）：记录道具数量；剧情证物可附展示名，机械效果仍由封闭定义提供。
 
 技能/道具的「机械效果」落在各自封闭定义（效果积木）里，本版只存引用与计数。
 """
@@ -129,10 +129,11 @@ class LearnedSkill:
 
 @dataclass(slots=True)
 class InventoryItem:
-    """指向封闭道具定义的引用 + 数量。"""
+    """规则道具或无机械效果的剧情证物，记录数量和可选展示名。"""
 
     item_id: str  # 道具 id
     quantity: int = 1  # 数量
+    name: str = ""  # 剧情证物的展示名，不赋予任何规则效果
 
     @property
     def is_available(self) -> bool:
@@ -142,8 +143,15 @@ class InventoryItem:
     @classmethod
     def from_dict(cls, data: dict) -> "InventoryItem":
         """从字典构造一条背包道具。"""
-        return cls(item_id=data["item_id"], quantity=int(data.get("quantity", 1)))
+        return cls(
+            item_id=data["item_id"],
+            quantity=int(data.get("quantity", 1)),
+            name=str(data.get("name") or ""),
+        )
 
     def to_dict(self) -> dict:
         """导出为字典。"""
-        return {"item_id": self.item_id, "quantity": self.quantity}
+        result = {"item_id": self.item_id, "quantity": self.quantity}
+        if self.name:
+            result["name"] = self.name
+        return result

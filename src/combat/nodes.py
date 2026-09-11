@@ -892,7 +892,15 @@ async def narrate(state: CombatState) -> dict:
         from src.combat import dm_bridge
 
         narration = await dm_bridge.narrate_llm(
-            events, combatants, state.get("current_round")
+            events,
+            combatants,
+            state.get("current_round"),
+            scene=state.get("scene_context"),
+            recent_narrations=[
+                entry["text"]
+                for entry in state.get("combat_log", [])
+                if entry.get("event") == "narration" and entry.get("text")
+            ][-2:],
         )
         if narration:
             log = _append_log(

@@ -238,7 +238,7 @@ class SessionService:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
             message = {
                 "role": "system",
-                "content": f"{sender.name} 将 {ITEM_NAMES.get(item_id, item_id)} ×{quantity} 交给了 {recipient.name}。",
+                "content": f"{sender.name} 将 {next(item.name for item in sender.inventory if item.item_id == item_id) or ITEM_NAMES.get(item_id, item_id)} ×{quantity} 交给了 {recipient.name}。",
             }
             await self._get_engine().update_state(
                 room.room_code,
@@ -763,7 +763,11 @@ class SessionService:
             skills=skills,
             features=list(actor.get("features") or []),
             inventory=[
-                {**item, "name": ITEM_NAMES.get(item["item_id"], item["item_id"])}
+                {
+                    **item,
+                    "name": item.get("name")
+                    or ITEM_NAMES.get(item["item_id"], item["item_id"]),
+                }
                 for item in actor.get("inventory") or []
                 if item.get("quantity", 0) > 0
             ],

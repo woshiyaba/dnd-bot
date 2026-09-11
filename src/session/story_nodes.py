@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import logging
+from hashlib import sha256
 
 from src.dm import world_bridge
 from src.model.canon import (
@@ -324,6 +325,19 @@ def _apply_world_writes(
     events: list[dict] = []
     declared = set(canon.declared_flags)
     writes = state.get("world_writes") or {}
+    # 收取与发现可在同一结果分支提交；先校验来源，再改变背包。
+    evidence = (
+        world_bridge._world_writes(
+            {
+                key: writes[key]
+                for key in ("collect_evidence", "discoveries")
+                if key in writes
+            },
+            beat_brief(canon, story),
+        ).get("collect_evidence", [])
+        if writes.get("collect_evidence")
+        else []
+    )
     scene = dict(state.get("scene") or {})
     party = dict(state.get("party") or {})
     engine_managed_flags = set(managed_flag_sources(canon))
@@ -441,6 +455,38 @@ def _apply_world_writes(
                 events=events,
                 source="discovery",
             )
+
+    collected = list(story.get("collected_evidence", []))
+    for item in evidence:
+        if item["clue_id"] not in discovered:
+            raise ValueError("[story] 证物来源尚未发现")
+        # ponytail: 原文重名/简称合并；若需区分同源同名多件实物，再给 canon 增加物件 ID。
+        if any(
+            old["clue_id"] == item["clue_id"]
+            and (item["name"] in old["name"] or old["name"] in item["name"])
+            for old in collected
+        ):
+            continue
+        recipient = _discovery_recipient(party, state, {})
+        if recipient is None:
+            raise ValueError("[story] 证物缺少接收角色")
+        item_id = (
+            "evidence_"
+            + sha256(f'{item["clue_id"]}:{item["name"]}'.encode()).hexdigest()[:20]
+        )
+        recipient.inventory.append(InventoryItem(item_id=item_id, name=item["name"]))
+        collected.append({**item, "item_id": item_id})
+        events.append(
+            {
+                "event": "item_granted",
+                **item,
+                "item_id": item_id,
+                "quantity": 1,
+                "actor_id": recipient.id,
+                "by": "collection",
+            }
+        )
+    story["collected_evidence"] = collected
 
     transition_to = writes.get("transition_to_beat_id")
     if transition_to:

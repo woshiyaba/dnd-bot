@@ -58,7 +58,7 @@ class DMAgentAssemblyTests(unittest.IsolatedAsyncioTestCase):
 
         model = FakeModel()
         with (
-            patch("src.dm.agent.build_dm_system_prompt", return_value="DM system"),
+            patch("src.dm.agent.build_dm_system_prompt") as decision_prompt,
             patch("src.dm.agent.get_chat_model", return_value=model),
             patch("src.dm.agent.create_agent") as create,
         ):
@@ -69,13 +69,11 @@ class DMAgentAssemblyTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(result, "钟声回荡")
-        self.assertEqual(
-            model.messages,
-            [
-                {"role": "system", "content": "DM system"},
-                {"role": "user", "content": "描述场景"},
-            ],
-        )
+        self.assertEqual(model.messages[1], {"role": "user", "content": "描述场景"})
+        self.assertEqual(model.messages[0]["role"], "system")
+        self.assertIn(dm_agent.DM_PERSONA, model.messages[0]["content"])
+        self.assertIn(dm_agent.DM_BOUNDARY, model.messages[0]["content"])
+        decision_prompt.assert_not_called()
         create.assert_not_called()
 
 

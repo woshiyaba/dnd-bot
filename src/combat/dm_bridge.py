@@ -42,10 +42,7 @@ def _brief(c: Combatant) -> dict:
         "zone": c.current_zone,
         "alive": c.is_alive,
         "life_state": c.life_state.value,
-        "inventory": [
-            {"item_id": item.item_id, "quantity": item.quantity}
-            for item in getattr(c, "inventory", [])
-        ],
+        "inventory": [item.to_dict() for item in getattr(c, "inventory", [])],
         "attacks": [
             {
                 "name": a.name,
@@ -334,6 +331,9 @@ async def narrate_llm(
     events: list[dict],
     combatants: dict[str, Combatant],
     round_no: int | None,
+    *,
+    scene: dict | None = None,
+    recent_narrations: list[str] | None = None,
 ) -> str:
     """让 DM 把本回合结构化事件讲成中文叙述（流式推前端），返回完整叙述文本。
 
@@ -356,6 +356,10 @@ async def narrate_llm(
         f"这是战斗第 {round_no} 轮刚刚结算出的事件（已由引擎判定，数字是既定事实）：\n"
         f"{_dump(readable)}\n"
         f"结算后的真实状态：{_dump([_brief(c) for c in combatants.values()])}\n"
+        f"本场战斗固定场景：{_dump({key: (scene or {}).get(key) for key in ('location', 'description', 'reason')})}\n"
+        f"最近战斗叙述（只用于衔接措辞）：{_dump(recent_narrations or [])}\n"
+        "战斗中的区域移动只改变站位，不改变地点；不得把室内写成街巷、荒野等别处。"
+        "只采用场景明确存在的环境，不虚构道具或旁观者参战。连续相同结果应简短承接，避免重复上一段意象。"
         "请把它讲成一段简洁、有画面感的中文叙述（2-4 句）。只描述这些已发生的事实，"
         "不要新增伤害数字、命中结果或谁的死活，也不要罗列字段。"
     )

@@ -232,6 +232,7 @@ copy .env.example .env
 - `LLM_PROVIDER_<NAME>_BASE_URL` / `LLM_PROVIDER_<NAME>_API_KEY`：各供应商的 OpenAI 兼容端点与密钥。
 - `LLM_MODELS`：可用的 `供应商/模型 ID` 复合名列表。
 - `LLM_REASONING_MODEL` / `LLM_FAST_MODEL`：默认推理模型与快速模型。
+- 游玩中的世界裁定默认使用快速模型；复杂剧本创作仍使用推理模型。可用 `DM_DECISION_MODEL` 单独覆盖裁定模型。
 - `DM_*_MODEL`、`COMBAT_*_MODEL`、`ACTION_COMPILER_MODEL`、`STORY_*_MODEL`：可选的职责级覆盖，完整示例见 `.env.example`。
 - `STORY_GENERATION_DB_PATH`：故事任务、中间产物、ID 预留与限时草稿 SQLite 路径；默认 `.data/story_generation.sqlite3`。
 - `MYSQL_HOST`

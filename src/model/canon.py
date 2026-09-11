@@ -638,6 +638,7 @@ def beat_brief(canon: Canon, story: dict) -> dict | None:
         "beat_title": beat.title,
         "beat_id": beat.id,
         "beat_kind": str(beat.kind.value),
+        "ending_outcome": beat.ending_outcome.value if beat.ending_outcome else None,
         "act_id": beat.act_id,
         "objective": beat.objective,
         "pressure": beat.pressure,
@@ -649,6 +650,13 @@ def beat_brief(canon: Canon, story: dict) -> dict | None:
         "locations": locations,
         "undelivered_clues": undelivered,
         "available_discoveries": available_discoveries,
+        "evidence_sources": [
+            {"id": clue.id, "text": clue.text}
+            for clue in local_clues
+            if (clue.id not in on_win_discoveries or clue.id in discovered)
+            and not (clue.discovery_effects or {}).get("grant_items")
+        ],
+        "collected_evidence": list(story.get("collected_evidence", [])),
         "known_clues": known_clues,
         "current_flags": dict(story.get("flags", {})),
         "delivered_clue_ids": sorted(delivered),

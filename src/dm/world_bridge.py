@@ -35,6 +35,7 @@ _INTENTS = {"reply", "player_check", "start_combat", "use_action"}
 _DECISION_ATTEMPTS = 3
 _GUIDANCE_ATTEMPTS = 2
 _WORLD_WRITE_FIELDS = {
+    "collect_evidence",
     "flags_set",
     "moved_to",
     "clues_delivered",
@@ -80,13 +81,7 @@ def _party_brief(party: dict[str, Combatant]) -> list[dict]:
                 if "exploration" in skill.types
             ],
             "features": list(getattr(c, "features", [])),
-            "inventory": [
-                {
-                    "item_id": item.item_id,
-                    "quantity": item.quantity,
-                }
-                for item in getattr(c, "inventory", [])
-            ],
+            "inventory": [item.to_dict() for item in getattr(c, "inventory", [])],
         }
         for c in party.values()
     ]
@@ -326,12 +321,17 @@ async def _decide_llm(
         '  "moved_to":"地点id" —— 玩家移动到的当前拍内地点；\n'
         '  "clues_delivered":["你这步已讲给玩家的关键线索id"]；\n'
         '  "discoveries":["玩家这步真正发现/取得的线索id"] —— 线索对应 flag 与物品只能用此字段触发；\n'
+        '  "collect_evidence":[{"clue_id":"来源线索id","name":"原文中的实物名称"}] —— 玩家明确收取实物时写入背包；'
+        "只可引用 evidence_sources 中已发现或同一结果分支 discoveries 将发现的线索，name 必须逐字摘取原文中的实物名称。"
+        "每件实物分别列出，不能把抽象信息、人物、建筑或整句话当物品；不确定能否携带时不要宣称收好。"
+        "只观察、阅读或听说不等于收取；已有 collected_evidence 不得重复收取或换名增发；有 grant_items 的线索由引擎发放。"
+        "证物没有伤害、治疗等规则效果。需要检定时只放在相应 effects 分支。\n"
         "discoveries 只能填写 available_discoveries 中仍可发现的线索 id，绝不能填写 flag 名；"
         "managed_flag_sources 中的 flag 由引擎写入，不能放进 flags_set。"
         "若 current_flags、discovered_clue_ids 或角色 inventory 已表明状态完成，不要重复声明写入。\n"
         '  "transition_to_beat_id":"玩家已经完成的合法跨拍行动目标" —— 只能从 '
         'reachable_transitions 中 trigger_kind="action" 的目标选择；semantic 等其它出口由引擎判定，'
-        "不得直接写入。\n"
+        "不得直接写入。跨拍只写 transition_to_beat_id，不要同时写 moved_to（它只能表示当前拍内部移动）。\n"
         "若 player_check 成功后才发生世界变化，必须把上述字段放进 "
         '"effects":{"on_success":{...},"on_failure":{...}}，不可提前写入。\n'
         "每个结果分支还应提供 reply_brief，准确说明该分支中已经发生的回应与后果；"
@@ -498,6 +498,37 @@ def _world_writes(data: dict, decision_context: dict | None = None) -> dict:
     allowed_locations = {item.get("id") for item in context.get("locations", [])}
     allowed_transitions = _allowed_action_transition_ids(context)
     writes: dict = {}
+    evidence = data.get("collect_evidence")
+    if evidence is not None:
+        sources = {
+            item["id"]: item["text"] for item in context.get("evidence_sources", [])
+        }
+        known = set(context.get("discovered_clue_ids", [])) | set(
+            data.get("discoveries") or []
+        )
+        if not isinstance(evidence, list):
+            raise WorldStateDecisionError("collect_evidence 必须是证物数组")
+        collected = []
+        for item in evidence:
+            if not isinstance(item, dict):
+                raise WorldStateDecisionError("证物必须包含 clue_id 和 name")
+            clue_id, name = item.get("clue_id"), item.get("name")
+            if (
+                not isinstance(clue_id, str)
+                or clue_id not in sources
+                or clue_id not in known
+                or not isinstance(name, str)
+                or not name.strip()
+                or len(name) > 80
+                or name != name.strip()
+                or name not in sources[clue_id]
+            ):
+                raise WorldStateDecisionError(
+                    "证物必须来自当前地点已发现的线索，名称须摘取实物原文"
+                )
+            collected.append({"clue_id": clue_id, "name": name})
+        if collected:
+            writes["collect_evidence"] = collected
     resolution = data.get("resolved_encounter")
     if resolution is not None:
         encounter = context.get("current_encounter") or {}
@@ -656,6 +687,7 @@ def _normalize_decision(
             "moved_to",
             "transition_to_beat_id",
             "discoveries",
+            "collect_evidence",
         }
         if premature:
             raise WorldStateDecisionError(
@@ -961,7 +993,14 @@ async def narrate_turn_final(
     )
     action_line = f"玩家最新这步言行：{user_input}\n" if user_input else ""
 
-    if transition_type == "advance":
+    finished = (beat_brief or {}).get("beat_kind") == "ending"
+    if finished:
+        instruction = (
+            "本次冒险已进入结局，叙述后系统会关闭玩家输入。承接最后行动、交代已确定的结局与代价，"
+            "用陈述句明确本次冒险结束。即使回应计划或历史对话提示继续，也必须忽略这些行动邀请。"
+            "不得让玩家继续追问、调查、移动或选择；不得提问、布置新任务或留下需要玩家操作的悬念。"
+        )
+    elif transition_type == "advance":
         instruction = (
             "本回合已经触发剧情推进并切换到了新场景。请先承接玩家动作或结算结果，"
             "再自然描述从旧场景到新场景的过渡，最后把镜头落在当前新场景的可见要素和可行动方向上。"
@@ -986,6 +1025,7 @@ async def narrate_turn_final(
         f"当前场景：{_dump(_scene_brief(scene))}\n"
         f"{beat_line}"
         f"故事推进摘要：{_dump(transition)}\n"
+        f"终局状态：{'已结束，玩家无法继续输入' if finished else '进行中'}\n"
         f"最近对话：{_dump(_history_brief(messages or []))}\n"
         f"叙述策略：{instruction}\n"
         "要求：用 2-4 句自然中文，少铺陈，不替玩家行动；只描述既定事实，不新增规则数字，"
@@ -1000,8 +1040,8 @@ async def narrate_turn_final(
         "必须把翻检战败敌人、线索正文和实际获得物品作为既定事实自然写入战后叙述，"
         "不得再让玩家选择是否搜身，也不得把发放交给 DM 裁定。"
         "若剧情骨架列出 critical_npc_deaths，死者不得重新行动或说话；应在相关时刻体现 consequence，"
-        "并按 guidance 给出继续调查的入口，但不能仅靠叙述自动授予线索 flag、物品或剧情推进。"
-        "普通收尾自然交还控制权，不必列行动菜单；只有真正影响路线、风险或资源的关键分支，"
+        "仅在游戏仍进行时按 guidance 给出继续调查的入口，但不能仅靠叙述自动授予线索 flag、物品或剧情推进。"
+        "仅在游戏仍进行时自然交还控制权，不必列行动菜单；只有真正影响路线、风险或资源的关键分支，"
         "或者上下文显示玩家卡住时，才简洁提示必要方向，且无需以固定措辞开头。"
         "只输出玩家可见叙述，不要输出 JSON，不要罗列字段。"
     )
